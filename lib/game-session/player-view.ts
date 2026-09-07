@@ -19,6 +19,8 @@ export interface PersonPublicView {
   avatarSeed: string;
   phoneNumber: string;
   hasVehicle: boolean;
+  vehiclePlate: string | null;
+  vehicleDescription: string | null;
   isVictim: boolean;
   isSuspect: boolean;
 }
@@ -36,6 +38,8 @@ function toPublicPerson(truth: CaseTruth, person: Person): PersonPublicView {
     avatarSeed: person.avatarSeed,
     phoneNumber: person.phoneNumber,
     hasVehicle: person.vehicle !== null,
+    vehiclePlate: person.vehicle?.plate ?? null,
+    vehicleDescription: person.vehicle ? `${person.vehicle.make} ${person.vehicle.model}, ${person.vehicle.color}` : null,
     isVictim: person.id === truth.victimId,
     isSuspect: truth.suspectIds.includes(person.id),
   };
@@ -117,8 +121,49 @@ export function getLocation(truth: CaseTruth, locationId: string) {
   return truth.locations.find((l) => l.id === locationId);
 }
 
+/** Every location in town known to be camera-equipped — this is public
+ * infrastructure knowledge (an officer knows a bank or gas station has
+ * cameras), not a secret the player has to discover first. */
+/** Private homes all share the same generic name ("Maison privée",
+ * "Appartement privé") — disambiguate with the street address so lists and
+ * search results don't show several indistinguishable "Maison privée". */
+export function displayLocationName(location: { name: string; address: string; type: string }): string {
+  return location.type === "house" || location.type === "apartment" ? `${location.name} (${location.address})` : location.name;
+}
+
+export function getCameraEquippedLocations(truth: CaseTruth): { id: string; name: string }[] {
+  return truth.locations.filter((l) => l.hasCameras).map((l) => ({ id: l.id, name: displayLocationName(l) }));
+}
+
 export function getAlibi(truth: CaseTruth, personId: PersonId) {
   return truth.alibis.find((a) => a.personId === personId);
+}
+
+export interface MandateOverviewItem {
+  key: string;
+  kind: "search" | "bank";
+  personId: PersonId;
+  personName: string;
+  granted: boolean;
+  reason: string;
+}
+
+/** Every mandate the player has requested so far, for the Mandats app's
+ * case log — read from session state, safe to pass to a Client Component
+ * since it carries no hidden truth. */
+export function getMandateOverview(truth: CaseTruth, session: GameSession): MandateOverviewItem[] {
+  return Object.values(session.mandates).map((m) => {
+    const [kind, personId] = m.key.split(":") as ["search" | "bank", PersonId];
+    const person = truth.people.find((p) => p.id === personId);
+    return {
+      key: m.key,
+      kind,
+      personId,
+      personName: person ? `${person.firstName} ${person.lastName}` : "Inconnu",
+      granted: m.granted,
+      reason: m.reason,
+    };
+  });
 }
 
 export interface BoardPaletteItem {

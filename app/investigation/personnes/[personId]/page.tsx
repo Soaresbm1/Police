@@ -9,17 +9,16 @@ import {
   getVisibleEvidenceForPerson,
 } from "@/lib/game-session/player-view";
 import { EvidenceCard } from "@/components/investigation/EvidenceCard";
-import {
-  checkBankRecordsAction,
-  checkCameraFootageAction,
-  checkDigitalRecordsAction,
-  requestBankMandateAction,
-  requestSearchMandateAction,
-  searchLocationAction,
-} from "@/lib/game-session/actions";
-import { mandateKey } from "@/lib/game-session/mandates";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { Avatar } from "@/components/investigation/Avatar";
+
+function AppLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
+      {label} <span aria-hidden>→</span>
+    </Link>
+  );
+}
 
 export default async function PersonPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
@@ -34,9 +33,6 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
   const alibi = getAlibi(truth, personId);
   const assessment = getAlibiAssessment(truth, session, personId);
   const evidence = getVisibleEvidenceForPerson(truth, session, personId);
-
-  const searchMandate = session.mandates[mandateKey("search", personId)];
-  const bankMandate = session.mandates[mandateKey("bank", personId)];
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -77,6 +73,13 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
           <h2 className="text-xs uppercase tracking-wide text-muted">Téléphone</h2>
           <p className="font-data mt-1 text-sm text-foreground">{person.phoneNumber}</p>
         </div>
+        {person.hasVehicle && (
+          <div>
+            <h2 className="text-xs uppercase tracking-wide text-muted">Véhicule</h2>
+            <p className="font-data mt-1 text-sm text-foreground">{person.vehiclePlate}</p>
+            <p className="text-xs text-muted">{person.vehicleDescription}</p>
+          </div>
+        )}
       </section>
 
       {alibi && (
@@ -101,63 +104,19 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
 
       {!person.isVictim && (
         <section className="rounded border border-border bg-surface p-5">
-          <h2 className="text-xs uppercase tracking-wide text-muted">Investigations</h2>
+          <h2 className="text-xs uppercase tracking-wide text-muted">Consulter dans les applications</h2>
+          <p className="mt-1 text-xs text-muted">Chaque outil a ses propres accès — certains nécessitent un mandat.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <form action={checkDigitalRecordsAction.bind(null, personId)}>
-              <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                Consulter le dossier numérique
-              </button>
-            </form>
-            {work && (
-              <form action={checkCameraFootageAction.bind(null, work.id)}>
-                <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                  Caméras — lieu de travail
-                </button>
-              </form>
+            <AppLink href={`/investigation/applications/telephonie?tel=${encodeURIComponent(person.phoneNumber)}`} label="Téléphonie" />
+            {person.hasVehicle && (
+              <AppLink href={`/investigation/applications/vehicules?plate=${encodeURIComponent(person.vehiclePlate ?? "")}`} label="Véhicules" />
             )}
-            <form action={checkCameraFootageAction.bind(null, person.homeLocationId)}>
-              <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                Caméras — domicile
-              </button>
-            </form>
-
-            {!bankMandate ? (
-              <form action={requestBankMandateAction.bind(null, personId)}>
-                <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                  Demander un mandat bancaire
-                </button>
-              </form>
-            ) : bankMandate.granted ? (
-              <form action={checkBankRecordsAction.bind(null, personId)}>
-                <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                  Consulter les comptes bancaires
-                </button>
-              </form>
-            ) : (
-              <span className="rounded border border-danger/40 px-3 py-1.5 text-sm text-danger">Mandat bancaire refusé</span>
-            )}
-
-            {!searchMandate ? (
-              <form action={requestSearchMandateAction.bind(null, personId)}>
-                <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                  Demander un mandat de perquisition
-                </button>
-              </form>
-            ) : searchMandate.granted ? (
-              <form action={searchLocationAction.bind(null, person.homeLocationId, personId)}>
-                <button type="submit" className="rounded border border-border-strong px-3 py-1.5 text-sm text-foreground hover:border-accent">
-                  Perquisitionner le domicile
-                </button>
-              </form>
-            ) : (
-              <span className="rounded border border-danger/40 px-3 py-1.5 text-sm text-danger">Mandat de perquisition refusé</span>
-            )}
+            <AppLink href={`/investigation/applications/casier?person=${person.id}`} label="Casier judiciaire" />
+            <AppLink href={`/investigation/applications/cameras?location=${person.homeLocationId}`} label="Caméras — domicile" />
+            {work && <AppLink href={`/investigation/applications/cameras?location=${work.id}`} label="Caméras — travail" />}
+            <AppLink href={`/investigation/applications/banque?person=${person.id}`} label="Banque" />
+            <AppLink href={`/investigation/applications/mandats?person=${person.id}`} label="Mandats" />
           </div>
-          {(bankMandate && !bankMandate.granted) || (searchMandate && !searchMandate.granted) ? (
-            <p className="mt-2 text-xs text-muted">
-              {bankMandate && !bankMandate.granted ? bankMandate.reason : ""} {searchMandate && !searchMandate.granted ? searchMandate.reason : ""}
-            </p>
-          ) : null}
         </section>
       )}
 
