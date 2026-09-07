@@ -62,53 +62,47 @@ export function MandatsApp({
 
   return (
     <AppFrame title="Mandats" system="MP-CANTON — Suivi des réquisitions et mandats judiciaires" accent="red">
-      <div className="rounded border border-border bg-surface p-4">
-        <p className="mb-2 text-xs uppercase tracking-wide text-muted">Historique des demandes ({mandates.length})</p>
+      <div className="panel p-4">
+        <p className="field-label mb-2">Historique des demandes ({mandates.length})</p>
         {mandates.length === 0 ? (
           <p className="text-sm text-muted">Aucune demande de mandat déposée pour l&apos;instant.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {mandates.map((m) => (
-              <div key={m.key} className="flex items-center justify-between rounded border border-border-strong px-3 py-2 text-sm">
+              <div key={m.key} className="flex items-center justify-between border border-border-strong px-3 py-2 text-sm">
                 <span className="text-foreground">
                   {KIND_LABEL[m.kind]} — {m.personName}
                 </span>
-                <span className={m.granted ? "text-success" : "text-danger"}>{m.granted ? "ACCORDÉ" : "REFUSÉ"}</span>
+                <span className={`stamp !py-0.5 !text-[9px] ${m.granted ? "stamp-blue" : "stamp-red"}`}>
+                  {m.granted ? "Accordé" : "Refusé"}
+                </span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="rounded border border-border bg-surface p-4">
-        <p className="mb-2 text-xs uppercase tracking-wide text-muted">Nouvelle demande de perquisition</p>
+      <div className="panel p-4">
+        <p className="field-label mb-2">Nouvelle demande de perquisition</p>
         <PersonPicker people={people} onSelect={handleSelect} />
 
         {selected && (
-          <div className="mt-3 rounded border border-border-strong p-3">
+          <div className="mt-3 border border-border-strong p-3">
             <p className="text-sm text-foreground">
               Cible : <span className="font-medium">{selected.name}</span>
             </p>
-            <button
-              onClick={requestMandate}
-              disabled={isPending}
-              className="mt-2 rounded bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-            >
+            <button onClick={requestMandate} disabled={isPending} className="btn btn-danger mt-2">
               {isPending ? "Dépôt en cours…" : "Déposer la demande de mandat"}
             </button>
 
             {requestState && (
-              <div className={`mt-3 rounded border p-2 text-xs ${requestState.granted ? "border-success/40 text-success" : "border-danger/40 text-danger"}`}>
+              <div className={`mt-3 border p-2 text-xs ${requestState.granted ? "border-success/40 text-success" : "border-danger/40 text-danger"}`}>
                 {requestState.reason}
               </div>
             )}
 
             {requestState?.granted && (
-              <button
-                onClick={executeSearch}
-                disabled={isPending}
-                className="mt-3 rounded bg-accent px-3 py-1.5 text-sm font-medium text-background hover:bg-accent-strong disabled:opacity-50"
-              >
+              <button onClick={executeSearch} disabled={isPending} className="btn btn-primary mt-3">
                 Exécuter la perquisition
               </button>
             )}
@@ -117,8 +111,8 @@ export function MandatsApp({
       </div>
 
       {warrantResult && (
-        <div className="rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">
+        <div className="panel p-4">
+          <p className="field-label">
             Perquisition — {warrantResult.ownerName} ({warrantResult.locationName})
           </p>
           <div className="mt-3 border-t border-border pt-3">

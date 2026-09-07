@@ -54,24 +54,21 @@ export function BanqueApp({ people, initialPersonId }: { people: PersonOption[];
       {isPending && <p className="font-data text-xs text-muted">Traitement de la demande…</p>}
 
       {!isPending && result && (
-        <div className="rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">Titulaire du compte</p>
+        <div className="panel p-4">
+          <p className="field-label">Titulaire du compte</p>
           <p className="text-lg text-foreground">{result.ownerName}</p>
 
           {!result.mandateGranted ? (
-            <div className="mt-3 rounded border border-warning/30 bg-warning/5 p-3">
+            <div className="mt-3 border border-warning/30 bg-warning/5 p-3">
               <p className="text-sm text-warning">Accès restreint — une réquisition judiciaire est requise pour consulter ce compte.</p>
               <p className="mt-1 text-xs text-muted">{mandateChecked?.reason ?? result.mandateReason}</p>
-              <button
-                onClick={requestMandate}
-                className="mt-2 rounded bg-warning px-3 py-1.5 text-sm font-medium text-background hover:opacity-90"
-              >
+              <button onClick={requestMandate} className="btn mt-2 !border-warning/60 !text-warning">
                 Déposer une réquisition
               </button>
             </div>
           ) : (
             <div className="mt-4 border-t border-border pt-3">
-              <p className="mb-2 text-xs uppercase tracking-wide text-muted">Relevé de compte ({result.lines.length})</p>
+              <p className="field-label mb-2">Relevé de compte ({result.lines.length})</p>
               <RecordTable lines={result.lines} emptyLabel="Aucune opération notable sur ce compte." />
             </div>
           )}

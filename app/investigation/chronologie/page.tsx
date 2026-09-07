@@ -21,12 +21,12 @@ export default async function ChronologiePage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Chronologie</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Chronologie</h1>
         <p className="mt-1 text-sm text-muted">Qui était où, et quand ? Reconstituez la soirée à partir des preuves.</p>
       </div>
 
       <section>
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Faits établis par les preuves ({knownFacts.length})</h2>
+        <h2 className="field-label mb-3">Faits établis par les preuves ({knownFacts.length})</h2>
         {knownFacts.length === 0 ? (
           <p className="text-sm text-muted">Aucun fait daté pour l&apos;instant — découvrez des preuves pour peupler la chronologie.</p>
         ) : (
@@ -43,10 +43,10 @@ export default async function ChronologiePage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Votre chronologie ({playerEntries.length})</h2>
+        <h2 className="field-label mb-3">Votre chronologie ({playerEntries.length})</h2>
         <div className="flex flex-col gap-2">
           {playerEntries.map((entry) => (
-            <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-surface p-3">
+            <div key={entry.id} className="panel flex flex-wrap items-center justify-between gap-2 p-3">
               <div>
                 {entry.time !== null && <span className="font-data mr-2 text-xs text-muted">{formatGameTime(entry.time)}</span>}
                 <span className="text-sm text-foreground">{entry.description}</span>
@@ -63,24 +63,24 @@ export default async function ChronologiePage() {
           ))}
         </div>
 
-        <form action={addPlayerTimelineEntryAction} className="mt-4 flex flex-col gap-2 rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">Ajouter une hypothèse</p>
+        <form action={addPlayerTimelineEntryAction} className="panel mt-4 flex flex-col gap-2 p-4">
+          <p className="field-label">Ajouter une hypothèse</p>
           <div className="flex flex-wrap gap-2">
             <input
               type="text"
               name="description"
               required
               placeholder="Ex : Marc serait arrivé chez la victime vers 21h30"
-              className="min-w-[240px] flex-1 rounded border border-border-strong bg-background px-3 py-2 text-sm text-foreground"
+              className="min-w-[240px] flex-1 border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground"
             />
-            <select name="status" defaultValue="hypothesis" className="rounded border border-border-strong bg-background px-2 py-2 text-sm">
+            <select name="status" defaultValue="hypothesis" className="border border-border-strong bg-surface-sunken px-2 py-2 text-sm">
               {Object.entries(STATUS_LABEL).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
               ))}
             </select>
-            <button type="submit" className="rounded bg-accent px-4 py-2 text-sm font-medium text-background hover:bg-accent-strong">
+            <button type="submit" className="btn btn-primary">
               Ajouter
             </button>
           </div>

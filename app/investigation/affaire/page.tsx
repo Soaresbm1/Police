@@ -2,6 +2,8 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getBriefing, getLocation, getPerson } from "@/lib/game-session/player-view";
 import { examineCrimeSceneAction } from "@/lib/game-session/actions";
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { Avatar } from "@/components/investigation/Avatar";
+import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 
 export default async function AffairePage() {
   const game = await getCurrentGame();
@@ -10,99 +12,120 @@ export default async function AffairePage() {
   const briefing = getBriefing(truth);
   const victim = getPerson(truth, truth.victimId)!;
   const crimeScene = getLocation(truth, truth.crimeLocationId);
+  const victimName = `${victim.firstName} ${victim.lastName}`;
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div>
-        <p className="text-xs uppercase tracking-wide text-muted">Dossier — {briefing.crimeType}</p>
-        <h1 className="text-2xl font-semibold text-foreground">Homicide de {briefing.victimName}</h1>
+    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      <CaseIntroOverlay
+        seed={session.seed}
+        crimeType={briefing.crimeType}
+        victimName={victimName}
+        victimAvatarSeed={victim.avatarSeed}
+        locationName={crimeScene?.name ?? "Lieu inconnu"}
+        locationAddress={crimeScene?.address ?? ""}
+        reportedAtLabel={formatGameTime(briefing.reportedAt)}
+      />
+
+      <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
+        <div>
+          <p className="data-id">DOSSIER N° CL-{session.seed}</p>
+          <h1 className="mt-1 text-2xl font-bold uppercase tracking-wide text-foreground">
+            Homicide — {victimName}
+          </h1>
+        </div>
+        <div className="flex gap-2">
+          <span className="stamp stamp-red">{briefing.crimeType}</span>
+          <span className="stamp stamp-amber">En cours</span>
+        </div>
       </div>
 
-      <section className="grid gap-4 rounded border border-border bg-surface p-5 md:grid-cols-2">
-        <div>
-          <h2 className="text-xs uppercase tracking-wide text-muted">Victime</h2>
-          <p className="mt-1 text-foreground">
-            {victim.firstName} {victim.lastName}, {victim.age} ans — {victim.profession}
-          </p>
-        </div>
-        <div>
-          <h2 className="text-xs uppercase tracking-wide text-muted">Lieu de découverte</h2>
-          <p className="mt-1 text-foreground">{crimeScene?.name}</p>
-          <p className="text-sm text-muted">{crimeScene?.address}</p>
-        </div>
-        <div>
-          <h2 className="text-xs uppercase tracking-wide text-muted">Signalement</h2>
-          <p className="mt-1 text-sm text-foreground">{briefing.discoveryDescription}</p>
-        </div>
-        <div>
-          <h2 className="text-xs uppercase tracking-wide text-muted">Heure du signalement</h2>
-          <p className="mt-1 font-data text-sm text-foreground">{formatGameTime(briefing.reportedAt)}</p>
+      <section className="panel flex flex-col gap-4 p-5 md:flex-row">
+        <Avatar seed={victim.avatarSeed} name={victimName} size={88} />
+        <div className="grid flex-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="field-label">Victime</p>
+            <p className="mt-1 text-foreground">
+              {victimName}, {victim.age} ans — {victim.profession}
+            </p>
+          </div>
+          <div>
+            <p className="field-label">Lieu de découverte</p>
+            <p className="mt-1 text-foreground">{crimeScene?.name}</p>
+            <p className="text-sm text-muted">{crimeScene?.address}</p>
+          </div>
+          <div>
+            <p className="field-label">Signalement</p>
+            <p className="mt-1 text-sm text-foreground">{briefing.discoveryDescription}</p>
+          </div>
+          <div>
+            <p className="field-label">Heure du signalement</p>
+            <p className="mt-1 font-data text-sm text-foreground">{formatGameTime(briefing.reportedAt)}</p>
+          </div>
         </div>
       </section>
 
-      <section className="rounded border border-border bg-surface p-5">
-        <h2 className="text-xs uppercase tracking-wide text-muted">Rapport du médecin légiste</h2>
-        <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+      <section className="panel p-5">
+        <div className="panel-header -mx-5 -mt-5 mb-4">
+          <span className="field-label">Rapport du médecin légiste</span>
+          <span className="stamp stamp-blue ml-auto !py-0.5 !text-[9px]">Confidentiel</span>
+        </div>
+        <dl className="font-document grid gap-3 text-sm md:grid-cols-2">
           <div>
-            <dt className="text-muted">Décès estimé entre</dt>
+            <dt className="field-label !text-muted">Décès estimé entre</dt>
             <dd className="font-data text-foreground">
               {formatGameTime(truth.autopsy.estimatedDeathWindowStart)} et {formatGameTime(truth.autopsy.estimatedDeathWindowEnd)}
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Cause du décès</dt>
+            <dt className="field-label !text-muted">Cause du décès</dt>
             <dd className="text-foreground">{truth.autopsy.causeOfDeath}</dd>
           </div>
           <div>
-            <dt className="text-muted">Blessures constatées</dt>
+            <dt className="field-label !text-muted">Blessures constatées</dt>
             <dd className="text-foreground">{truth.autopsy.wounds.join(", ") || "aucune particulière"}</dd>
           </div>
           <div>
-            <dt className="text-muted">Position du corps</dt>
+            <dt className="field-label !text-muted">Position du corps</dt>
             <dd className="text-foreground">{truth.autopsy.bodyPosition}</dd>
           </div>
           {truth.autopsy.substancesFound.length > 0 && (
             <div>
-              <dt className="text-muted">Substances retrouvées</dt>
+              <dt className="field-label !text-muted">Substances retrouvées</dt>
               <dd className="text-foreground">{truth.autopsy.substancesFound.join(", ")}</dd>
             </div>
           )}
           {truth.autopsy.notableFeatures.length > 0 && (
             <div>
-              <dt className="text-muted">Éléments notables</dt>
+              <dt className="field-label !text-muted">Éléments notables</dt>
               <dd className="text-foreground">{truth.autopsy.notableFeatures.join(", ")}</dd>
             </div>
           )}
         </dl>
       </section>
 
-      <section className="rounded border border-border bg-surface p-5">
-        <div className="flex items-center justify-between">
+      <section className="panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-xs uppercase tracking-wide text-muted">Scène de crime</h2>
+            <p className="field-label">Scène de crime</p>
             <p className="mt-1 text-sm text-muted">
               {session.crimeSceneExamined
-                ? "La scène a été examinée — consultez l'onglet Preuves pour les éléments relevés."
+                ? "La scène a été examinée — consultez Preuves pour les éléments relevés."
                 : "La scène n'a pas encore été examinée par vos équipes."}
             </p>
           </div>
           <form action={examineCrimeSceneAction}>
-            <button
-              type="submit"
-              disabled={session.crimeSceneExamined}
-              className="rounded bg-accent px-4 py-2 text-sm font-medium text-background hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            <button type="submit" disabled={session.crimeSceneExamined} className="btn btn-primary">
               {session.crimeSceneExamined ? "Scène déjà examinée" : "Examiner la scène de crime"}
             </button>
           </form>
         </div>
       </section>
 
-      <section className="rounded border border-border bg-surface p-5 text-sm text-muted">
+      <section className="panel p-5 text-sm text-muted">
         <p>
           {briefing.suspectCount} suspect(s) et {briefing.witnessCount} témoin(s) sont recensés autour de cette affaire.
-          Consultez les onglets <span className="text-foreground">Suspects</span> et{" "}
-          <span className="text-foreground">Témoins</span> pour commencer les investigations.
+          Consultez <span className="text-foreground">Suspects</span> et <span className="text-foreground">Témoins</span> pour
+          commencer les investigations.
         </p>
       </section>
     </div>

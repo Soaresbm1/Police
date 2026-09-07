@@ -1,9 +1,8 @@
 "use client";
 
 import "@xyflow/react/dist/style.css";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import {
-  Background,
   Controls,
   MiniMap,
   ReactFlow,
@@ -28,10 +27,10 @@ import type { BoardEdge, BoardNode, BoardNodeKind } from "@/lib/game-session/typ
 import type { BoardPaletteItem } from "@/lib/game-session/player-view";
 
 const KIND_COLOR: Record<BoardNodeKind, { background: string; border: string }> = {
-  person: { background: "#1f2a1f", border: "#5fae76" },
-  evidence: { background: "#2a2415", border: "#c8963f" },
-  location: { background: "#1a232c", border: "#6fa8dc" },
-  note: { background: "#241a2c", border: "#a97fd9" },
+  person: { background: "#1a2620", border: "#6c9c72" },
+  evidence: { background: "#241d10", border: "#bb8a42" },
+  location: { background: "#141d26", border: "#5c8ab0" },
+  note: { background: "#2b2510", border: "#c9a23d" },
 };
 
 const KIND_LABEL: Record<BoardNodeKind, string> = {
@@ -41,16 +40,30 @@ const KIND_LABEL: Record<BoardNodeKind, string> = {
   note: "Note",
 };
 
+function hashOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 function toFlowNode(n: BoardNode): Node {
   const colors = KIND_COLOR[n.kind];
+  const tilt = n.kind === "note" ? (hashOf(n.id) % 5) - 2 : 0;
   return {
     id: n.id,
     position: { x: n.x, y: n.y },
     data: {
+      // The tilt is applied to this inner wrapper, never to the node's own
+      // `style` — React Flow owns `transform` on the outer node element for
+      // positioning, and setting it ourselves (even conditionally) clobbers
+      // that and leaves every node stacked at the same screen position.
       label: (
-        <div>
-          <div className="font-medium">{n.label}</div>
-          {n.detail && <div className="mt-0.5 text-[10px] text-muted">{n.detail.slice(0, 80)}</div>}
+        <div style={tilt ? { transform: `rotate(${tilt}deg)` } : undefined}>
+          <div className="font-data mb-1 text-[9px] uppercase tracking-[0.14em]" style={{ color: colors.border }}>
+            {KIND_LABEL[n.kind]}
+          </div>
+          <div className="font-medium leading-snug">{n.label}</div>
+          {n.detail && <div className="mt-1 text-[10px] leading-snug text-muted">{n.detail.slice(0, 90)}</div>}
         </div>
       ),
       refId: n.refId,
@@ -58,11 +71,12 @@ function toFlowNode(n: BoardNode): Node {
     style: {
       background: colors.background,
       border: `1px solid ${colors.border}`,
-      color: "#dfe4ee",
-      borderRadius: 6,
-      padding: 8,
+      borderTop: `3px solid ${colors.border}`,
+      color: "#e8e6de",
+      padding: 10,
       fontSize: 12,
       maxWidth: 220,
+      boxShadow: "0 3px 8px rgba(0,0,0,0.4)",
     },
   };
 }
@@ -73,8 +87,9 @@ function toFlowEdge(e: BoardEdge): Edge {
     source: e.source,
     target: e.target,
     label: e.label || undefined,
-    style: { stroke: "#c8963f" },
-    labelStyle: { fill: "#dfe4ee", fontSize: 11 },
+    style: { stroke: "#bb8a42", strokeWidth: 2 },
+    labelStyle: { fill: "#e8e6de", fontSize: 11 },
+    labelBgStyle: { fill: "#17191e" },
   };
 }
 
@@ -142,8 +157,13 @@ export function EvidenceBoard({
 
   // Cascading grid placement for newly-added nodes — deterministic (no
   // Math.random in an event handler) and avoids stacking new nodes exactly
-  // on top of each other.
-  const nextPlacement = (count: number): { x: number; y: number } => {
+  // on top of each other. Backed by a ref rather than `nodes.length`: two
+  // additions fired in quick succession can both read the same pre-update
+  // `nodes` snapshot (React batches the state updates), which previously
+  // placed every new node at the same slot; a ref counter always advances.
+  const placementCount = useRef(initialNodes.length);
+  const nextPlacement = (): { x: number; y: number } => {
+    const count = placementCount.current++;
     const column = count % 5;
     const row = Math.floor(count / 5);
     return { x: 60 + column * 200, y: 60 + row * 140 };
@@ -151,7 +171,7 @@ export function EvidenceBoard({
 
   const addFromPalette = (item: BoardPaletteItem) => {
     const id = randomId("node");
-    const { x, y } = nextPlacement(nodes.length);
+    const { x, y } = nextPlacement();
     setNodes((nds) => [...nds, toFlowNode({ id, kind: item.kind, refId: item.refId, label: item.label, detail: item.detail, x, y })]);
     setPlacedRefIds((prev) => new Set(prev).add(item.refId));
     startTransition(() => {
@@ -162,7 +182,7 @@ export function EvidenceBoard({
   const addNote = () => {
     if (!noteText.trim()) return;
     const id = randomId("node");
-    const { x, y } = nextPlacement(nodes.length);
+    const { x, y } = nextPlacement();
     setNodes((nds) => [...nds, toFlowNode({ id, kind: "note", refId: "", label: "Note", detail: noteText, x, y })]);
     startTransition(() => {
       addBoardNoteAction(id, noteText, x, y);
@@ -172,32 +192,34 @@ export function EvidenceBoard({
 
   return (
     <div className="flex h-[calc(100vh-140px)] gap-3">
-      <div className="w-64 shrink-0 overflow-y-auto rounded border border-border bg-surface p-3">
-        <p className="mb-2 text-xs uppercase tracking-wide text-muted">Ajouter au tableau</p>
+      <div className="panel w-64 shrink-0 overflow-y-auto p-3">
+        <p className="field-label mb-2">Ajouter au tableau</p>
         <div className="flex flex-col gap-1">
           {availablePalette.map((item) => (
             <button
               key={`${item.kind}-${item.refId}`}
               onClick={() => addFromPalette(item)}
-              className="rounded border border-border-strong px-2 py-1.5 text-left text-xs text-foreground hover:border-accent"
+              className="border border-border-strong px-2 py-1.5 text-left text-xs text-foreground hover:border-accent"
               title={item.detail}
             >
-              <span className="mr-1 rounded bg-surface-raised px-1 text-[10px] uppercase text-muted">{KIND_LABEL[item.kind]}</span>
+              <span className="mr-1 border border-border-strong bg-surface-raised px-1 text-[10px] uppercase text-muted">
+                {KIND_LABEL[item.kind]}
+              </span>
               {item.label}
             </button>
           ))}
           {availablePalette.length === 0 && <p className="text-xs text-muted">Rien de plus à ajouter pour l&apos;instant.</p>}
         </div>
 
-        <p className="mb-2 mt-4 text-xs uppercase tracking-wide text-muted">Ajouter une note</p>
+        <p className="field-label mb-2 mt-4">Ajouter une note</p>
         <textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
           rows={3}
           placeholder="Votre hypothèse..."
-          className="w-full rounded border border-border-strong bg-background p-2 text-xs text-foreground"
+          className="w-full border border-border-strong bg-surface-sunken p-2 text-xs text-foreground"
         />
-        <button onClick={addNote} className="mt-1 w-full rounded bg-accent px-2 py-1 text-xs font-medium text-background hover:bg-accent-strong">
+        <button onClick={addNote} className="btn btn-primary mt-1 w-full">
           Ajouter la note
         </button>
 
@@ -207,7 +229,7 @@ export function EvidenceBoard({
         </p>
       </div>
 
-      <div className="flex-1 rounded border border-border bg-surface">
+      <div className="board-surface caseline-board flex-1 border border-border">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -217,10 +239,10 @@ export function EvidenceBoard({
           onNodeDragStop={onNodeDragStop}
           onNodesDelete={handleNodesDelete}
           onEdgesDelete={handleEdgesDelete}
+          connectionRadius={32}
           colorMode="dark"
           fitView
         >
-          <Background gap={16} />
           <Controls />
           <MiniMap pannable zoomable />
         </ReactFlow>

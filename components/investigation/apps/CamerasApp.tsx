@@ -43,17 +43,17 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
 
   return (
     <AppFrame title="Vidéosurveillance" system="VIGIL — Réquisition de bandes de vidéosurveillance" accent="purple">
-      <div className="rounded border border-border bg-surface p-4">
+      <div className="panel p-4">
         <p className="text-xs text-muted">
           Les enregistrements sont archivés par tranches de 6 heures. Choisissez le lieu et le créneau à visionner.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs uppercase tracking-wide text-muted">Lieu équipé de caméras</label>
+            <label className="field-label">Lieu équipé de caméras</label>
             <select
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              className="mt-1 w-full rounded border border-border-strong bg-background px-3 py-2 text-sm text-foreground"
+              className="mt-1 w-full border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground"
             >
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -63,8 +63,12 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
             </select>
           </div>
           <div>
-            <label className="text-xs uppercase tracking-wide text-muted">Créneau</label>
-            <select value={slot} onChange={(e) => setSlot(e.target.value)} className="mt-1 w-full rounded border border-border-strong bg-background px-3 py-2 text-sm text-foreground">
+            <label className="field-label">Créneau</label>
+            <select
+              value={slot}
+              onChange={(e) => setSlot(e.target.value)}
+              className="mt-1 w-full border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground"
+            >
               {[1, 2].map((day) =>
                 SLOT_LABELS.map((label, quarter) => (
                   <option key={slotKey(day, quarter)} value={slotKey(day, quarter)}>
@@ -75,11 +79,7 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
             </select>
           </div>
         </div>
-        <button
-          onClick={handleSearch}
-          disabled={isPending || !locationId}
-          className="mt-3 rounded bg-[#a97fd9] px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <button onClick={handleSearch} disabled={isPending || !locationId} className="btn btn-primary mt-3">
           {isPending ? "Extraction…" : "Réquisitionner la bande"}
         </button>
       </div>
@@ -87,24 +87,32 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
       {isPending && <p className="font-data text-xs text-muted">Extraction des bandes archivées…</p>}
 
       {!isPending && result && (
-        <div className="rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">
-            {result.locationName} — {SLOT_LABELS[Math.floor((result.windowStart % MINUTES_PER_DAY) / 360)]}
-          </p>
-          {!result.available ? (
-            <p className="mt-2 text-sm text-danger">Ce lieu n&apos;est pas équipé de caméras.</p>
-          ) : (
-            <>
-              <div className="mt-3 border-t border-border pt-3">
+        <div className="panel overflow-hidden">
+          <div className="scanlines relative flex items-center justify-between border-b border-border bg-surface-sunken px-4 py-2">
+            <span className="font-data text-[11px] uppercase tracking-wide text-muted">
+              {result.locationName} — {SLOT_LABELS[Math.floor((result.windowStart % MINUTES_PER_DAY) / 360)]}
+            </span>
+            {result.available && (
+              <span className="flex items-center gap-1.5 font-data text-[10px] text-danger">
+                <span className="h-1.5 w-1.5 animate-pulse bg-danger" />
+                REC
+              </span>
+            )}
+          </div>
+          <div className="p-4">
+            {!result.available ? (
+              <p className="text-sm text-danger">Ce lieu n&apos;est pas équipé de caméras.</p>
+            ) : (
+              <>
                 <RecordTable lines={result.lines} emptyLabel="Aucune image exploitable sur ce créneau." />
-              </div>
-              {result.moreOutsideWindow && (
-                <p className="mt-2 text-xs text-warning">
-                  D&apos;autres séquences existent en dehors de ce créneau — essayez une autre tranche horaire.
-                </p>
-              )}
-            </>
-          )}
+                {result.moreOutsideWindow && (
+                  <p className="mt-2 text-xs text-warning">
+                    D&apos;autres séquences existent en dehors de ce créneau — essayez une autre tranche horaire.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </AppFrame>

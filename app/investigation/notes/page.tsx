@@ -8,7 +8,7 @@ export default async function NotesPage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Notes</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Notes</h1>
         <p className="mt-1 text-sm text-muted">Vos observations personnelles — sauvegardées avec votre enquête.</p>
       </div>
       <form action={saveNotesAction} className="flex flex-col gap-3">
@@ -17,9 +17,9 @@ export default async function NotesPage() {
           defaultValue={game.session.notes}
           rows={16}
           placeholder="Écrivez vos hypothèses, questions en suspens, éléments à vérifier..."
-          className="w-full rounded border border-border-strong bg-surface p-4 font-data text-sm text-foreground focus:border-accent focus:outline-none"
+          className="font-document w-full border border-border-strong bg-surface p-4 text-sm text-foreground focus:border-accent focus:outline-none"
         />
-        <button type="submit" className="self-start rounded bg-accent px-4 py-2 text-sm font-medium text-background hover:bg-accent-strong">
+        <button type="submit" className="btn btn-primary self-start">
           Enregistrer
         </button>
       </form>

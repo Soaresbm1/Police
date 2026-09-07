@@ -21,14 +21,14 @@ export default async function PreuvesPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Preuves</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Preuves</h1>
         <p className="mt-1 text-sm text-muted">
           Que puis-je apprendre de ces preuves ? {evidence.length} élément(s) découvert(s).
         </p>
       </div>
 
       {evidence.length === 0 && (
-        <p className="rounded border border-border bg-surface p-5 text-sm text-muted">
+        <p className="panel p-5 text-sm text-muted">
           Aucune preuve découverte pour l&apos;instant. Examinez la scène de crime et interrogez les suspects et
           témoins pour commencer à réunir des éléments.
         </p>
@@ -39,7 +39,7 @@ export default async function PreuvesPage() {
         if (items.length === 0) return null;
         return (
           <section key={family}>
-            <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">
+            <h2 className="field-label mb-3">
               {FAMILY_LABEL[family]} ({items.length})
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">

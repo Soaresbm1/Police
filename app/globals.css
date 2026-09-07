@@ -1,48 +1,402 @@
 @import "tailwindcss";
 
+/* ============================================================
+   CASELINE — visual system
+   Grounded police-terminal aesthetic: charcoal/graphite, brass
+   accent, hairline borders, square corners, condensed display
+   type for chrome, monospace for data, typewriter for documents.
+   ============================================================ */
+
 :root {
-  --background: #0b0d12;
-  --surface: #12151d;
-  --surface-raised: #171b25;
-  --border: #262b38;
-  --border-strong: #3a4150;
-  --foreground: #dfe4ee;
-  --muted: #8b93a7;
-  --accent: #c8963f;
-  --accent-strong: #e0ab52;
-  --link: #6fa8dc;
-  --danger: #d9564a;
-  --danger-bg: #2a1518;
-  --success: #5fae76;
-  --warning: #d9b154;
+  --background: #0e0f12;
+  --background-deep: #08090b;
+  --surface: #17191e;
+  --surface-raised: #1e2127;
+  --surface-sunken: #0b0c0f;
+  --border: #2a2d34;
+  --border-strong: #40444d;
+  --foreground: #e8e6de;
+  --muted: #8c8f97;
+  --muted-dim: #5c5f66;
+  --accent: #bb8a42;
+  --accent-strong: #d4a256;
+  --accent-dim: #6b5330;
+  --link: #5c8ab0;
+  --danger: #b8493e;
+  --danger-bg: #241413;
+  --success: #6c9c72;
+  --warning: #c9a23d;
+  --grid-line: rgba(232, 230, 222, 0.035);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-deep: var(--background-deep);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
+  --color-muted-dim: var(--muted-dim);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
+  --color-accent-dim: var(--accent-dim);
   --color-link: var(--link);
   --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-display), Arial, Helvetica, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-document: var(--font-document), Courier, monospace;
+}
+
+* {
+  border-radius: 0 !important;
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-display), Arial, Helvetica, sans-serif;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--foreground);
+}
+
+/* Thin, square scrollbars — a small detail that keeps the chrome from
+   reading as an ordinary web page. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--surface);
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--surface);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-dim);
 }
 
 .font-data {
-  font-family: var(--font-mono), ui-monospace, monospace;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
 }
 
+.font-document {
+  font-family: var(--font-document), Courier, monospace;
+}
+
+.font-display {
+  font-family: var(--font-display), Arial, Helvetica, sans-serif;
+}
+
+/* Reusable primitives live in the `components` layer (Tailwind's own
+   layer, after `base` and before `utilities`) specifically so that a
+   Tailwind utility class combined in the same className — e.g.
+   `panel border-t-link` — still wins over these for any property it
+   also sets, exactly like combining two utility classes would. */
+@layer components {
+
+/* ---------- Layout primitives ---------- */
+
+/* Base "console panel" — replaces the generic rounded shadcn card
+   everywhere in the app. Square corners, hairline border, a faint
+   inset top highlight so panels read as physical plates rather than
+   div soup. */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  position: relative;
+}
+
+.panel-raised {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+}
+
+.panel-sunken {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+/* Corner brackets — used sparingly on the flagship screens (dossier,
+   crime scene, evidence board) to reinforce the "targeting / official
+   document" feeling without adding real UI weight. */
+.panel-bracketed {
+  position: relative;
+}
+.panel-bracketed::before,
+.panel-bracketed::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+.panel-bracketed::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--accent-strong);
+  border-left: 2px solid var(--accent-strong);
+}
+.panel-bracketed::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--accent-strong);
+  border-right: 2px solid var(--accent-strong);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+}
+
+.field-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.hairline {
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--foreground);
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #17130a;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #17130a;
+}
+.btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: transparent;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--foreground);
+  border-color: var(--border-strong);
+}
+
+/* ---------- Stamps ---------- */
+
+.stamp {
+  display: inline-block;
+  font-family: var(--font-display), Arial, sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+  padding: 0.25rem 0.6rem;
+  border: 2px solid currentColor;
+  transform: rotate(-3deg);
+  opacity: 0.9;
+}
+.stamp-red {
+  color: var(--danger);
+}
+.stamp-blue {
+  color: var(--link);
+}
+.stamp-amber {
+  color: var(--warning);
+}
+
+/* ---------- Data chips ---------- */
+
+.data-id {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--accent-strong);
+  letter-spacing: 0.02em;
+}
+
+} /* @layer components */
+
+/* ---------- Atmosphere ---------- */
+
+.crt-vignette {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  z-index: 40;
+}
+
+.scanlines {
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.025),
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@keyframes blink-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.caret-blink::after {
+  content: "\2588";
+  margin-left: 2px;
+  animation: blink-caret 1s steps(1) infinite;
+  color: var(--accent-strong);
+}
+
+@keyframes menu-sweep {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+.menu-sweep {
+  background: linear-gradient(180deg, transparent, rgba(187, 138, 66, 0.05) 45%, transparent 90%);
+  animation: menu-sweep 9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-sweep {
+    animation: none;
+  }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fade-up 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .caret-blink::after {
+    animation: none !important;
+  }
+}
+
+/* ---------- Evidence board ---------- */
+
+.board-surface {
+  background-color: #100e0c;
+  background-image: radial-gradient(rgba(232, 230, 222, 0.05) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.board-note {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- React Flow (evidence board) overrides ---------- */
+
+.caseline-board .react-flow__background {
+  background-color: var(--background-deep);
+}
+
+.caseline-board .react-flow__controls {
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
+}
+.caseline-board .react-flow__controls-button {
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  fill: var(--foreground);
+}
+.caseline-board .react-flow__controls-button:hover {
+  background: var(--surface);
+}
+
+.caseline-board .react-flow__minimap {
+  border: 1px solid var(--border-strong);
+}
+
+.caseline-board .react-flow__edge-path {
+  stroke-width: 1.5px;
+}
+
+.caseline-board .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 2px solid var(--background);
+}
+.caseline-board .react-flow__handle:hover {
+  background: var(--accent-strong);
+  width: 18px;
+  height: 18px;
+}
+
+/* Invisible padding around each handle to make it far easier to grab
+   without visually enlarging the connection point itself. */
+.caseline-board .react-flow__handle::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.caseline-board .react-flow__node.selected {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}

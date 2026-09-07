@@ -29,8 +29,8 @@ export function VehiculesApp({ initialQuery }: { initialQuery?: string }) {
 
   return (
     <AppFrame title="Fichier des véhicules" system="OFROU — Registre cantonal des immatriculations" accent="green">
-      <div className="rounded border border-border bg-surface p-4">
-        <label className="text-xs uppercase tracking-wide text-muted">Plaque d&apos;immatriculation</label>
+      <div className="panel p-4">
+        <label className="field-label">Plaque d&apos;immatriculation</label>
         <p className="mt-0.5 text-xs text-muted">
           Saisie complète ou partielle acceptée (ex. « VD AB 123 » ou seulement « 123 »).
         </p>
@@ -40,13 +40,9 @@ export function VehiculesApp({ initialQuery }: { initialQuery?: string }) {
             onChange={(e) => setQuery(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="VD AB 123"
-            className="flex-1 rounded border border-border-strong bg-background px-3 py-2 font-data text-sm uppercase text-foreground focus:border-success focus:outline-none"
+            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-sm uppercase tracking-widest text-foreground focus:border-success focus:outline-none"
           />
-          <button
-            onClick={handleSearch}
-            disabled={isPending || query.trim().length < 3}
-            className="rounded bg-success px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <button onClick={handleSearch} disabled={isPending || query.trim().length < 3} className="btn btn-primary">
             {isPending ? "Recherche…" : "Rechercher"}
           </button>
         </div>
@@ -55,8 +51,8 @@ export function VehiculesApp({ initialQuery }: { initialQuery?: string }) {
       {isPending && <p className="font-data text-xs text-muted">Consultation du registre cantonal…</p>}
 
       {!isPending && result && (
-        <div className="rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">
+        <div className="panel p-4">
+          <p className="field-label">
             {result.matches.length} correspondance(s) pour « {result.query} »
           </p>
           {result.matches.length === 0 ? (
@@ -69,15 +65,19 @@ export function VehiculesApp({ initialQuery }: { initialQuery?: string }) {
                 </p>
               )}
               {result.matches.map((m) => (
-                <div key={m.personId} className="rounded border border-border-strong p-3 text-sm">
-                  <p className="font-data text-success">{m.plate}</p>
-                  <p className="text-foreground">{m.description}</p>
-                  <p className="text-muted">
-                    Propriétaire :{" "}
-                    <Link href={`/investigation/personnes/${m.personId}`} className="text-foreground hover:underline">
-                      {m.ownerName}
-                    </Link>
-                  </p>
+                <div key={m.personId} className="panel-sunken flex items-center gap-3 p-3 text-sm">
+                  <span className="font-data border border-border-strong bg-surface px-2 py-1 tracking-[0.15em] text-success">
+                    {m.plate}
+                  </span>
+                  <div>
+                    <p className="text-foreground">{m.description}</p>
+                    <p className="text-muted">
+                      Propriétaire :{" "}
+                      <Link href={`/investigation/personnes/${m.personId}`} className="text-foreground hover:underline">
+                        {m.ownerName}
+                      </Link>
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>

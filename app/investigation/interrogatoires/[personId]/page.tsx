@@ -3,6 +3,8 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getPerson } from "@/lib/game-session/player-view";
 import { getInterrogationTopics } from "@/lib/game-session/interrogation-view";
 import { InterrogationTopicButton } from "@/components/investigation/InterrogationTopicButton";
+import { formatGameTime } from "@/lib/game-engine/types/time";
+import { Avatar } from "@/components/investigation/Avatar";
 
 export default async function InterrogationPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
@@ -12,48 +14,50 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
   if (!person) notFound();
 
   const topics = getInterrogationTopics(game.truth, game.session, personId);
-  const asked = topics.filter((t) => t.asked);
+  const asked = topics.filter((t) => t.asked).sort((a, b) => a.time - b.time);
   const unasked = topics.filter((t) => !t.asked);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <div>
-        <p className="text-xs uppercase tracking-wide text-muted">Audition</p>
-        <h1 className="text-2xl font-semibold text-foreground">
-          {person.firstName} {person.lastName}
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Posez vos questions, puis comparez ses réponses aux preuves recueillies dans les onglets Preuves et
-          Chronologie — le jeu ne vous dira jamais directement si elle/il ment.
-        </p>
+    <div className="mx-auto flex max-w-3xl flex-col gap-5">
+      <div className="panel panel-bracketed flex items-center gap-4 border-l-4 border-l-danger p-5">
+        <Avatar seed={person.avatarSeed} name={`${person.firstName} ${person.lastName}`} size={64} />
+        <div>
+          <p className="font-data text-[10px] uppercase tracking-[0.25em] text-danger">Salle d&apos;audition</p>
+          <h1 className="text-xl font-bold uppercase tracking-wide text-foreground">
+            {person.firstName} {person.lastName}
+          </h1>
+          <p className="mt-1 text-xs text-muted">
+            Comparez ses réponses aux preuves et à la chronologie — rien ne vous dira directement si elle/il ment.
+          </p>
+        </div>
       </div>
 
-      <section>
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Compte-rendu ({asked.length})</h2>
+      <section className="panel-sunken border border-border p-4">
+        <p className="field-label mb-3">Transcript ({asked.length})</p>
         {asked.length === 0 ? (
-          <p className="text-sm text-muted">Aucune question posée pour l&apos;instant.</p>
+          <p className="font-document text-sm text-muted">Aucune question posée pour l&apos;instant.</p>
         ) : (
-          <div className="flex flex-col gap-3">
-            {asked
-              .sort((a, b) => a.time - b.time)
-              .map((topic) => (
-                <div key={topic.factId} className="rounded border border-border bg-surface p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted">{topic.topicLabel}</p>
-                  <p className="mt-1 text-sm text-foreground">
-                    {person.firstName} : « {topic.statement} »
-                  </p>
-                </div>
-              ))}
+          <div className="flex flex-col gap-3 font-document text-sm">
+            {asked.map((topic) => (
+              <div key={topic.factId} className="border-b border-border/60 pb-3 last:border-0 last:pb-0">
+                <p className="font-data text-[10px] uppercase tracking-wide text-muted">
+                  {formatGameTime(topic.time)} — {topic.topicLabel}
+                </p>
+                <p className="mt-1 text-foreground">
+                  {person.firstName} : « {topic.statement} »
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Sujets à aborder ({unasked.length})</h2>
+      <section className="panel p-4">
+        <p className="field-label mb-3">Sujets à aborder ({unasked.length})</p>
         {unasked.length === 0 ? (
           <p className="text-sm text-muted">Tous les sujets connus ont été abordés.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             {unasked.map((topic) => (
               <InterrogationTopicButton key={topic.factId} personId={personId} factId={topic.factId} label={topic.topicLabel} />
             ))}
