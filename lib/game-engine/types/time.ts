@@ -29,6 +29,14 @@ export function formatGameTime(t: GameMinutes): string {
   return `Jour ${day}, ${hh}:${mm}`;
 }
 
+/** Formats a duration (elapsed minutes, not a point in time) as "Xh YYmin". */
+export function formatDuration(totalMinutes: number): string {
+  const minutes = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours > 0 ? `${hours}h ${remainder.toString().padStart(2, "0")}min` : `${remainder}min`;
+}
+
 export function hm(hours: number, minutes = 0): GameMinutes {
   return hours * MINUTES_PER_HOUR + minutes;
 }

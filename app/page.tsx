@@ -1,68 +1,87 @@
-import Image from "next/image";
+import Link from "next/link";
+import { getCurrentGame } from "@/lib/game-session/current";
+import { getBriefing } from "@/lib/game-session/player-view";
+import { startNewCase } from "@/lib/game-session/actions";
+import { formatGameTime } from "@/lib/game-engine/types/time";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+const DIFFICULTIES = [
+  { value: "recruit", label: "Recrue", description: "Assistance renforcée, peu de suspects." },
+  { value: "investigator", label: "Enquêteur", description: "Expérience standard." },
+  { value: "inspector", label: "Inspecteur", description: "Davantage de bruit, témoignages moins fiables." },
+  { value: "expert", label: "Expert", description: "Presque aucune aide, preuves ambiguës." },
+];
+
+export default async function Home() {
+  const game = await getCurrentGame();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex flex-1 flex-col bg-background">
+      <header className="border-b border-border px-8 py-6">
+        <p className="text-xs uppercase tracking-[0.2em] text-muted">Police cantonale — Division criminelle</p>
+        <h1 className="mt-1 text-2xl font-semibold text-foreground">CASELINE</h1>
+      </header>
+
+      <main className="mx-auto grid w-full max-w-5xl flex-1 gap-6 px-8 py-10 md:grid-cols-2">
+        {game && (
+          <section className="md:col-span-2 rounded border border-accent/40 bg-accent/5 p-6">
+            <h2 className="text-sm uppercase tracking-wide text-accent-strong">Affaire en cours</h2>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="font-data text-lg text-foreground">{game.session.seed}</p>
+                <p className="text-sm text-muted">
+                  {getBriefing(game.truth).discoveryDescription} — {formatGameTime(game.session.currentTime)}
+                </p>
+              </div>
+              <Link
+                href="/investigation/affaire"
+                className="rounded bg-accent px-4 py-2 text-sm font-medium text-background hover:bg-accent-strong"
+              >
+                Reprendre l&apos;enquête
+              </Link>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded border border-border bg-surface p-6">
+          <h2 className="text-sm uppercase tracking-wide text-muted">Nouvelle enquête</h2>
+          <p className="mt-2 text-sm text-muted">
+            Génère une nouvelle affaire d&apos;homicide entièrement procédurale : population, relations, mobile,
+            preuves et témoignages sont simulés à partir d&apos;une seed unique.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          <form action={startNewCase} className="mt-4 flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-2">
+              {DIFFICULTIES.map((d) => (
+                <label
+                  key={d.value}
+                  className="flex cursor-pointer flex-col rounded border border-border-strong p-3 text-sm hover:border-accent has-[:checked]:border-accent has-[:checked]:bg-accent/10"
+                >
+                  <span className="flex items-center gap-2 font-medium text-foreground">
+                    <input type="radio" name="difficulty" value={d.value} defaultChecked={d.value === "investigator"} />
+                    {d.label}
+                  </span>
+                  <span className="mt-1 text-xs text-muted">{d.description}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              type="submit"
+              className="mt-2 rounded bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
+            >
+              Générer l&apos;affaire
+            </button>
+          </form>
+          {game && <p className="mt-3 text-xs text-muted">Démarrer une nouvelle affaire remplacera l&apos;enquête en cours.</p>}
+        </section>
+
+        <section className="rounded border border-border bg-surface p-6">
+          <h2 className="text-sm uppercase tracking-wide text-muted">Progression</h2>
+          <p className="mt-2 text-sm text-muted">
+            Le mode carrière (grade, XP, taux de résolution) sera disponible avec la sauvegarde persistante — voir{" "}
+            <span className="font-data">ROADMAP.md</span>.
+          </p>
+        </section>
       </main>
     </div>
   );

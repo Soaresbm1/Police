@@ -1,0 +1,212 @@
+import type { CaseTruth } from "@/lib/game-engine/types/case";
+import { toCaseBriefing } from "@/lib/game-engine/types/case";
+import type { Person, PersonId } from "@/lib/game-engine/types/person";
+import type { Evidence } from "@/lib/game-engine/types/evidence";
+import type { GameSession, EvidencePlayerStatus } from "./types";
+import { formatGameTime } from "@/lib/game-engine/types/time";
+
+/** Public-safe view of a Person — deliberately omits `roles` (which
+ * encodes who the culprit is) and any other ground-truth-only fields. */
+export interface PersonPublicView {
+  id: PersonId;
+  firstName: string;
+  lastName: string;
+  age: number;
+  sex: "male" | "female";
+  profession: string;
+  homeLocationId: string;
+  workLocationId: string | null;
+  avatarSeed: string;
+  phoneNumber: string;
+  hasVehicle: boolean;
+  isVictim: boolean;
+  isSuspect: boolean;
+}
+
+function toPublicPerson(truth: CaseTruth, person: Person): PersonPublicView {
+  return {
+    id: person.id,
+    firstName: person.firstName,
+    lastName: person.lastName,
+    age: person.age,
+    sex: person.sex,
+    profession: person.profession,
+    homeLocationId: person.homeLocationId,
+    workLocationId: person.workLocationId,
+    avatarSeed: person.avatarSeed,
+    phoneNumber: person.phoneNumber,
+    hasVehicle: person.vehicle !== null,
+    isVictim: person.id === truth.victimId,
+    isSuspect: truth.suspectIds.includes(person.id),
+  };
+}
+
+export function getBriefing(truth: CaseTruth) {
+  return toCaseBriefing(truth);
+}
+
+export function getAllPeople(truth: CaseTruth): PersonPublicView[] {
+  return truth.people.map((p) => toPublicPerson(truth, p));
+}
+
+export function getSuspects(truth: CaseTruth): PersonPublicView[] {
+  return truth.suspectIds.map((id) => toPublicPerson(truth, truth.people.find((p) => p.id === id)!));
+}
+
+export function getWitnesses(truth: CaseTruth): PersonPublicView[] {
+  return truth.people
+    .filter((p) => p.id !== truth.victimId && !truth.suspectIds.includes(p.id))
+    .map((p) => toPublicPerson(truth, p));
+}
+
+export function getPerson(truth: CaseTruth, personId: PersonId): PersonPublicView | undefined {
+  const p = truth.people.find((person) => person.id === personId);
+  return p ? toPublicPerson(truth, p) : undefined;
+}
+
+export function evidenceStatusOf(session: GameSession, evidenceId: string): EvidencePlayerStatus {
+  return session.evidenceStatus[evidenceId] ?? "undiscovered";
+}
+
+export interface VisibleEvidence extends Evidence {
+  playerStatus: EvidencePlayerStatus;
+}
+
+/** Only evidence the player has actually discovered — undiscovered evidence
+ * is entirely absent, not merely hidden/blurred. */
+export function getVisibleEvidence(truth: CaseTruth, session: GameSession): VisibleEvidence[] {
+  return truth.evidence
+    .filter((ev) => evidenceStatusOf(session, ev.id) !== "undiscovered")
+    .map((ev) => ({ ...ev, playerStatus: evidenceStatusOf(session, ev.id) }));
+}
+
+export function getVisibleEvidenceForPerson(truth: CaseTruth, session: GameSession, personId: PersonId): VisibleEvidence[] {
+  return getVisibleEvidence(truth, session).filter((ev) => ev.relatedPersonIds.includes(personId));
+}
+
+export function getVisibleEvidenceForLocation(truth: CaseTruth, session: GameSession, locationId: string): VisibleEvidence[] {
+  return getVisibleEvidence(truth, session).filter((ev) => ev.relatedLocationIds.includes(locationId));
+}
+
+export interface KnownTimelineFact {
+  id: string;
+  time: number;
+  timeLabel: string;
+  description: string;
+  personIds: PersonId[];
+  sourceEvidenceId: string;
+}
+
+/** The player never sees the ground-truth timeline directly — only what
+ * discovered, timestamped evidence implies. This is what populates the
+ * Chronologie screen's "known facts" column. */
+export function getKnownTimelineFacts(truth: CaseTruth, session: GameSession): KnownTimelineFact[] {
+  return getVisibleEvidence(truth, session)
+    .map((ev) => ({
+      id: ev.id,
+      time: ev.timestamp,
+      timeLabel: formatGameTime(ev.timestamp),
+      description: ev.description,
+      personIds: ev.relatedPersonIds,
+      sourceEvidenceId: ev.id,
+    }))
+    .sort((a, b) => a.time - b.time);
+}
+
+export function getLocation(truth: CaseTruth, locationId: string) {
+  return truth.locations.find((l) => l.id === locationId);
+}
+
+export function getAlibi(truth: CaseTruth, personId: PersonId) {
+  return truth.alibis.find((a) => a.personId === personId);
+}
+
+export interface BoardPaletteItem {
+  kind: "person" | "evidence" | "location";
+  refId: string;
+  label: string;
+  detail: string;
+}
+
+/** Everything the player currently knows about and could drag onto the
+ * evidence board: every person (their existence isn't secret, only their
+ * guilt is), every discovered evidence item, and every location referenced
+ * by a discovered evidence item. */
+export function getBoardPalette(truth: CaseTruth, session: GameSession): BoardPaletteItem[] {
+  const people: BoardPaletteItem[] = truth.people.map((p) => ({
+    kind: "person",
+    refId: p.id,
+    label: `${p.firstName} ${p.lastName}`,
+    detail: p.profession,
+  }));
+
+  const visibleEvidence = getVisibleEvidence(truth, session);
+  const evidenceItems: BoardPaletteItem[] = visibleEvidence.map((ev) => ({
+    kind: "evidence",
+    refId: ev.id,
+    label: ev.type,
+    detail: ev.description,
+  }));
+
+  const locationIds = new Set(visibleEvidence.flatMap((ev) => ev.relatedLocationIds));
+  const locationItems: BoardPaletteItem[] = truth.locations
+    .filter((l) => locationIds.has(l.id))
+    .map((l) => ({ kind: "location", refId: l.id, label: l.name, detail: l.address }));
+
+  return [...people, ...evidenceItems, ...locationItems];
+}
+
+export interface DiscoveredRelationship {
+  id: string;
+  fromId: PersonId;
+  toId: PersonId;
+  type: string;
+}
+
+/**
+ * A relationship only becomes visible to the player once investigation has
+ * actually surfaced it — either evidence ties both people together, or an
+ * interrogation answer mentioned the other person. This keeps the Relations
+ * screen from being a free spoiler of the full social graph.
+ */
+export function getDiscoveredRelationships(truth: CaseTruth, session: GameSession): DiscoveredRelationship[] {
+  const visibleEvidence = getVisibleEvidence(truth, session);
+  const eventsById = new Map(truth.timeline.map((e) => [e.id, e]));
+
+  const mentionedPairs = new Set<string>();
+  for (const [personId, factIds] of Object.entries(session.interrogated)) {
+    for (const factId of factIds) {
+      const fact = truth.knowledge.find((f) => f.id === factId);
+      const event = fact ? eventsById.get(fact.aboutEventId) : undefined;
+      if (event?.counterpartyId && event.counterpartyId !== personId) {
+        mentionedPairs.add([personId, event.counterpartyId].sort().join("|"));
+      }
+    }
+  }
+
+  return truth.relationships
+    .filter((rel) => {
+      const pairKey = [rel.from, rel.to].sort().join("|");
+      if (mentionedPairs.has(pairKey)) return true;
+      return visibleEvidence.some((ev) => ev.relatedPersonIds.includes(rel.from) && ev.relatedPersonIds.includes(rel.to));
+    })
+    .map((rel) => ({ id: rel.id, fromId: rel.from, toId: rel.to, type: rel.type }));
+}
+
+/** Cross-references a person's alibi claim against discovered evidence —
+ * the same generic support/contradiction logic the engine uses, but scoped
+ * to what the player has actually found so far, so the game never spoils
+ * the answer for evidence still undiscovered. */
+export function getAlibiAssessment(
+  truth: CaseTruth,
+  session: GameSession,
+  personId: PersonId,
+): { corroborating: VisibleEvidence[]; contradicting: VisibleEvidence[] } | null {
+  const alibi = getAlibi(truth, personId);
+  if (!alibi) return null;
+  const visible = getVisibleEvidence(truth, session);
+  return {
+    corroborating: visible.filter((ev) => alibi.corroboratingEvidenceIds.includes(ev.id)),
+    contradicting: visible.filter((ev) => alibi.contradictingEvidenceIds.includes(ev.id)),
+  };
+}

@@ -9,23 +9,38 @@ component, a server action, an API route, or a future dedicated backend
 without change.
 
 `CaseTruth` — the fully-generated hidden state of a case — is produced and
-consumed **only on the server**. The only thing ever allowed to reach the
-browser during real gameplay is a derived, truth-stripped view (see
-`toCaseBriefing` in `lib/game-engine/types/case.ts`, and the `evidence`/
-`testimony`/`alibis` arrays which are themselves safe to expose because they
-are the player-facing *content*, not the hidden solution key — the fields
-that must stay hidden are `culpritId`, `motive`, and any raw `TimelineEvent`
-the player hasn't discovered evidence for). The Case Lab (`/case-lab`) is the
-one deliberate exception, and it refuses to render outside development.
+consumed **only on the server**, and never handed to a Client Component or
+serialized into a prop. Real gameplay pages are Server Components that call
+`lib/game-session` helpers, which read `CaseTruth` and return only a
+player-safe projection (see "The game-session layer" below); the browser
+only ever receives the rendered HTML of that projection. The Case Lab
+(`/case-lab`) is the one deliberate exception — it renders the raw
+`CaseTruth` for debugging — and it refuses to render outside development.
 
 ## Directory layout
 
 ```
 app/                      Next.js App Router pages
+  page.tsx                 Commissariat dashboard: start/resume a case
   case-lab/                Dev-only case inspector (Phase 5)
+  investigation/           The gameplay shell (Phases 6-8)
+    layout.tsx              Nav + game clock header, redirects home if no session
+    affaire/                 Case briefing + crime scene examination
+    suspects/, temoins/      Person lists (with live evidence-count badges)
+    personnes/[personId]/    Person detail: alibi assessment, dossier lookups,
+                              warrants, linked evidence
+    preuves/                 All discovered evidence, grouped by family
+    tableau/                 Evidence board: a React Flow canvas of the
+                              player's own connections between people,
+                              evidence, and locations they've discovered
+    chronologie/             Evidence-derived facts + the player's own timeline
+    relations/               Relationships, revealed only once investigated
+    interrogatoires/[personId]/  Ask-about-topics interrogation transcript
+    notes/                   Freeform autosaved notes
+    accusation/, rapport/    Final accusation form + graded reveal report
 
 lib/
-  game-engine/             The entire simulation engine (server-only)
+  game-engine/             The entire simulation engine (server-only, pure)
     types/                 Shared domain types: Person, Location, Relationship,
                             TimelineEvent, Evidence, KnowledgeFact, CaseTruth...
     random/                Deterministic seeded PRNG (rng.ts)
@@ -38,10 +53,34 @@ lib/
     evidence/               Derives Evidence[] from TimelineEvent[] + red herrings
     witness/                Perception/memory model, knowledge graph, testimony
     validator/              validateCase() and the solvability scorer
-    narrative/              (planned) NarrativeProvider abstraction
+    narrative/              NarrativeProvider abstraction (template impl today)
+    portraits/              PersonPortraitService (deterministic avatar today)
     __tests__/              Vitest suite for the engine
+  game-session/            Play-state layer: sits between the engine and the
+                            UI, still server-only but *not* part of the engine
+                            (it has opinions about gameplay, the engine has none)
+    types.ts                GameSession shape (evidence status, lab queue,
+                             notes, player timeline, interrogation log, mandates)
+    store.ts                In-memory session store (see DATABASE.md — Phase 9
+                             will replace this with Supabase)
+    current.ts               Cookie → session → regenerated CaseTruth accessor
+                             for Server Components
+    actions.ts               "use server" mutations (examine scene, check
+                             records, request a mandate, send to lab, advance
+                             time, ask a question, submit an accusation...)
+    discovery.ts, mandates.ts  Evidence-reveal and warrant-grant rules
+    player-view.ts            CaseTruth + GameSession → player-safe projections
+                             (PersonPublicView never carries `roles`, evidence
+                             lists never include undiscovered items, etc.)
+    interrogation-view.ts     KnowledgeFact/TestimonyLine → askable topics
+    scoring.ts                Accusation vs. CaseTruth → graded CaseScore
+    labels.ts                 Shared French labels for motive types, weapons
 
-types/, components/, features/, database/  (reserved for gameplay UI phases)
+components/investigation/  Small presentational + the handful of Client
+                            Components that need interactivity beyond a plain
+                            form action (Nav for active-link state, the
+                            timeline status select, the interrogation topic
+                            button)
 ```
 
 ## Data flow (case generation)
@@ -84,6 +123,42 @@ to `derive()` with the same label always produce the same stream, regardless
 of what else has been drawn from the parent in between. This is what makes
 `generateCase(seed)` reproducible forever, even as the engine keeps growing.
 
+## The game-session layer and the gameplay loop
+
+`lib/game-session` is deliberately a separate layer from `lib/game-engine`,
+not a subfolder of it: the engine has no concept of "discovered" evidence,
+warrants, or a player's own timeline notes — those are play-state concerns,
+not simulation concerns. A `GameSession` is small (evidence-status map, lab
+queue, notes, player timeline entries, interrogation log, mandate records,
+the final accusation) and is looked up from a cookie
+(`game-session/current.ts`). `CaseTruth` is **not** stored alongside it —
+it's regenerated on every request from `session.seed` via `generateCase()`,
+which is cheap and, by construction, always produces the identical case
+(see "Determinism" above).
+
+Gameplay pages are async Server Components that call `getCurrentGame()` and
+then a `player-view.ts` accessor to get a safe projection — e.g.
+`getVisibleEvidence()` filters out anything with status `"undiscovered"`
+entirely (not hidden — absent), and `PersonPublicView` never carries the
+engine's `roles` field (which is where `"culprit"` would leak). Mutations
+(`game-session/actions.ts`) are Next.js Server Actions: a button's
+`<form action={someAction.bind(null, id)}>` runs entirely server-side, calls
+into `discovery.ts`/`mandates.ts` to decide what happens, mutates the
+session in place, and calls `revalidatePath("/investigation", "layout")` so
+every open tab's next render reflects the change — there is no client-side
+game-state store (Zustand is installed for future use but nothing here
+needs it: the server is the source of truth every step of the way).
+
+The interrogation and accusation flow is the clearest expression of the
+project's central rule: the engine decides truth once, at generation time,
+and nothing downstream is allowed to edit it. `getInterrogationTopics()`
+exposes a `TestimonyLine.statement` (what someone *says*) but never its
+`stance` (whether that's a lie) — the player has to notice the contradiction
+themselves by cross-referencing the alibi's window against evidence found
+elsewhere, exactly as intended by brief §15. `scoreAccusation()` only ever
+*compares* the player's accusation against `CaseTruth` after the fact; it
+cannot influence what actually happened.
+
 ## Testing philosophy
 
 The engine matters far more than the UI (see `CLAUDE.md`/project brief,
@@ -97,3 +172,14 @@ section 52). `lib/game-engine/__tests__` includes:
 - A statistical batch test that generates hundreds of fully random cases and
   asserts a high validity/solvability rate — this is how the generator's rare
   procedural edge cases get caught, per the "generate 1000 cases" mandate.
+- Determinism of `portraits/portrait-service.ts`.
+
+The gameplay UI (Phases 6-8) has no automated end-to-end tests yet — it was
+verified by actually playing it in a browser (dashboard → generate →
+examine scene → dossier/camera/bank/search actions → warrant grant/refusal
+→ lab submission → time advance → interrogation → accusation → report)
+across two difficulties, which is how the `CaseBriefing` suspect/witness
+count bug and the duration-formatted-as-a-clock-time bug were caught. A
+Playwright suite covering this flow is reasonable future work but wasn't
+built yet — the engine's own property-style tests were judged higher value
+for the time available (brief §52: the engine is the priority).

@@ -114,7 +114,6 @@ export function toCaseBriefing(truth: CaseTruth): CaseBriefing {
   const victim = truth.people.find((p) => p.id === truth.victimId);
   if (!victim) throw new Error("CaseTruth is missing its victim record");
   const location = truth.locations.find((l) => l.id === truth.crimeLocationId);
-  const suspects = truth.people.filter((p) => p.id !== truth.victimId);
   return {
     seed: truth.seed,
     difficulty: truth.difficulty,
@@ -124,7 +123,7 @@ export function toCaseBriefing(truth: CaseTruth): CaseBriefing {
     discoveryLocationName: location?.name ?? "Lieu inconnu",
     discoveryDescription: `Le corps de ${victim.firstName} ${victim.lastName} a été découvert.`,
     reportedAt: truth.crimeTimestamp + 60,
-    suspectCount: suspects.length,
-    witnessCount: truth.people.length - suspects.length - 1,
+    suspectCount: truth.suspectIds.length,
+    witnessCount: truth.people.length - truth.suspectIds.length - 1,
   };
 }

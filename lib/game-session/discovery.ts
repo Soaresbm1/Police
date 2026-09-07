@@ -1,0 +1,154 @@
+import type { CaseTruth } from "@/lib/game-engine/types/case";
+import type { Evidence, EvidenceType } from "@/lib/game-engine/types/evidence";
+import type { PersonId } from "@/lib/game-engine/types/person";
+import type { LocationId } from "@/lib/game-engine/types/location";
+import { LAB_ANALYSIS_DURATION_MINUTES } from "@/lib/game-engine/types/evidence";
+import type { GameSession } from "./types";
+
+const DIGITAL_RECORD_TYPES: EvidenceType[] = [
+  "sms_log",
+  "call_log",
+  "browser_history",
+  "geolocation_log",
+  "wifi_connection_log",
+  "deleted_file",
+  "photo_metadata",
+];
+
+const BANK_RECORD_TYPES: EvidenceType[] = ["card_payment", "cash_withdrawal", "bank_transfer", "debt_record"];
+
+function statusOf(session: GameSession, evidenceId: string): string {
+  return session.evidenceStatus[evidenceId] ?? "undiscovered";
+}
+
+function reveal(session: GameSession, matches: Evidence[]): string[] {
+  const revealed: string[] = [];
+  for (const ev of matches) {
+    if (statusOf(session, ev.id) === "undiscovered") {
+      session.evidenceStatus[ev.id] = "discovered";
+      revealed.push(ev.id);
+    }
+  }
+  return revealed;
+}
+
+export interface DiscoveryResult {
+  revealedEvidenceIds: string[];
+  message: string;
+}
+
+/** Processes the crime scene itself: obvious physical/video evidence at the
+ * crime location surfaces immediately; anything with high discovery
+ * difficulty still needs a targeted request (lab, records, search). */
+export function examineCrimeScene(truth: CaseTruth, session: GameSession): DiscoveryResult {
+  session.crimeSceneExamined = true;
+  const matches = truth.evidence.filter(
+    (ev) =>
+      !ev.isRedHerring &&
+      ev.relatedLocationIds.includes(truth.crimeLocationId) &&
+      (ev.family === "physical" || ev.family === "video") &&
+      ev.discoveryDifficulty <= 0.5,
+  );
+  const revealedEvidenceIds = reveal(session, matches);
+  return {
+    revealedEvidenceIds,
+    message:
+      revealedEvidenceIds.length > 0
+        ? `Examen de la scène de crime : ${revealedEvidenceIds.length} élément(s) relevé(s).`
+        : "Examen de la scène de crime : rien d'évident à première vue.",
+  };
+}
+
+export function checkDigitalRecords(truth: CaseTruth, session: GameSession, personId: PersonId): DiscoveryResult {
+  const matches = truth.evidence.filter((ev) => ev.relatedPersonIds.includes(personId) && DIGITAL_RECORD_TYPES.includes(ev.type));
+  const revealedEvidenceIds = reveal(session, matches);
+  return {
+    revealedEvidenceIds,
+    message:
+      revealedEvidenceIds.length > 0
+        ? `Dossier numérique : ${revealedEvidenceIds.length} élément(s) trouvé(s).`
+        : "Dossier numérique : aucun élément exploitable.",
+  };
+}
+
+export function checkBankRecords(truth: CaseTruth, session: GameSession, personId: PersonId): DiscoveryResult {
+  const matches = truth.evidence.filter((ev) => ev.relatedPersonIds.includes(personId) && BANK_RECORD_TYPES.includes(ev.type));
+  const revealedEvidenceIds = reveal(session, matches);
+  return {
+    revealedEvidenceIds,
+    message:
+      revealedEvidenceIds.length > 0
+        ? `Relevés bancaires : ${revealedEvidenceIds.length} élément(s) trouvé(s).`
+        : "Relevés bancaires : aucune opération notable.",
+  };
+}
+
+export function checkCameraFootage(truth: CaseTruth, session: GameSession, locationId: LocationId): DiscoveryResult {
+  const matches = truth.evidence.filter((ev) => ev.type === "camera_footage" && ev.relatedLocationIds.includes(locationId));
+  const revealedEvidenceIds = reveal(session, matches);
+  return {
+    revealedEvidenceIds,
+    message:
+      revealedEvidenceIds.length > 0
+        ? `Vidéosurveillance : ${revealedEvidenceIds.length} séquence(s) trouvée(s).`
+        : "Vidéosurveillance : rien d'exploitable pour ce lieu.",
+  };
+}
+
+export function searchLocation(truth: CaseTruth, session: GameSession, locationId: LocationId): DiscoveryResult {
+  const matches = truth.evidence.filter((ev) => ev.family === "physical" && ev.relatedLocationIds.includes(locationId));
+  const revealedEvidenceIds = reveal(session, matches);
+  return {
+    revealedEvidenceIds,
+    message:
+      revealedEvidenceIds.length > 0
+        ? `Perquisition : ${revealedEvidenceIds.length} élément(s) relevé(s).`
+        : "Perquisition : rien de probant trouvé sur place.",
+  };
+}
+
+/** Interrogating someone surfaces any red-herring witness-statement
+ * evidence tied to them (a rumor/sighting reported about that person). */
+export function revealFromInterrogation(truth: CaseTruth, session: GameSession, personId: PersonId): string[] {
+  const matches = truth.evidence.filter((ev) => ev.type === "witness_statement" && ev.relatedPersonIds.includes(personId));
+  return reveal(session, matches);
+}
+
+export function collectEvidence(session: GameSession, evidenceId: string): void {
+  if (statusOf(session, evidenceId) === "discovered") {
+    session.evidenceStatus[evidenceId] = "collected";
+  }
+}
+
+export function sendToLab(truth: CaseTruth, session: GameSession, evidenceId: string): { ok: boolean; message: string } {
+  const evidence = truth.evidence.find((e) => e.id === evidenceId);
+  if (!evidence) return { ok: false, message: "Preuve introuvable." };
+  if (!evidence.requiresLabAnalysis) return { ok: false, message: "Cette preuve ne nécessite pas d'analyse." };
+  const status = statusOf(session, evidenceId);
+  if (status === "undiscovered") return { ok: false, message: "Cette preuve n'a pas encore été découverte." };
+  if (status === "sent_to_lab" || status === "analyzed") return { ok: false, message: "Déjà envoyée au laboratoire." };
+
+  const duration = LAB_ANALYSIS_DURATION_MINUTES[evidence.requiresLabAnalysis];
+  session.evidenceStatus[evidenceId] = "sent_to_lab";
+  session.labQueue.push({
+    evidenceId,
+    analysisType: evidence.requiresLabAnalysis,
+    submittedAt: session.currentTime,
+    readyAt: session.currentTime + duration,
+  });
+  return { ok: true, message: `Envoyé au laboratoire (${evidence.requiresLabAnalysis}), résultat dans ${duration} min de jeu.` };
+}
+
+/** Advances the game clock and completes any lab jobs whose time has come. */
+export function advanceTime(session: GameSession, minutes: number): { completedEvidenceIds: string[] } {
+  session.currentTime += minutes;
+  const completed: string[] = [];
+  for (const job of session.labQueue) {
+    const status = statusOf(session, job.evidenceId);
+    if (status === "sent_to_lab" && session.currentTime >= job.readyAt) {
+      session.evidenceStatus[job.evidenceId] = "analyzed";
+      completed.push(job.evidenceId);
+    }
+  }
+  return { completedEvidenceIds: completed };
+}

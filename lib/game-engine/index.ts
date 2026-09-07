@@ -9,3 +9,4 @@ export { validateCase, type ValidationResult } from "./validator/case-validator"
 export { computeSolvability, MIN_INDEPENDENT_CHANNELS, type SolvabilityResult } from "./validator/solvability";
 export { DIFFICULTY_CONFIGS, type DifficultyConfig } from "./case-generator/difficulty";
 export { TemplateNarrativeProvider, type NarrativeProvider, type EmotionalState } from "./narrative/narrative-provider";
+export { portraitService, DeterministicAvatarService, type PersonPortraitService } from "./portraits/portrait-service";
