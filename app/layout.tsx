@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Oswald, Geist_Mono, Courier_Prime } from "next/font/google";
 import "./globals.css";
+import { getCurrentIdentity } from "@/lib/game-session/identity";
+import { getStore } from "@/lib/game-session/persistence";
 
 const displayFont = Oswald({
   variable: "--font-display",
@@ -24,10 +26,14 @@ export const metadata: Metadata = {
   description: "Système d'enquête policière",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const identity = await getCurrentIdentity();
+  const reduceMotion = identity.authenticated ? (await getStore().getProfile(identity.userId)).settings.reduceMotion : false;
+
   return (
     <html
       lang="fr"
+      data-reduce-motion={reduceMotion ? "true" : "false"}
       className={`${displayFont.variable} ${geistMono.variable} ${documentFont.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">{children}</body>

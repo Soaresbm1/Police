@@ -171,15 +171,68 @@ test). `npm run typecheck`, `npm run lint`, and `npm run build` all clean.
     debug readout, then removed. This was **not** a pre-existing bug — it
     was introduced by this pass's node restyling and caught by the
     mandated in-browser retest before being reported as done.
-  - Not yet redesigned in this pass (candidates for a follow-up): a
-    dedicated spatial crime-scene screen with clickable hotspots (section
-    12 of the brief — examining the scene is still a single button today),
-    a standalone forensic-lab queue screen with progress bars (lab status
-    today is a header badge + evidence-card state, not its own screen), an
-    investigation map, a settings overlay, first-case contextual
-    onboarding hints, and a more cinematic (multi-step) truth-reveal
-    sequence on the report screen (today it's a single richly-styled panel,
-    not a stepped reveal).
+  - Follow-up items from this pass, all completed in the next pass below:
+    a spatial crime-scene screen, a standalone lab screen, an investigation
+    map, a stepped truth reveal, a settings overlay, and onboarding hints.
+
+- **Immersion pass 2 — remaining ROADMAP items.**
+  - **Spatial crime scene** (`/investigation/scene`,
+    `lib/game-session/crime-scene.ts`, `CrimeSceneScreen.tsx`): the crime
+    scene is now a room with 8 clickable numbered hotspots instead of one
+    "examine" button. `getCrimeSceneHotspots()` is a pure presentation
+    layer — it deterministically assigns the *same* discoverable evidence
+    set `discovery.getCrimeSceneEvidence()` already produced to a fixed
+    pool of generic room props (table, window, door, floor...), hashed by
+    evidence id so the layout is stable per case; leftover prop slots
+    become flavor-only decoys ("Rien de particulier ici.") — never fake
+    evidence, just an honest empty result. One hotspot is always "Le
+    corps" showing the (already-public) autopsy summary. Inspecting a
+    hotspot reveals exactly one evidence item via the new
+    `discovery.inspectCrimeSceneHotspot()`, and the panel offers the same
+    Prélever/Envoyer-au-laboratoire actions evidence cards already have.
+  - **Forensic lab** (`/investigation/laboratoire`): a real queue with a
+    progress bar per job (`(currentTime - submittedAt) / (readyAt -
+    submittedAt)`), an "en attente d'envoi" section for discovered/
+    collected evidence not yet sent, and a "rapports disponibles" section
+    once `advanceTime` marks a job analyzed — all reading existing
+    `session.labQueue`/`evidenceStatus`, no new engine or session rules.
+  - **Investigation map** (`/investigation/carte`,
+    `player-view.ts#getMapLocations`): plots the crime scene, every
+    person's home/work (already public elsewhere in the UI), and any
+    location tied to *discovered* evidence — using each location's real
+    `coordinates` (the engine's 8×8km grid) normalized to percentages. A
+    location whose only significance is undiscovered evidence gets no
+    marker, so the map can't hint at hidden truth. Selecting a location
+    draws a dashed line to the crime scene and shows real
+    `travelMinutes()` (car/foot) from it, so alibi-vs-geography
+    contradictions ("he says he walked, but that's 45 minutes on foot")
+    become visible at a glance.
+  - **Stepped truth reveal** (`rapport/page.tsx` +
+    `TruthRevealSequence.tsx`): the final report is now five short beats
+    (dossier transmis → accusation result/grade → correctness breakdown →
+    reconstructed true timeline → closing stats) navigated with a
+    "Suivant" button and a "Tout afficher" skip link, instead of one long
+    scrolling page. No forced delays — every beat advances on click.
+  - **Settings overlay + ESC** (`components/shell/SettingsOverlay.tsx`):
+    Échap toggles a panel (sound, a manual "reduced motion" toggle wired to
+    a `[data-reduce-motion]` CSS rule, and an onboarding-hints toggle),
+    reachable in-game from the top bar and from the main menu.
+  - **Onboarding hints** (`OnboardingHint.tsx`): small dismissible tips on
+    the dossier, Téléphonie, and the evidence board, each independently
+    dismissible and with a "Désactiver les astuces" link that turns them
+    all off via `localStorage`. Pragmatic scope note: this is "shown until
+    dismissed," not tied to an actual first-case counter — the project
+    doesn't persist a cases-played count anywhere yet (that's Phase-9-
+    adjacent), so `localStorage` dismissal is the honest equivalent within
+    a single browser.
+  - **Real bug found and fixed in this pass:** `app-actions.ts` (a `"use
+    server"` file) had gained a `export const RECORD_TYPE_LABEL = {...}`
+    — Next.js only allows a `"use server"` module to export async
+    functions, so this crashed every screen that imported it as soon as
+    `CrimeSceneScreen` pulled it in. Fixed by moving the constant to
+    `lib/game-session/labels.ts` (a plain module) and updating both call
+    sites. Caught during the mandated in-browser retest, not by
+    `tsc`/`eslint` (both were clean — this is a Next.js runtime-only rule).
 
 ## Known limitation: session storage is in-memory
 

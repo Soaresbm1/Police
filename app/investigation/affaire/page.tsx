@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getBriefing, getLocation, getPerson } from "@/lib/game-session/player-view";
-import { examineCrimeSceneAction } from "@/lib/game-session/actions";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { Avatar } from "@/components/investigation/Avatar";
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
+import { OnboardingHint } from "@/components/investigation/OnboardingHint";
 
 export default async function AffairePage() {
   const game = await getCurrentGame();
@@ -24,6 +25,11 @@ export default async function AffairePage() {
         locationName={crimeScene?.name ?? "Lieu inconnu"}
         locationAddress={crimeScene?.address ?? ""}
         reportedAtLabel={formatGameTime(briefing.reportedAt)}
+      />
+
+      <OnboardingHint
+        id="dossier-scene"
+        text="Commencez par explorer la scène de crime pour relever les premiers indices."
       />
 
       <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
@@ -109,15 +115,13 @@ export default async function AffairePage() {
             <p className="field-label">Scène de crime</p>
             <p className="mt-1 text-sm text-muted">
               {session.crimeSceneExamined
-                ? "La scène a été examinée — consultez Preuves pour les éléments relevés."
-                : "La scène n'a pas encore été examinée par vos équipes."}
+                ? "Explorez à nouveau la scène pour vérifier les zones encore inexplorées."
+                : "La scène n'a pas encore été explorée par vos équipes."}
             </p>
           </div>
-          <form action={examineCrimeSceneAction}>
-            <button type="submit" disabled={session.crimeSceneExamined} className="btn btn-primary">
-              {session.crimeSceneExamined ? "Scène déjà examinée" : "Examiner la scène de crime"}
-            </button>
-          </form>
+          <Link href="/investigation/scene" className="btn btn-primary">
+            {session.crimeSceneExamined ? "Rouvrir la scène" : "Explorer la scène de crime"}
+          </Link>
         </div>
       </section>
 

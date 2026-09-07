@@ -90,6 +90,10 @@ export interface GameSession {
   board: BoardState;
   accusation: Accusation | null;
   crimeSceneExamined: boolean;
+  /** Ids of decoy (evidence-less) crime-scene hotspots the player has
+   * already inspected, so the scene screen can show them as "checked"
+   * without needing a fake Evidence record to hang that state off of. */
+  crimeSceneInspectedZoneIds: string[];
   /** Ids of evidence revealed by the most recently-run action, for a
    * one-shot "you found something" message. Cleared on next read. */
   lastRevealedEvidenceIds: string[];

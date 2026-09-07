@@ -4,6 +4,7 @@ import type { Person, PersonId } from "@/lib/game-engine/types/person";
 import type { Evidence } from "@/lib/game-engine/types/evidence";
 import type { GameSession, EvidencePlayerStatus } from "./types";
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { travelMinutes } from "@/lib/game-engine/types/location";
 
 /** Public-safe view of a Person — deliberately omits `roles` (which
  * encodes who the culprit is) and any other ground-truth-only fields. */
@@ -129,6 +130,78 @@ export function getLocation(truth: CaseTruth, locationId: string) {
  * search results don't show several indistinguishable "Maison privée". */
 export function displayLocationName(location: { name: string; address: string; type: string }): string {
   return location.type === "house" || location.type === "apartment" ? `${location.name} (${location.address})` : location.name;
+}
+
+export interface MapLocationView {
+  id: string;
+  name: string;
+  address: string;
+  x: number;
+  y: number;
+  category: "crime_scene" | "home" | "work" | "evidence";
+  occupantNames: string[];
+  discoveredEvidenceCount: number;
+  travelMinutesFromSceneCar: number;
+  travelMinutesFromSceneFoot: number;
+}
+
+const TOWN_SIZE_KM = 8;
+
+/**
+ * Locations to plot on the investigation map. Deliberately does **not**
+ * expose every location the engine generated — only the crime scene, every
+ * person's home/workplace (already public identity info elsewhere in the
+ * UI, e.g. the person profile's "Domicile" field), and any location tied to
+ * *discovered* evidence. A location whose only significance is an
+ * undiscovered clue (a red-herring sighting, an unfound waypoint) gets no
+ * marker at all, so the map can never hint at hidden truth.
+ */
+export function getMapLocations(truth: CaseTruth, session: GameSession): MapLocationView[] {
+  const byId = new Map<string, MapLocationView>();
+  const toPct = (km: number) => Math.min(100, Math.max(0, (km / TOWN_SIZE_KM) * 100));
+  const crimeScene = truth.locations.find((l) => l.id === truth.crimeLocationId);
+
+  const upsert = (locationId: string, category: MapLocationView["category"], occupant?: string) => {
+    const location = truth.locations.find((l) => l.id === locationId);
+    if (!location) return;
+    const existing = byId.get(locationId);
+    if (existing) {
+      if (occupant && !existing.occupantNames.includes(occupant)) existing.occupantNames.push(occupant);
+      // A crime scene marker always wins visually over a home/work marker.
+      if (category === "crime_scene") existing.category = "crime_scene";
+      return;
+    }
+    byId.set(locationId, {
+      id: location.id,
+      name: displayLocationName(location),
+      address: location.address,
+      x: toPct(location.coordinates.x),
+      y: toPct(location.coordinates.y),
+      category,
+      occupantNames: occupant ? [occupant] : [],
+      discoveredEvidenceCount: 0,
+      travelMinutesFromSceneCar: crimeScene ? travelMinutes(crimeScene.coordinates, location.coordinates, "car") : 0,
+      travelMinutesFromSceneFoot: crimeScene ? travelMinutes(crimeScene.coordinates, location.coordinates, "foot") : 0,
+    });
+  };
+
+  upsert(truth.crimeLocationId, "crime_scene");
+  for (const p of truth.people) {
+    const fullName = `${p.firstName} ${p.lastName}`;
+    upsert(p.homeLocationId, "home", fullName);
+    if (p.workLocationId) upsert(p.workLocationId, "work", fullName);
+  }
+  for (const ev of getVisibleEvidence(truth, session)) {
+    for (const locId of ev.relatedLocationIds) upsert(locId, "evidence");
+  }
+  for (const ev of getVisibleEvidence(truth, session)) {
+    for (const locId of ev.relatedLocationIds) {
+      const entry = byId.get(locId);
+      if (entry) entry.discoveredEvidenceCount += 1;
+    }
+  }
+
+  return Array.from(byId.values());
 }
 
 export function getCameraEquippedLocations(truth: CaseTruth): { id: string; name: string }[] {

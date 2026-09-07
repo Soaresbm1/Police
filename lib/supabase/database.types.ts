@@ -1,0 +1,88 @@
+/**
+ * Hand-authored to match `supabase/migrations/0001_init.sql` exactly, in
+ * the same shape the Supabase CLI would generate. Once a real Supabase
+ * project exists, regenerate with
+ * `supabase gen types typescript --project-id <id> > lib/supabase/database.types.ts`
+ * and this file becomes redundant — keep the shapes in sync until then.
+ */
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
+export interface Database {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          display_name: string;
+          rank: string;
+          xp: number;
+          cases_solved: number;
+          cases_failed: number;
+          accusations_total: number;
+          sound_muted: boolean;
+          reduce_motion: boolean;
+          hints_disabled: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & { id: string };
+        Update: Partial<Database["public"]["Tables"]["profiles"]["Row"]>;
+        Relationships: [];
+      };
+      investigation_sessions: {
+        Row: {
+          user_id: string;
+          seed: string;
+          difficulty: string;
+          current_time_minutes: number;
+          evidence_status: Json;
+          lab_queue: Json;
+          notes: string;
+          player_timeline: Json;
+          interrogated: Json;
+          mandates: Json;
+          board: Json;
+          accusation: Json | null;
+          crime_scene_examined: boolean;
+          crime_scene_inspected_zone_ids: Json;
+          last_action_message: string | null;
+          last_revealed_evidence_ids: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["investigation_sessions"]["Row"]> & {
+          user_id: string;
+          seed: string;
+          difficulty: string;
+          current_time_minutes: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["investigation_sessions"]["Row"]>;
+        Relationships: [];
+      };
+      case_history: {
+        Row: {
+          id: string;
+          user_id: string;
+          seed: string;
+          difficulty: string;
+          accusation: Json;
+          score: Json;
+          completed_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["case_history"]["Row"]> & {
+          user_id: string;
+          seed: string;
+          difficulty: string;
+          accusation: Json;
+          score: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["case_history"]["Row"]>;
+        Relationships: [];
+      };
+    };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
+  };
+}

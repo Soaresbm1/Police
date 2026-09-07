@@ -5,6 +5,7 @@ import Link from "next/link";
 import { searchPhoneAction, type PhoneSearchResult } from "@/lib/game-session/app-actions";
 import { AppFrame } from "./AppFrame";
 import { RecordTable } from "./RecordTable";
+import { OnboardingHint } from "@/components/investigation/OnboardingHint";
 import { playSound } from "@/lib/sound/sound-manager";
 
 export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
@@ -30,6 +31,10 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
 
   return (
     <AppFrame title="Téléphonie" system="SIRENE — Registre des télécommunications" accent="blue">
+      <OnboardingHint
+        id="telephonie-alibi"
+        text="Une déclaration peut être vérifiée grâce aux données téléphoniques : géolocalisation, appels, connexions Wi-Fi."
+      />
       <div className="panel p-4">
         <label className="field-label">Numéro de téléphone</label>
         <p className="mt-0.5 text-xs text-muted">Recherche exacte — le numéro complet est requis.</p>

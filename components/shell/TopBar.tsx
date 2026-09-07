@@ -1,7 +1,9 @@
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { advanceTimeAction, endCurrentCase } from "@/lib/game-session/actions";
 import type { GameSession } from "@/lib/game-session/types";
+import type { PlayerSettings } from "@/lib/game-session/persistence";
 import { SoundToggle } from "@/components/investigation/SoundToggle";
+import { SettingsOverlay } from "./SettingsOverlay";
 
 const DIFFICULTY_LABEL: Record<GameSession["difficulty"], string> = {
   recruit: "Recrue",
@@ -10,7 +12,7 @@ const DIFFICULTY_LABEL: Record<GameSession["difficulty"], string> = {
   expert: "Expert",
 };
 
-export function TopBar({ session }: { session: GameSession }) {
+export function TopBar({ session, settings }: { session: GameSession; settings: PlayerSettings }) {
   const pendingLabJobs = session.labQueue.filter((job) => session.evidenceStatus[job.evidenceId] === "sent_to_lab");
   const [dayLabel, clockLabel] = formatGameTime(session.currentTime).split(", ");
 
@@ -60,6 +62,12 @@ export function TopBar({ session }: { session: GameSession }) {
           </form>
         </div>
         <SoundToggle />
+        <SettingsOverlay
+          inGame
+          difficultyLabel={DIFFICULTY_LABEL[session.difficulty]}
+          initialReduceMotion={settings.reduceMotion}
+          initialHintsDisabled={settings.hintsDisabled}
+        />
         <form action={endCurrentCase}>
           <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px] hover:!text-danger">
             Quitter

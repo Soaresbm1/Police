@@ -337,6 +337,14 @@ body {
   }
 }
 
+/* The in-game "Animations réduites" setting — a manual opt-in on top of the
+   OS-level prefers-reduced-motion media query above, for players who don't
+   want to change a system-wide setting just for one game. */
+[data-reduce-motion="true"] * {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* ---------- Evidence board ---------- */
 
 .board-surface {

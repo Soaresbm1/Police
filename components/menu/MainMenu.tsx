@@ -1,7 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { startNewCase } from "@/lib/game-session/actions";
+import { signOutAction } from "@/lib/supabase/auth-actions";
+import { SettingsOverlay } from "@/components/shell/SettingsOverlay";
+import { rankForXp, nextRank } from "@/lib/game-session/career";
+import type { PlayerProfile } from "@/lib/game-session/persistence";
 
 const DIFFICULTIES = [
   { value: "recruit", label: "Recrue", description: "Assistance renforcée, peu de suspects." },
@@ -10,8 +15,25 @@ const DIFFICULTIES = [
   { value: "expert", label: "Expert", description: "Presque aucune aide, preuves ambiguës." },
 ];
 
-export function MainMenu({ hasActiveCase, resumeHref }: { hasActiveCase: boolean; resumeHref: string }) {
+export function MainMenu({
+  hasActiveCase,
+  resumeHref,
+  supabaseConfigured,
+  authenticated,
+  displayEmail,
+  profile,
+  caseHistoryCount,
+}: {
+  hasActiveCase: boolean;
+  resumeHref: string;
+  supabaseConfigured: boolean;
+  authenticated: boolean;
+  displayEmail: string | null;
+  profile: PlayerProfile | null;
+  caseHistoryCount: number;
+}) {
   const [panel, setPanel] = useState<"none" | "new-case">("none");
+  const requiresLogin = supabaseConfigured && !authenticated;
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background-deep">
@@ -29,7 +51,36 @@ export function MainMenu({ hasActiveCase, resumeHref }: { hasActiveCase: boolean
           </p>
         </div>
 
-        {panel === "none" && (
+        {profile && (
+          <div className="fade-up flex w-full items-center justify-between border border-border-strong bg-surface px-4 py-2.5 text-xs">
+            <div>
+              <p className="font-semibold uppercase tracking-wide text-accent-strong">{rankForXp(profile.xp)}</p>
+              {displayEmail && <p className="text-muted-dim">{displayEmail}</p>}
+            </div>
+            <div className="text-right text-muted">
+              <p>{profile.xp} XP</p>
+              <p>{profile.casesSolved} affaire(s) résolue(s)</p>
+            </div>
+          </div>
+        )}
+
+        {panel === "none" && requiresLogin && (
+          <nav className="fade-up flex w-full flex-col gap-2">
+            <Link href="/login" className="btn btn-primary w-full !justify-between !py-3 !text-[13px]">
+              <span>Se connecter / Créer un compte</span>
+              <span aria-hidden>→</span>
+            </Link>
+            <div className="mt-2 flex justify-center">
+              <SettingsOverlay
+                inGame={false}
+                initialReduceMotion={profile?.settings.reduceMotion}
+                initialHintsDisabled={profile?.settings.hintsDisabled}
+              />
+            </div>
+          </nav>
+        )}
+
+        {panel === "none" && !requiresLogin && (
           <nav className="fade-up flex w-full flex-col gap-2">
             {hasActiveCase && (
               <a href={resumeHref} className="btn btn-primary w-full !justify-between !py-3 !text-[13px]">
@@ -45,14 +96,28 @@ export function MainMenu({ hasActiveCase, resumeHref }: { hasActiveCase: boolean
               <span>Nouvelle affaire</span>
               <span aria-hidden>→</span>
             </button>
-            <button type="button" disabled className="btn w-full !justify-between !py-3 !text-[13px]">
+            <Link href="/dossiers" className="btn w-full !justify-between !py-3 !text-[13px]">
               <span>Dossiers archivés</span>
-              <span className="text-[10px] text-muted-dim">bientôt</span>
-            </button>
+              <span className="text-[10px] text-muted-dim">{caseHistoryCount}</span>
+            </Link>
             <button type="button" disabled className="btn w-full !justify-between !py-3 !text-[13px]">
               <span>Statistiques</span>
               <span className="text-[10px] text-muted-dim">bientôt</span>
             </button>
+            <div className="mt-2 flex items-center justify-center gap-2">
+              <SettingsOverlay
+                inGame={false}
+                initialReduceMotion={profile?.settings.reduceMotion}
+                initialHintsDisabled={profile?.settings.hintsDisabled}
+              />
+              {supabaseConfigured && (
+                <form action={signOutAction}>
+                  <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px]">
+                    Se déconnecter
+                  </button>
+                </form>
+              )}
+            </div>
           </nav>
         )}
 
@@ -89,6 +154,12 @@ export function MainMenu({ hasActiveCase, resumeHref }: { hasActiveCase: boolean
               </button>
             </div>
           </form>
+        )}
+
+        {profile && nextRank(profile.xp) && panel === "none" && !requiresLogin && (
+          <p className="font-data text-[10px] text-muted-dim">
+            Prochain grade : {nextRank(profile.xp)!.name} (encore {nextRank(profile.xp)!.xpNeeded} XP)
+          </p>
         )}
 
         <p className="font-data text-[10px] tracking-[0.1em] text-muted-dim">CASELINE v0.10 — build interne</p>

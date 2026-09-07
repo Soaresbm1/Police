@@ -3,11 +3,20 @@ import { TopBar } from "./TopBar";
 import { AppRail } from "./AppRail";
 import { ActionMessage } from "@/components/investigation/ActionMessage";
 import type { GameSession } from "@/lib/game-session/types";
+import type { PlayerSettings } from "@/lib/game-session/persistence";
 
-export function GameShell({ session, children }: { session: GameSession; children: ReactNode }) {
+export function GameShell({
+  session,
+  settings,
+  children,
+}: {
+  session: GameSession;
+  settings: PlayerSettings;
+  children: ReactNode;
+}) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background-deep">
-      <TopBar session={session} />
+      <TopBar session={session} settings={settings} />
       <ActionMessage message={session.lastActionMessage} />
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-52 shrink-0 border-r border-border">

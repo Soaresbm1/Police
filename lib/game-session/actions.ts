@@ -1,146 +1,163 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { generateCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
-import { createSession, deleteSession, getSession } from "./store";
-import { SESSION_COOKIE } from "./current";
+import { getStore } from "./persistence";
+import { getCurrentIdentity } from "./identity";
+import { withSession } from "./with-session";
 import * as discovery from "./discovery";
+import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
-
-async function requireSession() {
-  const jar = await cookies();
-  const id = jar.get(SESSION_COOKIE)?.value;
-  const session = getSession(id);
-  if (!session) throw new Error("Aucune enquête en cours.");
-  const truth = generateCase(session.seed, { difficulty: session.difficulty });
-  return { session, truth };
-}
 
 function refreshInvestigation() {
   revalidatePath("/investigation", "layout");
 }
 
 export async function startNewCase(formData: FormData) {
+  const { userId, authenticated } = await getCurrentIdentity();
+  if (!authenticated) redirect("/login");
+
   const raw = String(formData.get("difficulty") ?? "investigator");
   const difficulty: Difficulty = DIFFICULTIES.includes(raw as Difficulty) ? (raw as Difficulty) : "investigator";
   const seed = generateCaseSeed();
   const truth = generateCase(seed, { difficulty });
-  const session = createSession(seed, difficulty, truth.crimeTimestamp);
-
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, session.id, { httpOnly: true, sameSite: "lax", path: "/" });
+  await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
   redirect("/investigation/affaire");
 }
 
 export async function clearMessageAction() {
-  const { session } = await requireSession();
-  session.lastActionMessage = null;
-  session.lastRevealedEvidenceIds = [];
+  await withSession(({ session }) => {
+    session.lastActionMessage = null;
+    session.lastRevealedEvidenceIds = [];
+  });
   refreshInvestigation();
 }
 
 export async function endCurrentCase() {
-  const jar = await cookies();
-  const id = jar.get(SESSION_COOKIE)?.value;
-  if (id) {
-    deleteSession(id);
-    jar.delete(SESSION_COOKIE);
-  }
+  const { userId, authenticated } = await getCurrentIdentity();
+  if (authenticated) await getStore().deleteActiveSession(userId);
   redirect("/");
 }
 
 export async function examineCrimeSceneAction() {
-  const { session, truth } = await requireSession();
-  const result = discovery.examineCrimeScene(truth, session);
-  session.lastActionMessage = result.message;
-  session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
+  await withSession(({ session, truth }) => {
+    const result = discovery.examineCrimeScene(truth, session);
+    session.lastActionMessage = result.message;
+    session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
+  });
+  refreshInvestigation();
+}
+
+/** Inspecting one crime-scene hotspot: `evidenceId` reveals that specific
+ * item (if it's part of the legitimate crime-scene set); a null id means a
+ * decoy prop with nothing to find, which is only recorded as "inspected". */
+export async function inspectCrimeSceneZoneAction(zoneId: string, evidenceId: string | null) {
+  await withSession(({ session, truth }) => {
+    if (evidenceId) {
+      const result = discovery.inspectCrimeSceneHotspot(truth, session, evidenceId);
+      session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
+    } else {
+      session.crimeSceneExamined = true;
+      if (!session.crimeSceneInspectedZoneIds.includes(zoneId)) {
+        session.crimeSceneInspectedZoneIds.push(zoneId);
+      }
+    }
+  });
   refreshInvestigation();
 }
 
 export async function collectEvidenceAction(evidenceId: string) {
-  const { session } = await requireSession();
-  discovery.collectEvidence(session, evidenceId);
+  await withSession(({ session }) => {
+    discovery.collectEvidence(session, evidenceId);
+  });
   refreshInvestigation();
 }
 
 export async function sendToLabAction(evidenceId: string) {
-  const { session, truth } = await requireSession();
-  const result = discovery.sendToLab(truth, session, evidenceId);
-  session.lastActionMessage = result.message;
+  await withSession(({ session, truth }) => {
+    const result = discovery.sendToLab(truth, session, evidenceId);
+    session.lastActionMessage = result.message;
+  });
   refreshInvestigation();
 }
 
 export async function advanceTimeAction(minutes: number) {
-  const { session } = await requireSession();
-  const result = discovery.advanceTime(session, minutes);
-  session.lastActionMessage =
-    result.completedEvidenceIds.length > 0
-      ? `Le temps passe... ${result.completedEvidenceIds.length} résultat(s) de laboratoire sont arrivés.`
-      : "Le temps passe...";
+  await withSession(({ session }) => {
+    const result = discovery.advanceTime(session, minutes);
+    session.lastActionMessage =
+      result.completedEvidenceIds.length > 0
+        ? `Le temps passe... ${result.completedEvidenceIds.length} résultat(s) de laboratoire sont arrivés.`
+        : "Le temps passe...";
+  });
   refreshInvestigation();
 }
 
 export async function askQuestionAction(personId: string, factId: string) {
-  const { session, truth } = await requireSession();
-  markAsked(session, personId, factId);
-  const revealed = discovery.revealFromInterrogation(truth, session, personId);
-  const topics = getInterrogationTopics(truth, session, personId);
-  const topic = topics.find((t) => t.factId === factId);
-  session.lastActionMessage = topic ? `Réponse obtenue à propos de : ${topic.topicLabel}.` : null;
-  session.lastRevealedEvidenceIds = revealed;
-  discovery.advanceTime(session, 5);
+  await withSession(({ session, truth }) => {
+    markAsked(session, personId, factId);
+    const revealed = discovery.revealFromInterrogation(truth, session, personId);
+    const topics = getInterrogationTopics(truth, session, personId);
+    const topic = topics.find((t) => t.factId === factId);
+    session.lastActionMessage = topic ? `Réponse obtenue à propos de : ${topic.topicLabel}.` : null;
+    session.lastRevealedEvidenceIds = revealed;
+    discovery.advanceTime(session, 5);
+  });
   refreshInvestigation();
 }
 
 export async function saveNotesAction(formData: FormData) {
-  const { session } = await requireSession();
-  session.notes = String(formData.get("notes") ?? "");
+  await withSession(({ session }) => {
+    session.notes = String(formData.get("notes") ?? "");
+  });
   refreshInvestigation();
 }
 
 export async function addPlayerTimelineEntryAction(formData: FormData) {
-  const { session } = await requireSession();
   const description = String(formData.get("description") ?? "").trim();
   if (!description) return;
   const timeRaw = formData.get("time");
   const status = String(formData.get("status") ?? "hypothesis") as PlayerTimelineStatus;
   const personId = formData.get("personId") ? String(formData.get("personId")) : null;
 
-  session.playerTimeline.push({
-    id: `pt_${Math.random().toString(36).slice(2)}`,
-    time: timeRaw ? Number(timeRaw) : null,
-    description,
-    personId,
-    status,
-    createdAt: Date.now(),
+  await withSession(({ session }) => {
+    session.playerTimeline.push({
+      id: `pt_${Math.random().toString(36).slice(2)}`,
+      time: timeRaw ? Number(timeRaw) : null,
+      description,
+      personId,
+      status,
+      createdAt: Date.now(),
+    });
   });
   refreshInvestigation();
 }
 
 export async function updatePlayerTimelineStatusAction(entryId: string, status: PlayerTimelineStatus) {
-  const { session } = await requireSession();
-  const entry = session.playerTimeline.find((e) => e.id === entryId);
-  if (entry) entry.status = status;
+  await withSession(({ session }) => {
+    const entry = session.playerTimeline.find((e) => e.id === entryId);
+    if (entry) entry.status = status;
+  });
   refreshInvestigation();
 }
 
 export async function deletePlayerTimelineEntryAction(entryId: string) {
-  const { session } = await requireSession();
-  session.playerTimeline = session.playerTimeline.filter((e) => e.id !== entryId);
+  await withSession(({ session }) => {
+    session.playerTimeline = session.playerTimeline.filter((e) => e.id !== entryId);
+  });
   refreshInvestigation();
 }
 
 // Board mutations deliberately skip refreshInvestigation(): the evidence
 // board is a Client Component that owns its own canvas state for smooth
 // dragging, and no other screen displays board data, so there's nothing
-// else that needs to be revalidated.
+// else that needs to be revalidated. `withSession` still persists the
+// change through the active store either way.
 
 // `id` is generated by the caller (the board's Client Component) rather than
 // here, so the optimistic node it renders immediately and the one persisted
@@ -155,50 +172,63 @@ export async function addBoardNodeAction(
   x: number,
   y: number,
 ) {
-  const { session } = await requireSession();
-  session.board.nodes.push({ id, kind, refId, label, detail, x, y });
+  await withSession(({ session }) => {
+    session.board.nodes.push({ id, kind, refId, label, detail, x, y });
+  });
 }
 
 export async function addBoardNoteAction(id: string, text: string, x: number, y: number) {
-  const { session } = await requireSession();
-  session.board.nodes.push({ id, kind: "note", refId: "", label: "Note", detail: text, x, y });
+  await withSession(({ session }) => {
+    session.board.nodes.push({ id, kind: "note", refId: "", label: "Note", detail: text, x, y });
+  });
 }
 
 export async function moveBoardNodeAction(nodeId: string, x: number, y: number) {
-  const { session } = await requireSession();
-  const node = session.board.nodes.find((n) => n.id === nodeId);
-  if (node) {
-    node.x = x;
-    node.y = y;
-  }
+  await withSession(({ session }) => {
+    const node = session.board.nodes.find((n) => n.id === nodeId);
+    if (node) {
+      node.x = x;
+      node.y = y;
+    }
+  });
 }
 
 export async function removeBoardNodeAction(nodeId: string) {
-  const { session } = await requireSession();
-  session.board.nodes = session.board.nodes.filter((n) => n.id !== nodeId);
-  session.board.edges = session.board.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
+  await withSession(({ session }) => {
+    session.board.nodes = session.board.nodes.filter((n) => n.id !== nodeId);
+    session.board.edges = session.board.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
+  });
 }
 
 export async function addBoardEdgeAction(id: string, source: string, target: string, label: string) {
-  const { session } = await requireSession();
-  session.board.edges.push({ id, source, target, label });
+  await withSession(({ session }) => {
+    session.board.edges.push({ id, source, target, label });
+  });
 }
 
 export async function removeBoardEdgeAction(edgeId: string) {
-  const { session } = await requireSession();
-  session.board.edges = session.board.edges.filter((e) => e.id !== edgeId);
+  await withSession(({ session }) => {
+    session.board.edges = session.board.edges.filter((e) => e.id !== edgeId);
+  });
 }
 
 export async function submitAccusationAction(formData: FormData) {
-  const { session } = await requireSession();
   const culpritId = String(formData.get("culpritId") ?? "");
   const motiveType = String(formData.get("motiveType") ?? "");
   const method = String(formData.get("method") ?? "");
   if (!culpritId || !motiveType || !method) {
-    session.lastActionMessage = "Veuillez compléter tous les champs de l'accusation.";
+    await withSession(({ session }) => {
+      session.lastActionMessage = "Veuillez compléter tous les champs de l'accusation.";
+    });
     refreshInvestigation();
     return;
   }
-  session.accusation = { culpritId, motiveType, method, submittedAt: session.currentTime };
+
+  await withSession(async ({ session, truth, userId }) => {
+    const accusation = { culpritId, motiveType, method, submittedAt: session.currentTime };
+    session.accusation = accusation;
+    const score = scoreAccusation(truth, session, accusation);
+    await getStore().completeCase(userId, { seed: session.seed, difficulty: session.difficulty, accusation, score });
+  });
   redirect("/investigation/rapport");
 }

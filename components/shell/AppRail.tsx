@@ -19,15 +19,18 @@ const SECTIONS: RailSection[] = [
     caption: "Enquête",
     links: [
       { href: "/investigation/affaire", tag: "DOS", label: "Dossier" },
+      { href: "/investigation/scene", tag: "SCN", label: "Scène" },
       { href: "/investigation/suspects", tag: "SUS", label: "Suspects" },
       { href: "/investigation/temoins", tag: "TEM", label: "Témoins" },
       { href: "/investigation/preuves", tag: "PRV", label: "Preuves" },
+      { href: "/investigation/laboratoire", tag: "LAB", label: "Laboratoire" },
     ],
   },
   {
     caption: "Outils",
     links: [
       { href: "/investigation/applications", tag: "APP", label: "Applications" },
+      { href: "/investigation/carte", tag: "CAR", label: "Carte" },
       { href: "/investigation/tableau", tag: "TAB", label: "Tableau" },
       { href: "/investigation/chronologie", tag: "CHR", label: "Chronologie" },
       { href: "/investigation/relations", tag: "REL", label: "Relations" },

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentGame } from "@/lib/game-session/current";
+import { getStore } from "@/lib/game-session/persistence";
 import { GameShell } from "@/components/shell/GameShell";
 
 export const dynamic = "force-dynamic";
@@ -11,5 +12,11 @@ export default async function InvestigationLayout({ children }: { children: Reac
     redirect("/");
   }
 
-  return <GameShell session={game.session}>{children}</GameShell>;
+  const profile = await getStore().getProfile(game.userId);
+
+  return (
+    <GameShell session={game.session} settings={profile.settings}>
+      {children}
+    </GameShell>
+  );
 }
