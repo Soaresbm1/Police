@@ -100,6 +100,14 @@ route between the crime scene and his home" clue (the driving design goal —
 see project brief §50) as a physically grounded consequence of geography,
 not a scripted narrative beat.
 
+A related detail lives in `witness/knowledge-graph.ts#partialPlate`: a
+witness who gets a good enough look at an unrecognized vehicle
+(`perceptionQuality > 0.7`) remembers the canton and the trailing digits of
+its plate, never the letters in between (`"VD •• 123"`). This is what gives
+the Vidéosurveillance/Véhicules apps' partial-plate search something real to
+resolve — the player finds a partial plate through a witness statement, then
+runs it through the vehicle registry to narrow down (or confirm) a suspect.
+
 ## No teleportation
 
 `validator/case-validator.ts#checkTimelinePhysicality` builds, per person, a

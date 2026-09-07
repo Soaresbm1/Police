@@ -9,7 +9,6 @@ import type { Difficulty } from "@/lib/game-engine/types/case";
 import { createSession, deleteSession, getSession } from "./store";
 import { SESSION_COOKIE } from "./current";
 import * as discovery from "./discovery";
-import { evaluateMandate, mandateKey } from "./mandates";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
@@ -60,64 +59,6 @@ export async function endCurrentCase() {
 export async function examineCrimeSceneAction() {
   const { session, truth } = await requireSession();
   const result = discovery.examineCrimeScene(truth, session);
-  session.lastActionMessage = result.message;
-  session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
-  refreshInvestigation();
-}
-
-export async function checkDigitalRecordsAction(personId: string) {
-  const { session, truth } = await requireSession();
-  const result = discovery.checkDigitalRecords(truth, session, personId);
-  session.lastActionMessage = result.message;
-  session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
-  refreshInvestigation();
-}
-
-export async function requestBankMandateAction(personId: string) {
-  const { session, truth } = await requireSession();
-  const record = evaluateMandate(truth, session, "bank", personId);
-  session.lastActionMessage = record.reason;
-  refreshInvestigation();
-}
-
-export async function checkBankRecordsAction(personId: string) {
-  const { session, truth } = await requireSession();
-  const record = session.mandates[mandateKey("bank", personId)];
-  if (!record?.granted) {
-    session.lastActionMessage = "Mandat bancaire requis avant de consulter les comptes.";
-    refreshInvestigation();
-    return;
-  }
-  const result = discovery.checkBankRecords(truth, session, personId);
-  session.lastActionMessage = result.message;
-  session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
-  refreshInvestigation();
-}
-
-export async function checkCameraFootageAction(locationId: string) {
-  const { session, truth } = await requireSession();
-  const result = discovery.checkCameraFootage(truth, session, locationId);
-  session.lastActionMessage = result.message;
-  session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
-  refreshInvestigation();
-}
-
-export async function requestSearchMandateAction(personId: string) {
-  const { session, truth } = await requireSession();
-  const record = evaluateMandate(truth, session, "search", personId);
-  session.lastActionMessage = record.reason;
-  refreshInvestigation();
-}
-
-export async function searchLocationAction(locationId: string, personId: string) {
-  const { session, truth } = await requireSession();
-  const record = session.mandates[mandateKey("search", personId)];
-  if (!record?.granted) {
-    session.lastActionMessage = "Mandat de perquisition requis avant de fouiller ce domicile.";
-    refreshInvestigation();
-    return;
-  }
-  const result = discovery.searchLocation(truth, session, locationId);
   session.lastActionMessage = result.message;
   session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
   refreshInvestigation();

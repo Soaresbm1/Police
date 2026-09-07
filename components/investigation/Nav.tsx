@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/investigation/suspects", label: "Suspects" },
   { href: "/investigation/temoins", label: "Témoins" },
   { href: "/investigation/preuves", label: "Preuves" },
+  { href: "/investigation/applications", label: "Applications" },
   { href: "/investigation/tableau", label: "Tableau" },
   { href: "/investigation/chronologie", label: "Chronologie" },
   { href: "/investigation/relations", label: "Relations" },

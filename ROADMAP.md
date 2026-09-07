@@ -69,10 +69,62 @@ a clock time, a header that clipped off-screen at narrow widths).
   precision limit, not a known code defect). Worth a manual pass with a
   real mouse before calling this fully verified.
 
-Test suite: `lib/game-engine/__tests__` (RNG, travel math, validator rules
-in isolation, portrait-service determinism, a statistical batch-generation
-regression test). `npm run typecheck`, `npm run lint`, and `npm run build`
-all clean.
+- **Phase 10 (continued) — Police software suite.** Six separate in-universe
+  applications under `/investigation/applications`, each with its own
+  search constraints rather than a shared generic data table:
+  - **Téléphonie** — exact-match search by phone number only (no browsing);
+    returns a real subscriber + a chronological call/SMS/geolocation/wifi
+    log. Deep-links from a suspect's profile with their number pre-filled.
+  - **Véhicules** — plate lookup accepting partial input (a witness who got
+    a good look now remembers the canton and trailing digits, never the
+    letters — `witness/knowledge-graph.ts#partialPlate`), which can return
+    zero, one, or several ambiguous matches the player has to cross-check.
+  - **Casier judiciaire** — local, no-network-cost name autocomplete over
+    the public roster, then a per-person extract. Records are derived
+    on-the-fly from existing traits (`criminal-record.ts`: aggressiveness,
+    honesty, impulsivity, addictions) — nothing new was added to
+    `CaseTruth`, so it can never leak hidden truth, only flavor.
+  - **Vidéosurveillance** — footage is requested by location *and* a fixed
+    6-hour archive slot, never freely browsed; a wrong slot returns nothing
+    with a hint that other footage exists outside the window, encouraging
+    the player to actually reason about timing instead of scanning everything.
+  - **Consultation bancaire** and **Mandats** — both route through the same
+    warrant-grant rule as before (`mandates.ts`: requires at least one
+    already-discovered, non-red-herring piece of evidence linking that
+    person to the case), now presented as an actual request/response
+    workflow with a visible case log, rather than a single inline button.
+  
+  Every search action costs a small amount of in-game time
+  (`app-actions.ts`), all read `CaseTruth`/`GameSession` exactly like the
+  original discovery actions (never a separate or looser truth boundary),
+  and generic home names ("Maison privée" ×3) are disambiguated with the
+  street address wherever an app has to list several
+  (`player-view.ts#displayLocationName`) — a real ambiguity bug caught and
+  fixed during playtesting.
+
+- **Phase 10 (continued) — Sound architecture.** `lib/sound/sound-manager.ts`
+  synthesizes short, quiet tones via the Web Audio API (no audio files to
+  ship or 404) behind a `playSound(name)` call a future asset-backed
+  implementation could drop in behind unchanged. A mute toggle
+  (`SoundToggle`, header) persists to `localStorage`; sounds are wired only
+  at meaningful moments (a lookup succeeds/fails, a mandate is
+  granted/refused, an incriminating record turns up) — deliberately not on
+  every click, per "subtle and optional."
+
+A full case was played start to finish in a real browser session using only
+these new tools — generate → examine scene → Téléphonie (found a lure SMS to
+the victim + a geolocation ping at the crime scene during the death window,
+contradicting the suspect's home alibi) → Véhicules → Casier → Mandats
+(requested and executed a search warrant) → Banque → interrogation → a
+correct accusation, confirmed by the reveal report (right culprit, right
+method, real motive was a debt-driven fear of denunciation). One real bug
+was caught and fixed in that pass (ambiguous "Maison privée" entries in the
+Vidéosurveillance location list).
+
+Test suite: `lib/game-engine/__tests__` and `lib/game-session/__tests__`
+(RNG, travel math, validator rules in isolation, portrait-service and
+criminal-record determinism, a statistical batch-generation regression
+test). `npm run typecheck`, `npm run lint`, and `npm run build` all clean.
 
 ## Known limitation: session storage is in-memory
 
@@ -90,11 +142,9 @@ interrogation log, mandates, accusation).
 - **Phase 9 — Save/Auth.** Supabase Auth + persistence, replacing the
   in-memory store above. Blocked on the user providing a Supabase project
   (URL + keys) — this repo will not fabricate a fake backend integration.
-- **Phase 10 — Polish (remaining).** Sound architecture, career mode
-  (grade/XP — needs Phase 9's persistence), phone/vehicle/criminal-record
-  lookup apps as their own "software" screens (currently folded into a
-  single "dossier numérique" action per person), manual `CaseDefinition`
-  JSON loading for hand-authored cases. The evidence board itself is
+- **Phase 10 — Polish (remaining).** Career mode (grade/XP — needs Phase 9's
+  persistence), manual `CaseDefinition` JSON loading for hand-authored
+  cases. Evidence board, sound, and the six police-software apps are
   done — see above.
 
 ## Explicitly deferred (by design, not oversight)

@@ -1,6 +1,7 @@
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { advanceTimeAction, endCurrentCase } from "@/lib/game-session/actions";
 import type { GameSession } from "@/lib/game-session/types";
+import { SoundToggle } from "./SoundToggle";
 
 export function GameClockHeader({ session }: { session: GameSession }) {
   const pendingLabJobs = session.labQueue.filter((job) => {
@@ -41,6 +42,7 @@ export function GameClockHeader({ session }: { session: GameSession }) {
             Quitter l&apos;enquête
           </button>
         </form>
+        <SoundToggle />
       </div>
     </header>
   );

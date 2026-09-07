@@ -13,16 +13,30 @@ function locationName(id: string, locations: Map<string, Location>): string {
   return locations.get(id)?.name ?? "un lieu";
 }
 
+/** A witness who got a good enough look remembers the canton and the
+ * trailing digits of a plate, but not the letters in the middle — this is
+ * what gives the vehicle registry lookup something real to search against. */
+function partialPlate(plate: string): string {
+  const parts = plate.split(" ");
+  if (parts.length === 3) return `${parts[0]} •• ${parts[2]}`;
+  return plate;
+}
+
 function buildStatement(
   event: TimelineEvent,
   observer: Person,
   actor: Person | undefined,
   knowsActor: boolean,
   locations: Map<string, Location>,
+  perceptionQuality: number,
 ): string {
   const isVehicleSighting = event.evidenceSourceTags.includes("vehicle_sighting") && actor?.vehicle;
   if (isVehicleSighting && !knowsActor && actor?.vehicle) {
-    return `A remarqué une voiture ${actor.vehicle.color} (${actor.vehicle.make}) près de ${locationName(event.locationId, locations)} ${formatGameTime(event.timestamp)}.`;
+    const base = `A remarqué une voiture ${actor.vehicle.color} (${actor.vehicle.make}) près de ${locationName(event.locationId, locations)} ${formatGameTime(event.timestamp)}`;
+    if (perceptionQuality > 0.7) {
+      return `${base}, plaque partiellement relevée : ${partialPlate(actor.vehicle.plate)}.`;
+    }
+    return `${base}.`;
   }
   if (!knowsActor && actor) {
     return `A observé une personne non identifiée (${event.action}) à ${locationName(event.locationId, locations)} ${formatGameTime(event.timestamp)}.`;
@@ -72,7 +86,7 @@ export function buildKnowledgeGraph(
         (actor ? graph.areConnected(observer.id, actor.id) : false);
 
       const trueStatement = event.description;
-      const witnessStatement = buildStatement(event, observer, actor, knowsActor, locationsById);
+      const witnessStatement = buildStatement(event, observer, actor, knowsActor, locationsById, perceptionQuality);
       const isCorrupted = observer.id !== event.actorId && shouldCorrupt(factRng.derive("corrupt"), perceptionQuality, memoryQuality);
 
       facts.push({

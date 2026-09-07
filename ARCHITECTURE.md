@@ -38,6 +38,11 @@ app/                      Next.js App Router pages
     interrogatoires/[personId]/  Ask-about-topics interrogation transcript
     notes/                   Freeform autosaved notes
     accusation/, rapport/    Final accusation form + graded reveal report
+    applications/            Six separate in-universe police software tools
+                              (telephonie, vehicules, casier, cameras, banque,
+                              mandats) — see GAME_ENGINE.md and ROADMAP.md for
+                              why each has its own search constraints instead
+                              of being one generic data table
 
 lib/
   game-engine/             The entire simulation engine (server-only, pure)
@@ -65,22 +70,44 @@ lib/
                              will replace this with Supabase)
     current.ts               Cookie → session → regenerated CaseTruth accessor
                              for Server Components
-    actions.ts               "use server" mutations (examine scene, check
-                             records, request a mandate, send to lab, advance
-                             time, ask a question, submit an accusation...)
-    discovery.ts, mandates.ts  Evidence-reveal and warrant-grant rules
+    actions.ts               "use server" mutations for the core gameplay
+                             loop (examine scene, collect/lab evidence,
+                             advance time, ask a question, timeline entries,
+                             evidence board, submit an accusation...)
+    app-actions.ts            "use server" search actions for the six police
+                             apps — these *return* structured data to their
+                             Client Component caller (not just revalidate +
+                             redirect), since a search app renders a report
+                             inline rather than navigating away
+    discovery.ts, mandates.ts  Evidence-reveal and warrant-grant rules,
+                             shared by both actions.ts and app-actions.ts
+    criminal-record.ts        Deterministic per-person criminal history,
+                             derived purely from existing personality/
+                             addiction traits — flavor for the Casier
+                             judiciaire app; never stored in CaseTruth,
+                             can't leak hidden truth because there's no
+                             hidden truth to leak, only public-safe traits
     player-view.ts            CaseTruth + GameSession → player-safe projections
                              (PersonPublicView never carries `roles`, evidence
-                             lists never include undiscovered items, etc.)
+                             lists never include undiscovered items, home
+                             names are disambiguated by address, etc.)
     interrogation-view.ts     KnowledgeFact/TestimonyLine → askable topics
     scoring.ts                Accusation vs. CaseTruth → graded CaseScore
     labels.ts                 Shared French labels for motive types, weapons
+
+  sound/
+    sound-manager.ts          Web Audio API tone synthesis behind a
+                             `playSound(name)` call — see GAME_ENGINE.md
 
 components/investigation/  Small presentational + the handful of Client
                             Components that need interactivity beyond a plain
                             form action (Nav for active-link state, the
                             timeline status select, the interrogation topic
-                            button)
+                            button, the evidence board canvas)
+  apps/                     The six police-software apps: each is a Client
+                            Component (search state, loading, results) fed
+                            by a thin server page; AppFrame/RecordTable/
+                            PersonPicker are the shared chrome
 ```
 
 ## Data flow (case generation)
