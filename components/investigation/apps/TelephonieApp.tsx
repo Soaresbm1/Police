@@ -30,8 +30,8 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
 
   return (
     <AppFrame title="Téléphonie" system="SIRENE — Registre des télécommunications" accent="blue">
-      <div className="rounded border border-border bg-surface p-4">
-        <label className="text-xs uppercase tracking-wide text-muted">Numéro de téléphone</label>
+      <div className="panel p-4">
+        <label className="field-label">Numéro de téléphone</label>
         <p className="mt-0.5 text-xs text-muted">Recherche exacte — le numéro complet est requis.</p>
         <div className="mt-2 flex gap-2">
           <input
@@ -39,13 +39,9 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="079 XXX XX XX"
-            className="flex-1 rounded border border-border-strong bg-background px-3 py-2 font-data text-sm text-foreground focus:border-link focus:outline-none"
+            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-sm text-foreground focus:border-link focus:outline-none"
           />
-          <button
-            onClick={handleSearch}
-            disabled={isPending || query.trim().length < 6}
-            className="rounded bg-link px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <button onClick={handleSearch} disabled={isPending || query.trim().length < 6} className="btn btn-primary">
             {isPending ? "Recherche…" : "Rechercher"}
           </button>
         </div>
@@ -56,8 +52,8 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
       {!isPending && result && (
         <>
           {result.found ? (
-            <div className="rounded border border-border bg-surface p-4">
-              <p className="text-xs uppercase tracking-wide text-muted">Abonné identifié</p>
+            <div className="panel p-4">
+              <p className="field-label">Abonné identifié</p>
               <p className="mt-1 text-lg text-foreground">
                 <Link href={`/investigation/personnes/${result.personId}`} className="hover:underline">
                   {result.ownerName}
@@ -66,12 +62,12 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
               <p className="font-data text-xs text-muted">N° {result.query}</p>
 
               <div className="mt-4 border-t border-border pt-3">
-                <p className="mb-2 text-xs uppercase tracking-wide text-muted">Relevé opérateur ({result.lines.length})</p>
+                <p className="field-label mb-2">Relevé opérateur ({result.lines.length})</p>
                 <RecordTable lines={result.lines} emptyLabel="Aucune activité enregistrée pour ce numéro." />
               </div>
             </div>
           ) : (
-            <div className="rounded border border-danger/30 bg-danger-bg p-4 text-sm text-danger">
+            <div className="border border-danger/30 bg-danger-bg p-4 text-sm text-danger">
               Aucun abonné trouvé pour le numéro « {result.query} ». Vérifiez la saisie.
             </div>
           )}

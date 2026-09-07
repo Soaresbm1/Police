@@ -10,9 +10,9 @@ export function InterrogationTopicButton({ personId, factId, label }: { personId
       type="button"
       disabled={isPending}
       onClick={() => startTransition(() => askQuestionAction(personId, factId))}
-      className="rounded border border-border-strong px-3 py-1.5 text-left text-sm text-foreground hover:border-accent disabled:opacity-50"
+      className="border border-border-strong px-3 py-2 text-left text-sm text-foreground transition-colors hover:border-accent hover:bg-surface-raised disabled:opacity-50"
     >
-      Demander à propos de {label}
+      <span className="text-muted">▸</span> {label}
     </button>
   );
 }

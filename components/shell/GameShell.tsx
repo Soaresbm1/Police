@@ -1,0 +1,26 @@
+import type { ReactNode } from "react";
+import { TopBar } from "./TopBar";
+import { AppRail } from "./AppRail";
+import { ActionMessage } from "@/components/investigation/ActionMessage";
+import type { GameSession } from "@/lib/game-session/types";
+
+export function GameShell({ session, children }: { session: GameSession; children: ReactNode }) {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-background-deep">
+      <TopBar session={session} />
+      <ActionMessage message={session.lastActionMessage} />
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-52 shrink-0 border-r border-border">
+          <AppRail />
+        </aside>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="mx-auto w-full max-w-6xl px-6 py-6">{children}</div>
+        </main>
+      </div>
+      <footer className="flex h-6 shrink-0 items-center justify-between border-t border-border bg-surface px-4 text-[10px] uppercase tracking-[0.16em] text-muted-dim">
+        <span>Réseau sécurisé • Session active</span>
+        <span>Caseline v0.10</span>
+      </footer>
+    </div>
+  );
+}

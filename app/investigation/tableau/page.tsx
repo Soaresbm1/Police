@@ -10,7 +10,7 @@ export default async function TableauPage() {
   return (
     <div className="flex h-full flex-col gap-3">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Tableau d&apos;enquête</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Tableau d&apos;enquête</h1>
         <p className="mt-1 text-sm text-muted">Comment les éléments sont-ils connectés ? Ce sont vos propres hypothèses.</p>
       </div>
       <EvidenceBoard initialNodes={game.session.board.nodes} initialEdges={game.session.board.edges} palette={palette} />

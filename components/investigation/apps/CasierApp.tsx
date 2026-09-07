@@ -30,8 +30,8 @@ export function CasierApp({ people, initialPersonId }: { people: PersonOption[];
       {isPending && <p className="font-data text-xs text-muted">Interrogation du registre central…</p>}
 
       {!isPending && result && (
-        <div className="rounded border border-border bg-surface p-4">
-          <p className="text-xs uppercase tracking-wide text-muted">Extrait pour</p>
+        <div className="panel p-4">
+          <p className="field-label">Extrait pour</p>
           <p className="text-lg text-foreground">{result.ownerName}</p>
           <div className="mt-3 border-t border-border pt-3">
             {result.entries.length === 0 ? (
@@ -39,7 +39,7 @@ export function CasierApp({ people, initialPersonId }: { people: PersonOption[];
             ) : (
               <ul className="flex flex-col gap-2">
                 {result.entries.map((entry, i) => (
-                  <li key={i} className="rounded border border-warning/30 bg-warning/5 p-2 text-sm">
+                  <li key={i} className="border border-warning/30 bg-warning/5 p-2 text-sm">
                     <span className="font-data text-xs text-warning">il y a {entry.yearsAgo} an(s)</span>
                     <p className="text-foreground">{entry.offense}</p>
                     <p className="text-xs text-muted">Décision : {entry.outcome}</p>

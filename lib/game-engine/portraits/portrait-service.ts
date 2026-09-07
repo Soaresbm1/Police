@@ -27,21 +27,40 @@ function initialsOf(displayName: string): string {
   return letters.join("") || "?";
 }
 
-/** Generates a stable colored-initials avatar as an inline SVG data URI —
- * no network call, no filesystem asset, fully deterministic per seed. */
+/** Generates a stable, monochrome "police database" ID portrait as an inline
+ * SVG data URI — no network call, no filesystem asset, fully deterministic
+ * per seed. Deliberately styled as a scanned dossier photo (desaturated
+ * tone, corner registration ticks, faint scanlines, a fake ID code) rather
+ * than a colorful chat-app avatar, so it reads as evidence rather than a
+ * profile picture. */
 export class DeterministicAvatarService implements PersonPortraitService {
   getPortraitUrl(seed: string, displayName: string): string {
     const hash = hashSeed(seed);
-    const hue = hash % 360;
-    const background = `hsl(${hue}, 42%, 28%)`;
-    const foreground = `hsl(${hue}, 60%, 82%)`;
+    const tone = 24 + (hash % 3) * 6;
+    const background = `hsl(210, 8%, ${tone}%)`;
     const initials = initialsOf(displayName);
+    const idCode = (hash % 900000).toString().padStart(6, "0");
+
+    const scanlines = Array.from({ length: 16 }, (_, i) => {
+      const y = i * 4;
+      return `<line x1="0" y1="${y}" x2="64" y2="${y}" stroke="#ffffff" stroke-opacity="0.025" />`;
+    }).join("");
 
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
-      `<rect width="64" height="64" rx="8" fill="${background}" />` +
-      `<text x="32" y="40" font-family="ui-monospace, monospace" font-size="24" font-weight="600" ` +
-      `fill="${foreground}" text-anchor="middle">${initials}</text>` +
+      `<rect width="64" height="64" fill="${background}" />` +
+      `<circle cx="32" cy="24" r="11" fill="#ffffff" fill-opacity="0.14" />` +
+      `<path d="M14 58 C14 44 50 44 50 58 Z" fill="#ffffff" fill-opacity="0.1" />` +
+      scanlines +
+      `<text x="32" y="38" font-family="ui-monospace, monospace" font-size="15" font-weight="700" ` +
+      `fill="#e8e6de" text-anchor="middle">${initials}</text>` +
+      `<rect x="0.75" y="0.75" width="62.5" height="62.5" fill="none" stroke="#e8e6de" stroke-opacity="0.35" stroke-width="1.5" />` +
+      `<path d="M1 7V1H7" stroke="#bb8a42" stroke-width="1.5" fill="none" />` +
+      `<path d="M57 1H63V7" stroke="#bb8a42" stroke-width="1.5" fill="none" />` +
+      `<path d="M63 57V63H57" stroke="#bb8a42" stroke-width="1.5" fill="none" />` +
+      `<path d="M7 63H1V57" stroke="#bb8a42" stroke-width="1.5" fill="none" />` +
+      `<text x="32" y="61" font-family="ui-monospace, monospace" font-size="6" letter-spacing="1" ` +
+      `fill="#e8e6de" fill-opacity="0.55" text-anchor="middle">ID-${idCode}</text>` +
       `</svg>`;
 
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;

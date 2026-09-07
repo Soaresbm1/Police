@@ -10,7 +10,7 @@ export default async function TemoinsPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Témoins</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Témoins</h1>
         <p className="mt-1 text-sm text-muted">Qui était où, et qu&apos;ont-ils vu ?</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
