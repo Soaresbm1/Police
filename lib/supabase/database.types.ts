@@ -79,6 +79,38 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["case_history"]["Row"]>;
         Relationships: [];
       };
+      generated_assets: {
+        Row: {
+          id: string;
+          user_id: string;
+          case_seed: string;
+          asset_kind: string;
+          descriptor_hash: string;
+          generation_version: number;
+          provider: string;
+          provider_model: string | null;
+          status: string;
+          storage_path: string | null;
+          width: number | null;
+          height: number | null;
+          prompt_version: number | null;
+          error_message: string | null;
+          attempt_count: number;
+          failed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["generated_assets"]["Row"]> & {
+          user_id: string;
+          case_seed: string;
+          asset_kind: string;
+          descriptor_hash: string;
+          generation_version: number;
+          provider: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["generated_assets"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
