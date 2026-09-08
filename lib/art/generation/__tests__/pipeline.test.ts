@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getOrGenerateAsset, type AssetStoreLike } from "../pipeline";
 import { MockGeneratedAssetProvider, AlwaysMissingGeneratedAssetProvider } from "../mock-provider";
+import { CloudflareGeneratedAssetProvider } from "../providers/cloudflare-provider";
 import type { GeneratedAssetKind, GeneratedAssetRecord } from "../types";
 import { MAX_ASSETS_PER_CASE, MAX_GENERATION_ATTEMPTS } from "../limits";
 
@@ -212,5 +213,56 @@ describe("getOrGenerateAsset", () => {
     expect(result.status).toBe("ready");
     expect(store.rows[0].status).toBe("ready");
     expect(store.rows[0].storagePath).toContain(baseArgs.descriptorHash);
+  });
+
+  it("never lets user B's lookup see user A's asset, even for the identical descriptor", async () => {
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, userId: "user-A" });
+    const resultB = await getOrGenerateAsset({ store, provider }, { ...baseArgs, userId: "user-B" });
+
+    expect(resultB.status).toBe("ready"); // user B still gets served — just via their OWN new row
+    expect(provider.calls).toHaveLength(2); // never reused across users
+    expect(store.rows.filter((r) => r.userId === "user-A")).toHaveLength(1);
+    expect(store.rows.filter((r) => r.userId === "user-B")).toHaveLength(1);
+    expect(await store.findAssetRecord("user-B", baseArgs.descriptorHash, baseArgs.generationVersion, baseArgs.providerName)).not.toBeNull();
+    // user-B's row is never user-A's row, and vice versa.
+    const rowA = await store.findAssetRecord("user-A", baseArgs.descriptorHash, baseArgs.generationVersion, baseArgs.providerName);
+    const rowB = await store.findAssetRecord("user-B", baseArgs.descriptorHash, baseArgs.generationVersion, baseArgs.providerName);
+    expect(rowA!.id).not.toBe(rowB!.id);
+  });
+
+  describe("with the real Cloudflare provider (mocked HTTP — never a real network call)", () => {
+    const ORIGINAL_ENV = { ...process.env };
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      process.env = { ...ORIGINAL_ENV, CLOUDFLARE_ACCOUNT_ID: "acct-123", CLOUDFLARE_API_TOKEN: "secret-token" };
+      fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ result: { image: Buffer.from("fake").toString("base64") }, success: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      process.env = { ...ORIGINAL_ENV };
+      vi.unstubAllGlobals();
+    });
+
+    it("a second call for the same descriptor never calls Cloudflare again (cache hit = zero calls)", async () => {
+      const store = new FakeAssetStore();
+      const provider = new CloudflareGeneratedAssetProvider();
+      const args = { ...baseArgs, providerName: "cloudflare" };
+
+      await getOrGenerateAsset({ store, provider }, args);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await getOrGenerateAsset({ store, provider }, args); // simulates a page refresh / navigation / resumed case
+      expect(fetchMock).toHaveBeenCalledTimes(1); // still 1 — no duplicate spend
+    });
   });
 });

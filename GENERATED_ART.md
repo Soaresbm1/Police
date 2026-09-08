@@ -26,12 +26,39 @@ end. It is dependency-injected (`{ store, provider }`) so the orchestration
 logic (dedup, cooldown, cost cap, state transitions) is unit-tested without
 a live Supabase instance — see `lib/art/generation/__tests__/`.
 
-## Status: infrastructure only
+## Status: Cloudflare Workers AI pilot provider implemented, not yet triggered for real
 
-No screen calls `getOrGenerateAsset()` yet. With only `NullGeneratedAssetProvider`
-registered, wiring it in now would add DB round-trips for zero visual benefit.
-The pipeline is built, tested (via `MockGeneratedAssetProvider`), and ready
-to call once a provider is chosen — see the options below.
+`lib/art/generation/providers/cloudflare-provider.ts` implements
+`GeneratedAssetProvider` against Cloudflare Workers AI's
+`@cf/black-forest-labs/flux-1-schnell` (called via the plain REST API —
+this is a Next.js app, not a Worker, so there's no `env.AI` binding).
+`lib/art/generation/active-provider.ts` picks it automatically once
+`CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN` are both set in the
+environment; with either missing, `activeGeneratedAssetProvider` resolves
+to the null provider and CASELINE stays 100% procedural, no crash.
+
+**No screen calls the pipeline automatically yet.** The only live call
+site is a manual, dev-only trigger: `/case-lab/art` (never reachable in
+production — same `NODE_ENV` gate as `/case-lab`) lists the pilot-scope
+assets for one case (victim + suspects + witnesses + crime scene) and lets
+a developer generate ONE selected asset at a time via
+`app/case-lab/art/actions.ts#triggerAssetGenerationAction`. Nothing in
+CASELINE can call Cloudflare without that specific button being clicked.
+
+### Steps configuration
+
+`IMAGE_GENERATION_STEPS` (optional env var) controls FLUX.1 [schnell]'s
+diffusion step count, clamped to the model's documented 1-8 range,
+defaulting to Cloudflare's own default of 4.
+
+### Response-format defensiveness
+
+Cloudflare's documented examples for this model are inconsistent about
+whether the REST endpoint returns a JSON envelope (`{"result":{"image":
+"<base64>"}, "success":true}`, matching every other Workers AI REST
+response) or raw image bytes directly. The provider handles both, keyed
+off the response's `content-type` header — confirmed empirically once the
+first real request runs (see the pilot report).
 
 ## Schema
 
@@ -125,7 +152,10 @@ witnesses + 1 crime-scene environment, capped hard at `MAX_ASSETS_PER_CASE`.
 
 ## Next decision (not made by this milestone)
 
-Choosing a real provider, adding its credential, and wiring
-`getOrGenerateAsset()` into an actual screen — deliberately left for a
-follow-up decision. See the chat summary delivered alongside this milestone
-for a provider comparison and recommendation.
+Wiring `getOrGenerateAsset()` into real gameplay screens (dossier,
+interrogation, evidence board, accusation, truth reveal) — deliberately
+left until after the first real pilot images have been generated via
+`/case-lab/art` and manually inspected for quality/consistency/fairness
+(see the chat summary delivered alongside this milestone). Building UI
+wiring against art nobody has looked at yet risks shipping something that
+needs to be redone.

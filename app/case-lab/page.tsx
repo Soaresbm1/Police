@@ -80,6 +80,12 @@ export default async function CaseLabPage({
         >
           Generate New Case
         </a>
+        <a
+          href={`/case-lab/art?seed=${seed}&difficulty=${difficulty}`}
+          style={{ padding: "6px 12px", background: "#30363d", color: "#d6deeb", textDecoration: "none" }}
+        >
+          Generated Art Inspector →
+        </a>
       </form>
 
       {generationError && (
