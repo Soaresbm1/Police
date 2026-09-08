@@ -120,12 +120,25 @@ lib/
     auth-actions.ts            signOutAction
 
   art/
-    providers.ts               CrimeSceneImageProvider, EvidenceImageProvider,
-                             CCTVFrameProvider, LocationImageProvider —
-                             same seed-in, stable-URL-out contract as
-                             portraits/portrait-service.ts, with procedural
-                             default implementations; not yet wired into
-                             the screens that could use them
+    visual-manifest.ts, crime-scene-layouts.ts, scene-renderer.ts,
+    evidence-renderers.tsx, cctv.ts, cctv-renderer.ts, city-map-svg.ts,
+    lighting.ts                Procedural visual system (Art & Visual
+                             Production milestone) — deterministic
+                             descriptors (guilt-safe by construction: e.g.
+                             `buildCharacterVisualDescriptor` only ever
+                             takes a `Person`, never `CaseTruth`) rendered
+                             as inline SVG, wired into every major screen.
+    generated-asset-provider.ts, asset-provider-chain.ts, asset-cache.ts
+                                The seam for real generated imagery —
+                             `GeneratedAssetProvider`, currently only a
+                             null implementation; a real one is a drop-in
+                             swap, no gameplay code changes needed.
+    generation/                 The durable pipeline on top of that seam
+                             (schema, storage, prompt builders, cost
+                             controls, mock provider for tests) — see
+                             GENERATED_ART.md. Infrastructure only as of
+                             this milestone: nothing calls a real provider
+                             yet, and no screen calls the pipeline yet.
 
   sound/
     sound-manager.ts          Web Audio synthesis: short UI tones plus an
