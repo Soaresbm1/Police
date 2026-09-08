@@ -6,6 +6,7 @@ import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { Avatar } from "@/components/investigation/Avatar";
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 import { OnboardingHint } from "@/components/investigation/OnboardingHint";
+import { DocumentSheet } from "@/components/investigation/DocumentSheet";
 
 export default async function AffairePage() {
   const game = await getCurrentGame();
@@ -72,11 +73,7 @@ export default async function AffairePage() {
         </div>
       </section>
 
-      <section className="panel p-5">
-        <div className="panel-header -mx-5 -mt-5 mb-4">
-          <span className="field-label">Rapport du médecin légiste</span>
-          <span className="stamp stamp-blue ml-auto !py-0.5 !text-[9px]">Confidentiel</span>
-        </div>
+      <DocumentSheet title="Rapport du médecin légiste" caseRef={formatCaseNumber(session.seed)} pageLabel="Page 1/1">
         <dl className="font-document grid gap-3 text-sm md:grid-cols-2">
           <div>
             <dt className="field-label !text-muted">Décès estimé entre</dt>
@@ -109,7 +106,7 @@ export default async function AffairePage() {
             </div>
           )}
         </dl>
-      </section>
+      </DocumentSheet>
 
       <section className="panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">

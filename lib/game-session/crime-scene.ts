@@ -2,23 +2,11 @@ import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { GameSession } from "./types";
 import { getCrimeSceneEvidence } from "./discovery";
 import { evidenceStatusOf } from "./player-view";
+import { getZonesForLocation } from "@/lib/art/crime-scene-layouts";
 
-/** Fixed pool of generic room props a homicide scene plausibly contains.
- * "Le corps" is reserved separately (always shown, never gated behind
- * discovery — the body itself isn't a secret). The other seven are filled
- * with real evidence first; any left over become flavor-only decoys, so a
- * sparse case doesn't feel like an obviously empty room. */
+/** "Le corps" is reserved separately from the room's prop zones — always
+ * shown, never gated behind discovery (the body itself isn't a secret). */
 const BODY_ZONE = { id: "corps", label: "Le corps", x: 50, y: 58 };
-
-const PROP_ZONES: { id: string; label: string; x: number; y: number }[] = [
-  { id: "table", label: "Table basse", x: 28, y: 68 },
-  { id: "fenetre", label: "Fenêtre", x: 82, y: 18 },
-  { id: "porte", label: "Porte d'entrée", x: 14, y: 22 },
-  { id: "sol", label: "Sol", x: 62, y: 82 },
-  { id: "telephone", label: "Téléphone", x: 72, y: 50 },
-  { id: "poubelle", label: "Poubelle", x: 18, y: 78 },
-  { id: "armoire", label: "Armoire", x: 86, y: 62 },
-];
 
 const DECOY_LINES = [
   "Rien de particulier ici.",
@@ -54,8 +42,10 @@ export interface CrimeSceneHotspot {
  * discoverable set is unchanged from `discovery.getCrimeSceneEvidence` —
  * this only decides which zone each item appears under and where decoys go. */
 export function getCrimeSceneHotspots(truth: CaseTruth, session: GameSession): CrimeSceneHotspot[] {
+  const crimeLocation = truth.locations.find((l) => l.id === truth.crimeLocationId);
+  const propZones = crimeLocation ? getZonesForLocation(crimeLocation.type, `${crimeLocation.id}:${crimeLocation.type}`) : [];
   const evidence = [...getCrimeSceneEvidence(truth)].sort((a, b) => a.id.localeCompare(b.id));
-  const freeZones = [...PROP_ZONES];
+  const freeZones = [...propZones];
   const assignments = new Map<string, (typeof evidence)[number]>();
 
   for (const ev of evidence) {
@@ -81,7 +71,7 @@ export function getCrimeSceneHotspots(truth: CaseTruth, session: GameSession): C
     },
   ];
 
-  PROP_ZONES.forEach((zone, i) => {
+  propZones.forEach((zone, i) => {
     const ev = assignments.get(zone.id);
     const zoneNumber = i + 2;
     if (ev) {

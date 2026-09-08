@@ -142,6 +142,10 @@ export interface MapLocationView {
   category: "crime_scene" | "home" | "work" | "evidence";
   occupantNames: string[];
   discoveredEvidenceCount: number;
+  /** In-game timestamps of every discovered evidence item tied to this
+   * location — powers the map's known-movements time slider. Never
+   * includes undiscovered events (see `getVisibleEvidence`). */
+  discoveredEventTimestamps: number[];
   travelMinutesFromSceneCar: number;
   travelMinutesFromSceneFoot: number;
 }
@@ -182,6 +186,7 @@ export function getMapLocations(truth: CaseTruth, session: GameSession): MapLoca
       category,
       occupantNames: occupant ? [occupant] : [],
       discoveredEvidenceCount: 0,
+      discoveredEventTimestamps: [],
       travelMinutesFromSceneCar: crimeScene ? travelMinutes(crimeScene.coordinates, location.coordinates, "car") : 0,
       travelMinutesFromSceneFoot: crimeScene ? travelMinutes(crimeScene.coordinates, location.coordinates, "foot") : 0,
     });
@@ -199,7 +204,10 @@ export function getMapLocations(truth: CaseTruth, session: GameSession): MapLoca
   for (const ev of getVisibleEvidence(truth, session)) {
     for (const locId of ev.relatedLocationIds) {
       const entry = byId.get(locId);
-      if (entry) entry.discoveredEvidenceCount += 1;
+      if (entry) {
+        entry.discoveredEvidenceCount += 1;
+        entry.discoveredEventTimestamps.push(ev.timestamp);
+      }
     }
   }
 

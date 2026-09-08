@@ -3,6 +3,7 @@ import { TopBar } from "./TopBar";
 import { AppRail } from "./AppRail";
 import { ActionMessage } from "@/components/investigation/ActionMessage";
 import { AmbiencePlayer } from "@/components/investigation/AmbiencePlayer";
+import { ScreenTransition } from "./ScreenTransition";
 import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
 
@@ -25,7 +26,9 @@ export function GameShell({
           <AppRail />
         </aside>
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="mx-auto w-full max-w-6xl px-6 py-6">{children}</div>
+          <div className="mx-auto w-full max-w-6xl px-6 py-6">
+            <ScreenTransition>{children}</ScreenTransition>
+          </div>
         </main>
       </div>
       <footer className="flex h-6 shrink-0 items-center justify-between border-t border-border bg-surface px-4 text-[10px] uppercase tracking-[0.16em] text-muted-dim">

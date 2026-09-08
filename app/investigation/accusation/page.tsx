@@ -3,6 +3,7 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getSuspects } from "@/lib/game-session/player-view";
 import { submitAccusationAction } from "@/lib/game-session/actions";
 import { ACCOMPLICE_ROLE_LABEL, MOTIVE_LABEL, WEAPON_OPTIONS } from "@/lib/game-session/labels";
+import { Soundscape } from "@/components/investigation/Soundscape";
 
 const ACCOMPLICE_SLOTS = 3;
 
@@ -25,6 +26,7 @@ export default async function AccusationPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
+      <Soundscape kind="accusation" />
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="field-label">Formulaire officiel</p>

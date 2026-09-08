@@ -8,6 +8,7 @@ import { displayLocationName, getVisibleEvidenceForPerson } from "./player-view"
 import { getCriminalRecord, type CriminalRecordEntry } from "./criminal-record";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { RECORD_TYPE_LABEL } from "./labels";
+import { buildCCTVFrameDescriptor, type CCTVFrameDescriptor } from "@/lib/art/cctv";
 
 /** Every search-type action pays a small, believable amount of in-game time
  * — real bureaucratic lookups aren't instant — advancing the clock so the
@@ -112,12 +113,16 @@ export async function searchCriminalRecordAction(personId: string): Promise<Crim
   return result;
 }
 
+export interface CameraRecordLine extends RecordLine {
+  frame: CCTVFrameDescriptor;
+}
+
 export interface CameraSearchResult {
   locationName: string;
   available: boolean;
   windowStart: number;
   windowEnd: number;
-  lines: RecordLine[];
+  lines: CameraRecordLine[];
   moreOutsideWindow: boolean;
 }
 
@@ -136,8 +141,15 @@ export async function searchCameraAction(locationId: string, windowStart: number
     const inWindow = visibleAtLocation.filter((ev) => ev.timestamp >= windowStart && ev.timestamp <= windowEnd);
     const outsideWindow = visibleAtLocation.length > inWindow.length;
 
-    const lines: RecordLine[] = inWindow
-      .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
+    const lines: CameraRecordLine[] = inWindow
+      .map((ev) => ({
+        id: ev.id,
+        timeLabel: formatGameTime(ev.timestamp),
+        time: ev.timestamp,
+        typeLabel: RECORD_TYPE_LABEL[ev.type],
+        detail: ev.description,
+        frame: buildCCTVFrameDescriptor(ev, truth),
+      }))
       .sort((a, b) => a.time - b.time);
 
     return { locationName: displayLocationName(location), available: true, windowStart, windowEnd, lines, moreOutsideWindow: outsideWindow };

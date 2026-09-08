@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { MapLocationView } from "@/lib/game-session/player-view";
 import { formatDuration } from "@/lib/game-engine/types/time";
+import { cityMapSvgDataUri } from "@/lib/art/city-map-svg";
 
 const CATEGORY: Record<MapLocationView["category"], { label: string; color: string }> = {
   crime_scene: { label: "Scène de crime", color: "border-danger text-danger" },
@@ -11,15 +12,37 @@ const CATEGORY: Record<MapLocationView["category"], { label: string; color: stri
   evidence: { label: "Lié à une preuve", color: "border-accent text-accent-strong" },
 };
 
+function hhmm(minuteOfDay: number): string {
+  const m = ((minuteOfDay % 1440) + 1440) % 1440;
+  return `${Math.floor(m / 60).toString().padStart(2, "0")}:${(m % 60).toString().padStart(2, "0")}`;
+}
+
+const mapBackground = cityMapSvgDataUri();
+
 export function InvestigationMap({ locations }: { locations: MapLocationView[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(locations.find((l) => l.category === "crime_scene")?.id ?? null);
   const selected = locations.find((l) => l.id === selectedId) ?? null;
+
+  const allTimestamps = locations.flatMap((l) => l.discoveredEventTimestamps);
+  const hasTimeline = allTimestamps.length > 0;
+  const minTime = hasTimeline ? Math.min(...allTimestamps) : 0;
+  const maxTime = hasTimeline ? Math.max(...allTimestamps) : 0;
+  const [sliderTime, setSliderTime] = useState(maxTime);
+  const activeTime = hasTimeline ? Math.min(sliderTime, maxTime) : maxTime;
+
+  const isDimmed = useMemo(
+    () => (loc: MapLocationView) => {
+      if (!hasTimeline || loc.discoveredEventTimestamps.length === 0) return false;
+      return Math.min(...loc.discoveredEventTimestamps) > activeTime;
+    },
+    [hasTimeline, activeTime],
+  );
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
       <div>
         <p className="field-label">Géographie de l&apos;affaire</p>
-        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Carte d&apos;enquête</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">Carte d&apos;enquête — Vironval</h1>
         <p className="text-sm text-muted">
           Seuls les lieux déjà identifiés par l&apos;enquête apparaissent ici — domiciles, lieux de travail, scène de
           crime et lieux liés à une preuve découverte.
@@ -27,45 +50,67 @@ export function InvestigationMap({ locations }: { locations: MapLocationView[] }
       </div>
 
       <div className="grid gap-4 md:grid-cols-[1fr_300px]">
-        <div className="panel board-surface relative aspect-square w-full overflow-hidden">
-          <div className="pointer-events-none absolute inset-0 border border-border-strong/40" />
-          {locations.map((loc) => {
-            const c = CATEGORY[loc.category];
-            const isSelected = loc.id === selectedId;
-            return (
-              <button
-                key={loc.id}
-                type="button"
-                onClick={() => setSelectedId(loc.id)}
-                style={{ left: `${loc.x}%`, top: `${loc.y}%` }}
-                className="group absolute -translate-x-1/2 -translate-y-1/2"
-                title={loc.name}
-              >
-                <span
-                  className={`block h-3.5 w-3.5 border-2 bg-surface-sunken transition-transform group-hover:scale-125 ${c.color} ${
-                    isSelected ? "scale-150" : ""
-                  } ${loc.category === "crime_scene" ? "rotate-45" : ""}`}
-                />
-              </button>
-            );
-          })}
-          {selected && (
-            <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
-              {locations
-                .filter((l) => l.category === "crime_scene" && l.id !== selected.id)
-                .map((scene) => (
-                  <line
-                    key={scene.id}
-                    x1={`${scene.x}%`}
-                    y1={`${scene.y}%`}
-                    x2={`${selected.x}%`}
-                    y2={`${selected.y}%`}
-                    stroke="var(--accent)"
-                    strokeOpacity={0.35}
-                    strokeDasharray="4 4"
+        <div className="flex flex-col gap-3">
+          <div className="panel relative aspect-square w-full overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={mapBackground} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            {locations.map((loc) => {
+              const c = CATEGORY[loc.category];
+              const isSelected = loc.id === selectedId;
+              return (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => setSelectedId(loc.id)}
+                  style={{ left: `${loc.x}%`, top: `${loc.y}%` }}
+                  className={`group absolute -translate-x-1/2 -translate-y-1/2 transition-opacity ${isDimmed(loc) ? "opacity-25" : "opacity-100"}`}
+                  title={loc.name}
+                >
+                  <span
+                    className={`block h-3.5 w-3.5 border-2 bg-surface-sunken transition-transform group-hover:scale-125 ${c.color} ${
+                      isSelected ? "scale-150" : ""
+                    } ${loc.category === "crime_scene" ? "rotate-45" : ""}`}
                   />
-                ))}
-            </svg>
+                </button>
+              );
+            })}
+            {selected && (
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
+                {locations
+                  .filter((l) => l.category === "crime_scene" && l.id !== selected.id)
+                  .map((scene) => (
+                    <line
+                      key={scene.id}
+                      x1={`${scene.x}%`}
+                      y1={`${scene.y}%`}
+                      x2={`${selected.x}%`}
+                      y2={`${selected.y}%`}
+                      stroke="var(--accent)"
+                      strokeOpacity={0.35}
+                      strokeDasharray="4 4"
+                    />
+                  ))}
+              </svg>
+            )}
+          </div>
+
+          {hasTimeline && minTime !== maxTime && (
+            <div className="panel flex flex-col gap-1.5 p-3">
+              <p className="field-label">Chronologie des mouvements connus</p>
+              <div className="flex items-center gap-3">
+                <span className="font-data text-xs text-muted">{hhmm(minTime)}</span>
+                <input
+                  type="range"
+                  min={minTime}
+                  max={maxTime}
+                  value={activeTime}
+                  onChange={(e) => setSliderTime(Number(e.target.value))}
+                  className="w-full accent-accent"
+                />
+                <span className="font-data text-xs text-muted">{hhmm(maxTime)}</span>
+              </div>
+              <p className="font-data text-center text-[11px] text-accent-strong">{hhmm(activeTime)}</p>
+            </div>
           )}
         </div>
 

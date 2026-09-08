@@ -2,6 +2,8 @@ import { formatGameTime } from "@/lib/game-engine/types/time";
 import { sendToLabAction, collectEvidenceAction } from "@/lib/game-session/actions";
 import type { VisibleEvidence } from "@/lib/game-session/player-view";
 import { RECORD_TYPE_LABEL } from "@/lib/game-session/labels";
+import { EvidenceVisual } from "@/lib/art/evidence-renderers";
+import { EvidenceInspectionTrigger } from "./EvidenceInspectionModal";
 
 const RELIABILITY_COLOR: Record<string, string> = {
   reliable: "text-success",
@@ -35,6 +37,7 @@ function evidenceCode(id: string): string {
 export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
   return (
     <div className={`panel border-l-4 ${RELIABILITY_BORDER[evidence.reliability] ?? "border-l-border-strong"} flex flex-col gap-2 p-4`}>
+      <EvidenceVisual evidence={evidence} className="aspect-[3/2] w-full" />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="data-id">{evidenceCode(evidence.id)}</span>
         <span className="font-data text-xs uppercase tracking-wide text-muted">{RECORD_TYPE_LABEL[evidence.type]}</span>
@@ -46,6 +49,7 @@ export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
         <span className="font-data ml-auto text-muted">{formatGameTime(evidence.timestamp)}</span>
       </div>
       <div className="flex flex-wrap gap-2 pt-1">
+        <EvidenceInspectionTrigger evidence={evidence} />
         {evidence.playerStatus === "discovered" && (
           <form action={collectEvidenceAction.bind(null, evidence.id)}>
             <button type="submit" className="btn !px-3 !py-1 !text-[10px]">

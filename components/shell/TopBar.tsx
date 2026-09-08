@@ -5,6 +5,7 @@ import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
 import { SoundToggle } from "@/components/investigation/SoundToggle";
 import { SettingsOverlay } from "./SettingsOverlay";
+import { PoliceEmblem } from "@/components/shared/PoliceEmblem";
 
 const DIFFICULTY_LABEL: Record<GameSession["difficulty"], string> = {
   recruit: "Recrue",
@@ -21,9 +22,7 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center border border-accent text-[11px] font-bold text-accent-strong">
-            C
-          </span>
+          <PoliceEmblem size={22} className="text-accent-strong" />
           <span className="text-sm font-semibold tracking-[0.2em] text-foreground">CASELINE</span>
         </div>
         <span className="hidden text-[10px] uppercase tracking-[0.18em] text-muted-dim sm:inline">{CITY.policeShortName}</span>

@@ -3,6 +3,8 @@ import { getLocation, getPerson, getVisibleEvidence } from "@/lib/game-session/p
 import { getCrimeSceneHotspots } from "@/lib/game-session/crime-scene";
 import { CrimeSceneScreen } from "@/components/investigation/CrimeSceneScreen";
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { buildCrimeSceneVisualDescriptor } from "@/lib/art/visual-manifest";
+import { crimeSceneSvgDataUri } from "@/lib/art/scene-renderer";
 
 export default async function ScenePage() {
   const game = await getCurrentGame();
@@ -11,6 +13,7 @@ export default async function ScenePage() {
   const hotspots = getCrimeSceneHotspots(truth, session);
   const location = getLocation(truth, truth.crimeLocationId);
   const victim = getPerson(truth, truth.victimId)!;
+  const sceneBackground = location ? crimeSceneSvgDataUri(buildCrimeSceneVisualDescriptor(location, truth.crimeTimestamp)) : null;
 
   const visibleById = new Map(getVisibleEvidence(truth, session).map((ev) => [ev.id, ev]));
   const evidenceDetails = hotspots
@@ -32,6 +35,7 @@ export default async function ScenePage() {
       locationName={location?.name ?? "Scène de crime"}
       locationAddress={location?.address ?? ""}
       victimName={`${victim.firstName} ${victim.lastName}`}
+      sceneBackground={sceneBackground}
       autopsy={{
         estimatedDeathWindowStart: formatGameTime(truth.autopsy.estimatedDeathWindowStart),
         estimatedDeathWindowEnd: formatGameTime(truth.autopsy.estimatedDeathWindowEnd),

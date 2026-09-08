@@ -6,6 +6,16 @@ import { ACCOMPLICE_ROLE_LABEL, ARCHETYPE_LABEL, MOTIVE_LABEL } from "./labels";
 export interface NarrativeSection {
   heading: string;
   paragraphs: string[];
+  /** People this section is about — lets the reveal show a portrait next
+   * to the text instead of a flat paragraph block. Always a subset of ids
+   * already referenced by this section's own paragraphs; never new
+   * information. */
+  personIds?: string[];
+  /** The one location this section centers on, if any. */
+  locationId?: string;
+  /** A formatted in-game time label, when this section anchors to a
+   * specific moment (powers the reveal's connected timeline view). */
+  timeLabel?: string;
 }
 
 function personName(truth: CaseTruth, id: string): string {
@@ -38,12 +48,14 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
         truth.people.find((p) => p.id === truth.victimId)?.age ?? "?"
       } ans, a été tué·e par ${culpritName}, avec qui ${victimName} entretenait une relation qui a fini par dégénérer.`,
     ],
+    personIds: [truth.victimId, truth.culpritId],
   });
 
   // --- Motive -----------------------------------------------------------------
   sections.push({
     heading: "Mobile",
     paragraphs: [`${MOTIVE_LABEL[truth.motive.type]} — ${truth.motive.description}`],
+    personIds: [truth.culpritId],
   });
 
   // --- Preparation --------------------------------------------------------------
@@ -59,7 +71,11 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
   } else {
     prepParagraphs.push(`Rien n'indique que ${culpritName} ait prémédité son geste — les faits se sont produits de façon impulsive.`);
   }
-  sections.push({ heading: "Préparation", paragraphs: prepParagraphs });
+  sections.push({
+    heading: "Préparation",
+    paragraphs: prepParagraphs,
+    personIds: [truth.culpritId, ...plannerAccomplices.map((a) => a.personId)],
+  });
 
   // --- The crime itself -----------------------------------------------------------
   sections.push({
@@ -67,6 +83,9 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
     paragraphs: [
       `${formatGameTime(truth.crimeTimestamp)}, à ${crimeLocationName} : ${truth.method}`,
     ],
+    personIds: [truth.culpritId, truth.victimId],
+    locationId: truth.crimeLocationId,
+    timeLabel: formatGameTime(truth.crimeTimestamp),
   });
 
   // --- Accomplice actions ------------------------------------------------------------
@@ -76,6 +95,7 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
       paragraphs: truth.accomplices.map(
         (a) => `${personName(truth, a.personId)} (${ACCOMPLICE_ROLE_LABEL[a.role]}) — ${a.involvementDescription}`,
       ),
+      personIds: truth.accomplices.map((a) => a.personId),
     });
   }
 
@@ -88,7 +108,12 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
     coverUpParagraphs.push(t.description);
   }
   if (coverUpParagraphs.length > 0) {
-    sections.push({ heading: "Mise en scène et dissimulation", paragraphs: coverUpParagraphs });
+    sections.push({
+      heading: "Mise en scène et dissimulation",
+      paragraphs: coverUpParagraphs,
+      personIds: [truth.culpritId],
+      locationId: truth.crimeLocationId,
+    });
   }
 
   // --- Aftermath / discovery ------------------------------------------------------------
@@ -96,6 +121,8 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
   sections.push({
     heading: "Après les faits",
     paragraphs: [discoveryEvent ? discoveryEvent.description : `Le corps de ${victimName} a fini par être découvert.`],
+    locationId: discoveryEvent?.locationId ?? truth.crimeLocationId,
+    timeLabel: discoveryEvent ? formatGameTime(discoveryEvent.timestamp) : undefined,
   });
 
   // --- Lies told during the investigation ------------------------------------------------
@@ -125,6 +152,7 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
     sections.push({
       heading: "Mensonges tenus durant l'enquête",
       paragraphs: uniqueLies.map((l) => `${personName(truth, l.personId)} : « ${l.statement} »`),
+      personIds: [...new Set(uniqueLies.map((l) => l.personId))],
     });
   }
 
@@ -150,8 +178,42 @@ export function buildNarrativeReconstruction(truth: CaseTruth): NarrativeSection
     contradictionParagraphs.push(truth.falseConfession.conflictingDetail);
   }
   if (contradictionParagraphs.length > 0) {
-    sections.push({ heading: "Comment les preuves ont contredit ces mensonges", paragraphs: contradictionParagraphs });
+    sections.push({
+      heading: "Comment les preuves ont contredit ces mensonges",
+      paragraphs: contradictionParagraphs,
+      personIds: [...relevantLiarIds],
+    });
   }
 
   return sections;
+}
+
+export interface NarrativeEntityRef {
+  id: string;
+  name: string;
+  avatarSeed: string;
+}
+
+export interface DisplayNarrativeSection {
+  heading: string;
+  paragraphs: string[];
+  people: NarrativeEntityRef[];
+  locationName: string | null;
+  timeLabel: string | null;
+}
+
+/** Resolves the id references on `NarrativeSection` (people/location) into
+ * display-ready names/seeds for the client — called only after the
+ * accusation is final, when `CaseTruth` secrecy no longer applies. */
+export function enrichNarrativeForDisplay(truth: CaseTruth, sections: NarrativeSection[]): DisplayNarrativeSection[] {
+  return sections.map((section) => ({
+    heading: section.heading,
+    paragraphs: section.paragraphs,
+    people: (section.personIds ?? [])
+      .map((id) => truth.people.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      .map((p) => ({ id: p.id, name: fullName(p), avatarSeed: p.avatarSeed })),
+    locationName: section.locationId ? (locationName(truth, section.locationId) ?? null) : null,
+    timeLabel: section.timeLabel ?? null,
+  }));
 }

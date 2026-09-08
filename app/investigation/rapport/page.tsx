@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getPerson } from "@/lib/game-session/player-view";
 import { scoreAccusation } from "@/lib/game-session/scoring";
-import { buildNarrativeReconstruction } from "@/lib/game-session/narrative-reconstruction";
+import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
 import { formatDuration } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
@@ -44,7 +44,7 @@ export default async function RapportPage() {
     ],
     realVictimName: `${realVictim?.firstName} ${realVictim?.lastName}`,
     realCulpritName: `${realCulprit?.firstName} ${realCulprit?.lastName}`,
-    narrative: buildNarrativeReconstruction(truth),
+    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth)),
     accompliceScore:
       score.accompliceTotal > 0 || score.accompliceWronglyAccused > 0
         ? {
