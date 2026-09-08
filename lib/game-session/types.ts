@@ -30,10 +30,22 @@ export interface PlayerTimelineEntry {
   createdAt: number;
 }
 
+export interface AccusedAccomplice {
+  personId: PersonId;
+  /** Free-form on the wire (an AccompliceRole value, or "" if the player
+   * named someone but didn't venture a role) — kept as a string here so an
+   * old persisted accusation never fails to deserialize if the engine's
+   * role list changes later. */
+  role: string;
+}
+
 export interface Accusation {
   culpritId: PersonId;
   motiveType: string;
   method: string;
+  /** Optional: nobody, one, or several. Never required — a player who
+   * never suspected an accomplice can still submit a plain accusation. */
+  accomplices: AccusedAccomplice[];
   submittedAt: GameMinutes;
 }
 

@@ -36,6 +36,17 @@ export interface KnowledgeFact {
 
 export type TestimonyStance = "truthful" | "lie" | "omission" | "vague" | "refusal" | "contradiction";
 
+/** Why a witness deliberately shaded their testimony toward omission/vague/
+ * lie out of loyalty — always distinct from `KnowledgeFact.isCorrupted`
+ * (an honest memory/perception error) and from the culprit covering their
+ * own tracks (see `TestimonyLine.motiveForStance` for that branch's text). */
+export type TestimonyLoyaltyReason =
+  | "protect_partner"
+  | "protect_family"
+  | "protect_friend"
+  | "protect_employer"
+  | null;
+
 /**
  * A single thing a person is willing/likely to say about a given fact when
  * asked, independent of the raw KnowledgeFact. This is what the interrogation
@@ -51,4 +62,9 @@ export interface TestimonyLine {
   statement: string;
   /** Why they chose this stance (fear, loyalty, guilt, self-protection...), for debug/design use. */
   motiveForStance: string;
+  /** Structured loyalty reason when `stance` is a protective omission/vague/
+   * lie toward someone the witness cares about; null otherwise (including
+   * for memory-error "truthful-but-corrupted" lines and the culprit's own
+   * self-protective lies, which use `motiveForStance` instead). */
+  loyaltyReason: TestimonyLoyaltyReason;
 }

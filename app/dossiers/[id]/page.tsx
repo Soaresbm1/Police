@@ -2,8 +2,7 @@ import { notFound } from "next/navigation";
 import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { getCurrentIdentity } from "@/lib/game-session/identity";
 import { getStore } from "@/lib/game-session/persistence";
-import { MOTIVE_LABEL } from "@/lib/game-session/labels";
-import { formatGameTime } from "@/lib/game-engine/types/time";
+import { buildNarrativeReconstruction } from "@/lib/game-session/narrative-reconstruction";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 
@@ -20,6 +19,11 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   const realCulprit = truth.people.find((p) => p.id === truth.culpritId)!;
   const realVictim = truth.people.find((p) => p.id === truth.victimId)!;
   const score = entry.score;
+
+  // Case history predating this milestone won't carry the newer accomplice
+  // score fields — default them rather than let a stale record crash the page.
+  const accompliceTotal = score.accompliceTotal ?? 0;
+  const accompliceWronglyAccused = score.accompliceWronglyAccused ?? 0;
 
   const data: TruthRevealData = {
     caseRef: formatCaseNumber(entry.seed),
@@ -43,17 +47,16 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
     ],
     realVictimName: `${realVictim.firstName} ${realVictim.lastName}`,
     realCulpritName: `${realCulprit.firstName} ${realCulprit.lastName}`,
-    motiveLabel: MOTIVE_LABEL[truth.motive.type],
-    motiveDescription: truth.motive.description,
-    method: truth.method,
-    timeline: [...truth.timeline]
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .map((event) => ({
-        id: event.id,
-        timeLabel: formatGameTime(event.timestamp),
-        description: event.description,
-        isCrimeEvent: event.isCrimeEvent,
-      })),
+    narrative: buildNarrativeReconstruction(truth),
+    accompliceScore:
+      accompliceTotal > 0 || accompliceWronglyAccused > 0
+        ? {
+            identified: score.accompliceIdentified ?? 0,
+            total: accompliceTotal,
+            roleCorrect: score.accompliceRoleCorrect ?? 0,
+            wronglyAccused: accompliceWronglyAccused,
+          }
+        : null,
   };
 
   return <TruthRevealSequence data={data} />;

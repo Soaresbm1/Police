@@ -8,8 +8,39 @@ import type { AutopsyReport } from "../types/case";
 import type { GameMinutes } from "../types/time";
 import { Timeline, type TimelineEvent } from "../types/timeline";
 import type { MotiveCandidate } from "../case-generator/motive";
+import type { ArchetypePolicy } from "../case-generator/archetype";
+import type { CrimeMethod } from "../types/case";
 import { buildWorldContext, generateDailyBaseline, generateEveningBlock, makeEvent, travel } from "./schedule";
 import { planCrime, type CrimePlan } from "./crime-planner";
+
+/**
+ * Removes/truncates whatever a person's existing schedule says they were
+ * doing during `[windowStart, windowEnd)`, so a caller can insert a new
+ * stationary event for them there without ever creating a "present in two
+ * places at once" contradiction. Mirrors the discoverer-window logic below —
+ * shared here so every module that grafts an extra event onto an ordinary
+ * person's evening (accomplice role events, staging, tampering) gets the
+ * same guarantee. Mutates nothing; returns the filtered array.
+ */
+export function clearWindowForPerson(
+  timeline: TimelineEvent[],
+  personId: PersonId,
+  windowStart: GameMinutes,
+  windowEnd: GameMinutes,
+): TimelineEvent[] {
+  const survivors: TimelineEvent[] = [];
+  for (const ev of timeline) {
+    const involves = ev.actorId === personId || ev.presentPersonIds.includes(personId);
+    const overlaps = ev.timestamp < windowEnd && ev.timestamp + ev.durationMinutes > windowStart;
+    if (involves && overlaps) {
+      if (ev.timestamp >= windowStart) continue; // starts inside the window: drop entirely
+      survivors.push({ ...ev, durationMinutes: Math.max(1, windowStart - ev.timestamp) });
+      continue;
+    }
+    survivors.push(ev);
+  }
+  return survivors;
+}
 
 export interface SimulationResult {
   timeline: TimelineEvent[];
@@ -18,6 +49,7 @@ export interface SimulationResult {
   caseOpenedAt: GameMinutes;
   weapon: string;
   method: string;
+  methodType: CrimeMethod;
   premeditated: boolean;
   autopsy: AutopsyReport;
 }
@@ -45,6 +77,7 @@ export function simulateCaseDay(
   victim: Person,
   culprit: Person,
   motive: MotiveCandidate,
+  archetype: ArchetypePolicy,
 ): SimulationResult {
   const world = buildWorldContext(locations);
   const timeline: TimelineEvent[] = [];
@@ -57,7 +90,7 @@ export function simulateCaseDay(
   }
 
   const neutralCandidates = locations.filter((l) => l.type === "park" || l.type === "warehouse" || l.type === "parking");
-  const crimePlan: CrimePlan = planCrime(rng.derive("crime-plan"), culprit, motive, victim, neutralCandidates);
+  const crimePlan: CrimePlan = planCrime(rng.derive("crime-plan"), culprit, motive, victim, neutralCandidates, archetype);
 
   const culpritHomeArrival = homeArrivalById.get(culprit.id) ?? 18 * 60;
   const victimHomeArrival = homeArrivalById.get(victim.id) ?? 18 * 60;
@@ -179,11 +212,11 @@ export function simulateCaseDay(
       actorId: culprit.id,
       locationId: crimePlan.crimeLocationId,
       action: "attack",
-      description: crimePlan.weaponProfile.method,
+      description: crimePlan.methodProfile.method,
       presentPersonIds: [culprit.id, victim.id],
       counterpartyId: victim.id,
-      involvedObject: crimePlan.weaponProfile.weapon,
-      evidenceSourceTags: crimePlan.weaponProfile.physicalTags,
+      involvedObject: crimePlan.methodProfile.weapon,
+      evidenceSourceTags: crimePlan.methodProfile.physicalTags,
       isCrimeEvent: true,
     }),
   );
@@ -274,12 +307,15 @@ export function simulateCaseDay(
   const autopsy: AutopsyReport = {
     estimatedDeathWindowStart: deathWindowStart,
     estimatedDeathWindowEnd: deathWindowEnd,
-    causeOfDeath: crimePlan.weaponProfile.causeOfDeath,
-    weaponType: crimePlan.weaponProfile.weapon,
-    wounds: crimePlan.weaponProfile.wounds,
+    causeOfDeath: crimePlan.methodProfile.causeOfDeath,
+    weaponType: crimePlan.methodProfile.weapon,
+    wounds: crimePlan.methodProfile.wounds,
     substancesFound: hadAlcohol ? ["alcool (taux modéré)"] : [],
     bodyPosition: crimeRng.pick(["allongé sur le dos", "allongé sur le ventre", "recroquevillé", "assis contre un mur"]),
-    notableFeatures: struggle ? ["signes de lutte visibles"] : [],
+    notableFeatures: [
+      ...(struggle ? ["signes de lutte visibles"] : []),
+      crimeRng.pick(crimePlan.methodProfile.forensicNotes),
+    ],
   };
 
   return {
@@ -287,8 +323,9 @@ export function simulateCaseDay(
     crimeLocationId: crimePlan.crimeLocationId,
     crimeTimestamp,
     caseOpenedAt: discoveryTrip.arriveAt,
-    weapon: crimePlan.weaponProfile.weapon,
-    method: crimePlan.weaponProfile.method,
+    weapon: crimePlan.methodProfile.weapon,
+    method: crimePlan.methodProfile.method,
+    methodType: crimePlan.methodProfile.methodType,
     premeditated: crimePlan.premeditated,
     autopsy,
   };

@@ -5,6 +5,7 @@ import { travelMinutes } from "../types/location";
 import type { GameMinutes } from "../types/time";
 import { hm } from "../types/time";
 import type { EvidenceSourceTag, TimelineEvent, TimelineActionType } from "../types/timeline";
+import { Timeline } from "../types/timeline";
 import type { Relationship } from "../types/relationship";
 import { RelationshipGraph } from "../types/relationship";
 import { findRouteWaypoint } from "./geo";
@@ -120,6 +121,34 @@ export function travel(
   }
 
   return { events, arriveAt };
+}
+
+/** Where a person's *already-committed* schedule has them at `atTime` —
+ * callers must read this BEFORE clearing/mutating the timeline for the
+ * window they're about to graft something into, since clearing removes the
+ * very event this needs to inspect. */
+export function currentLocationAt(timeline: TimelineEvent[], person: Person, atTime: GameMinutes): LocationId {
+  return new Timeline(timeline).at(person.id, atTime)?.locationId ?? person.homeLocationId;
+}
+
+/**
+ * Grafts in a travel event only if `originLocationId` (the person's real
+ * location at `departAt`, from `currentLocationAt` — resolved *before* any
+ * window-clearing) differs from `targetLocationId`. Used by every module
+ * that needs to place someone (an accomplice, a tamperer) at a specific
+ * location at a specific time without risking a "teleportation detected"
+ * validator error from skipping the trip there.
+ */
+export function ensureAtLocation(
+  rng: RNG,
+  world: WorldContext,
+  person: Person,
+  originLocationId: LocationId,
+  targetLocationId: LocationId,
+  departAt: GameMinutes,
+): { events: TimelineEvent[]; arriveAt: GameMinutes } {
+  if (originLocationId === targetLocationId) return { events: [], arriveAt: departAt };
+  return travel(rng, world, person, originLocationId, targetLocationId, departAt);
 }
 
 export interface BaselineResult {

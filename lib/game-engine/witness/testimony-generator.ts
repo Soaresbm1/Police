@@ -3,11 +3,32 @@ import type { PersonId } from "../types/person";
 import type { Relationship } from "../types/relationship";
 import { RelationshipGraph } from "../types/relationship";
 import type { TimelineEvent } from "../types/timeline";
-import type { KnowledgeFact, TestimonyLine, TestimonyStance } from "../types/knowledge";
+import type { KnowledgeFact, TestimonyLine, TestimonyLoyaltyReason, TestimonyStance } from "../types/knowledge";
 import type { Alibi } from "../types/case";
+import type { RelationshipType } from "../types/relationship";
 
 function isWithinAlibiWindow(event: TimelineEvent, alibi: Alibi): boolean {
   return event.timestamp >= alibi.windowStart && event.timestamp <= alibi.windowEnd;
+}
+
+/** Maps the relationship type a protective witness holds toward the person
+ * they're shielding onto a structured reason — distinguishing a partner,
+ * a family member, a friend, and (new) an employer from one another. */
+function loyaltyReasonFor(relType: RelationshipType): TestimonyLoyaltyReason {
+  switch (relType) {
+    case "spouse":
+    case "partner":
+      return "protect_partner";
+    case "family":
+      return "protect_family";
+    case "friend":
+      return "protect_friend";
+    case "boss":
+    case "employee":
+      return "protect_employer";
+    default:
+      return null;
+  }
 }
 
 export function generateTestimony(
@@ -39,6 +60,7 @@ export function generateTestimony(
     let stance: TestimonyStance;
     let statement: string;
     let motiveForStance: string;
+    let loyaltyReason: TestimonyLoyaltyReason = null;
 
     if (isOwnLie && ownAlibi) {
       stance = "lie";
@@ -48,18 +70,24 @@ export function generateTestimony(
           ? "dissimule sa présence sur les lieux du crime"
           : "dissimule une activité personnelle sans lien avec le crime";
     } else {
-      const involvesCulprit = event.actorId === culpritId || event.counterpartyId === culpritId;
-      const tieToCulprit = fact.personId !== culpritId ? graph.between(fact.personId, culpritId) : undefined;
-      const protectiveBond =
-        tieToCulprit && tieToCulprit.attributes.trust + tieToCulprit.attributes.affection > 0.9;
+      // Loyalty/protection is evaluated against whoever the fact is *about*
+      // (the actor, or their counterparty), never restricted to the real
+      // culprit — a witness protecting their employer from an unrelated
+      // embarrassing fact is the same mechanic as one shielding a spouse.
+      const involvedId = fact.personId !== event.actorId ? event.actorId : event.counterpartyId;
+      const tie = involvedId && fact.personId !== involvedId ? graph.between(fact.personId, involvedId) : undefined;
+      const bondStrength = tie ? tie.attributes.trust + tie.attributes.affection + tie.attributes.dependency * 0.5 : 0;
+      const reason = tie ? loyaltyReasonFor(tie.type) : null;
+      const protectiveBond = reason !== null && bondStrength > 0.85;
 
-      if (involvesCulprit && protectiveBond && factRng.bool(0.4)) {
+      if (protectiveBond && factRng.bool(0.4)) {
         stance = factRng.bool(0.5) ? "omission" : "vague";
         statement =
           stance === "omission"
             ? "Ne mentionne pas ce fait lors de l'audition."
             : "Reste vague et évite de donner des détails précis sur ce point.";
         motiveForStance = "protège un proche par loyauté ou par peur";
+        loyaltyReason = reason;
       } else {
         stance = "truthful";
         statement = fact.believedStatement;
@@ -76,6 +104,7 @@ export function generateTestimony(
       stance,
       statement,
       motiveForStance,
+      loyaltyReason,
     });
   }
 

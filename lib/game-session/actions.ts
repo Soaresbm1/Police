@@ -224,8 +224,19 @@ export async function submitAccusationAction(formData: FormData) {
     return;
   }
 
+  // Optional: nobody, one, or several — parallel-indexed repeated fields
+  // from the accomplice rows in the form. Empty/duplicate rows and anyone
+  // also named as the primary culprit are dropped rather than rejected, so
+  // a half-filled row never blocks submitting the accusation.
+  const accompliceIds = formData.getAll("accompliceId").map(String);
+  const accompliceRoles = formData.getAll("accompliceRole").map(String);
+  const seenAccomplices = new Set<string>();
+  const accomplices = accompliceIds
+    .map((personId, i) => ({ personId, role: accompliceRoles[i] ?? "" }))
+    .filter((a) => a.personId && a.personId !== culpritId && !seenAccomplices.has(a.personId) && seenAccomplices.add(a.personId));
+
   await withSession(async ({ session, truth, userId }) => {
-    const accusation = { culpritId, motiveType, method, submittedAt: session.currentTime };
+    const accusation = { culpritId, motiveType, method, accomplices, submittedAt: session.currentTime };
     session.accusation = accusation;
     const score = scoreAccusation(truth, session, accusation);
     await getStore().completeCase(userId, { seed: session.seed, difficulty: session.difficulty, accusation, score });

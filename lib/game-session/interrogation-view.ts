@@ -23,6 +23,9 @@ const ACTION_TOPIC_LABEL: Record<TimelineActionType, string> = {
   clean: "une activité inhabituelle",
   flee: "ses déplacements",
   observe: "ce qu'elle/il a vu",
+  stage_scene: "un fait qu'elle/il semble dissimuler",
+  dispose_object: "un fait qu'elle/il semble dissimuler",
+  avoid_location: "ses déplacements",
   other: "un fait précis",
 };
 
@@ -38,17 +41,24 @@ export interface InterrogationTopic {
   asked: boolean;
 }
 
+const CONFESSION_FACT_ID = "confession";
+
 /**
  * Builds the list of things the player can ask a given person about. Topics
  * are ordered chronologically by when the underlying fact occurred — this
  * is deliberate: it's what lets a player line up "she says she was home at
  * 22:00" against a wifi ping discovered elsewhere at the same time.
+ *
+ * A false confessor gets one extra, always-last topic: their full claimed
+ * account (reconstruction, method, timing, motive) — a real interrogation
+ * answer the player can compare against the autopsy and other evidence,
+ * not just a flag revealed at the end.
  */
 export function getInterrogationTopics(truth: CaseTruth, session: GameSession, personId: PersonId): InterrogationTopic[] {
   const eventsById = new Map(truth.timeline.map((e) => [e.id, e]));
   const asked = new Set(session.interrogated[personId] ?? []);
 
-  return truth.knowledge
+  const topics = truth.knowledge
     .filter((fact) => fact.personId === personId)
     .map((fact) => {
       const testimony = truth.testimony.find((t) => t.aboutFactId === fact.id);
@@ -64,6 +74,20 @@ export function getInterrogationTopics(truth: CaseTruth, session: GameSession, p
       };
     })
     .sort((a, b) => a.time - b.time);
+
+  if (truth.falseConfession && truth.falseConfession.personId === personId) {
+    const c = truth.falseConfession;
+    topics.push({
+      factId: CONFESSION_FACT_ID,
+      time: c.claimedTimingStart,
+      timeLabel: formatGameTime(c.claimedTimingStart),
+      topicLabel: "avoue le crime",
+      statement: `${c.claimedReconstruction} Méthode déclarée : ${c.claimedMethod}. Mobile déclaré : ${c.claimedMotiveText}`,
+      asked: asked.has(CONFESSION_FACT_ID),
+    });
+  }
+
+  return topics;
 }
 
 export function markAsked(session: GameSession, personId: PersonId, factId: string): void {

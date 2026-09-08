@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getPerson } from "@/lib/game-session/player-view";
 import { scoreAccusation } from "@/lib/game-session/scoring";
-import { MOTIVE_LABEL } from "@/lib/game-session/labels";
-import { formatDuration, formatGameTime } from "@/lib/game-engine/types/time";
+import { buildNarrativeReconstruction } from "@/lib/game-session/narrative-reconstruction";
+import { formatDuration } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 
@@ -44,17 +44,16 @@ export default async function RapportPage() {
     ],
     realVictimName: `${realVictim?.firstName} ${realVictim?.lastName}`,
     realCulpritName: `${realCulprit?.firstName} ${realCulprit?.lastName}`,
-    motiveLabel: MOTIVE_LABEL[truth.motive.type],
-    motiveDescription: truth.motive.description,
-    method: truth.method,
-    timeline: [...truth.timeline]
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .map((event) => ({
-        id: event.id,
-        timeLabel: formatGameTime(event.timestamp),
-        description: event.description,
-        isCrimeEvent: event.isCrimeEvent,
-      })),
+    narrative: buildNarrativeReconstruction(truth),
+    accompliceScore:
+      score.accompliceTotal > 0 || score.accompliceWronglyAccused > 0
+        ? {
+            identified: score.accompliceIdentified,
+            total: score.accompliceTotal,
+            roleCorrect: score.accompliceRoleCorrect,
+            wronglyAccused: score.accompliceWronglyAccused,
+          }
+        : null,
   };
 
   return <TruthRevealSequence data={data} />;

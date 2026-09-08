@@ -2,7 +2,9 @@ import Link from "next/link";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getSuspects } from "@/lib/game-session/player-view";
 import { submitAccusationAction } from "@/lib/game-session/actions";
-import { MOTIVE_LABEL, WEAPON_OPTIONS } from "@/lib/game-session/labels";
+import { ACCOMPLICE_ROLE_LABEL, MOTIVE_LABEL, WEAPON_OPTIONS } from "@/lib/game-session/labels";
+
+const ACCOMPLICE_SLOTS = 3;
 
 export default async function AccusationPage() {
   const game = await getCurrentGame();
@@ -70,6 +72,34 @@ export default async function AccusationPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          <label className="field-label">Complice(s) suspecté(s) — facultatif</label>
+          <p className="text-xs text-muted">
+            Vous pouvez désigner personne, une seule personne, ou plusieurs. Une désignation erronée est pénalisée ; ne pas
+            désigner un complice réel réduit la note mais ne fait jamais échouer une accusation correcte du coupable.
+          </p>
+          {Array.from({ length: ACCOMPLICE_SLOTS }).map((_, i) => (
+            <div key={i} className="grid grid-cols-2 gap-2">
+              <select name="accompliceId" className="border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground">
+                <option value="">— aucun —</option>
+                {suspects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.firstName} {s.lastName}
+                  </option>
+                ))}
+              </select>
+              <select name="accompliceRole" className="border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground">
+                <option value="">— rôle inconnu —</option>
+                {Object.entries(ACCOMPLICE_ROLE_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
         </div>
 
         <button type="submit" className="btn btn-danger mt-2">

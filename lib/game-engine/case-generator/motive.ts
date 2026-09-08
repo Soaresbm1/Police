@@ -4,6 +4,7 @@ import { fullName } from "../types/person";
 import type { Relationship } from "../types/relationship";
 import { RelationshipGraph } from "../types/relationship";
 import type { Motive, MotiveType } from "../types/case";
+import type { ArchetypePolicy } from "./archetype";
 
 export interface MotiveCandidate {
   holderId: PersonId;
@@ -41,15 +42,45 @@ export function computeVictimRiskScore(personId: PersonId, graph: RelationshipGr
   return score;
 }
 
+/** How strongly a candidate's *grounding relationship type* matches the
+ * archetype's preferred types — this is what actually makes an archetype
+ * shape who ends up as victim/culprit, on top of the relationship graph
+ * already being biased to support it (see archetype-bias.ts). A candidate
+ * with no matching relationship still competes, just without the boost —
+ * the archetype is never a hard filter that could make generation fail. */
+function archetypeCandidateBoost(
+  candidate: MotiveCandidate,
+  relationships: Relationship[],
+  archetype: ArchetypePolicy | undefined,
+): number {
+  if (!archetype) return 1;
+  const groundingTypes = candidate.groundingRelationshipIds
+    .map((id) => relationships.find((r) => r.id === id)?.type)
+    .filter((t): t is NonNullable<typeof t> => Boolean(t));
+  const relationshipMatch = groundingTypes.some((t) => archetype.preferredRelationshipTypes.includes(t));
+  const motiveMatch = archetype.motiveWeights[candidate.type] !== undefined;
+  let boost = 1;
+  if (relationshipMatch) boost *= 3;
+  if (motiveMatch) boost *= 1 + (archetype.motiveWeights[candidate.type] ?? 0) * 0.5;
+  return boost;
+}
+
 /** Picks a victim guaranteed to have at least one real motive candidate
  * against them — selection is driven directly by the same rules that will
  * later produce the culprit's motive, rather than a separate heuristic that
- * could disagree with them and leave the case unsolvable to generate. */
-export function selectVictim(rng: RNG, people: Person[], relationships: Relationship[]): Person {
+ * could disagree with them and leave the case unsolvable to generate. When
+ * `archetype` is given, victims whose strongest candidate matches the
+ * archetype's story shape are strongly favored — this is what makes e.g. an
+ * inheritance dispute actually pick a wealthy family victim instead of a
+ * random one that merely gets an "inheritance dispute" label afterward. */
+export function selectVictim(rng: RNG, people: Person[], relationships: Relationship[], archetype?: ArchetypePolicy): Person {
   const graph = new RelationshipGraph(relationships);
   const scored = people.map((person) => {
     const candidates = deriveMotiveCandidates(person, people, relationships);
-    const candidateStrength = candidates.reduce((sum, c) => sum + c.strength, 0);
+    const candidateStrength = candidates.reduce(
+      (sum, c) => sum + c.strength * archetypeCandidateBoost(c, relationships, archetype),
+      0,
+    );
     const risk = computeVictimRiskScore(person.id, graph);
     return { person, candidateCount: candidates.length, weight: candidateStrength + risk * 0.1 };
   });
@@ -225,13 +256,20 @@ export function deriveMotiveCandidates(
   return candidates.sort((a, b) => b.strength - a.strength);
 }
 
-export function pickCulprit(rng: RNG, candidates: MotiveCandidate[]): MotiveCandidate {
+export function pickCulprit(
+  rng: RNG,
+  candidates: MotiveCandidate[],
+  relationships: Relationship[] = [],
+  archetype?: ArchetypePolicy,
+): MotiveCandidate {
   if (candidates.length === 0) {
     throw new Error("No motive candidates available to select a culprit from");
   }
   const strong = candidates.filter((c) => c.strength >= 0.35);
   const pool = strong.length > 0 ? strong : candidates;
-  return rng.pickWeighted(pool.map((c) => ({ item: c, weight: c.strength + 0.05 })));
+  return rng.pickWeighted(
+    pool.map((c) => ({ item: c, weight: (c.strength + 0.05) * archetypeCandidateBoost(c, relationships, archetype) })),
+  );
 }
 
 export function toMotive(candidate: MotiveCandidate): Motive {

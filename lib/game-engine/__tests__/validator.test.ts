@@ -90,13 +90,24 @@ function baseCase(): CaseTruth {
     seed: "CASE-TEST01",
     difficulty: "investigator",
     crimeType: "homicide",
+    archetype: "crime_of_opportunity",
     generatedAt: new Date().toISOString(),
     locations: [locA, locB],
     people: [victim, culprit],
-    relationships: [],
+    relationships: [
+      {
+        id: "rel-conflict",
+        type: "conflict",
+        from: culprit.id,
+        to: victim.id,
+        attributes: { trust: 0.2, affection: 0, hatred: 0.5, jealousy: 0, fear: 0, dependency: 0, debtChf: 0 },
+        secret: null,
+      },
+    ],
     victimId: victim.id,
     culpritId: culprit.id,
     accompliceIds: [],
+    accomplices: [],
     suspectIds: [culprit.id],
     motive: {
       type: "revenge",
@@ -106,11 +117,17 @@ function baseCase(): CaseTruth {
       strength: 0.8,
       groundingRelationshipIds: [],
     },
+    suspectMotives: {},
     method: "test",
+    methodType: "blunt_force",
     weapon: "test",
     crimeLocationId: locA.id,
     crimeTimestamp: 1000,
     premeditated: false,
+    staging: { type: "none", staged: false, tellEvidenceIds: [], description: "" },
+    falseConfession: null,
+    tamperingEvents: [],
+    sharedResources: [],
     timeline: [attackEvent],
     evidence: [
       {
@@ -150,7 +167,15 @@ function baseCase(): CaseTruth {
     ],
     knowledge: [],
     testimony: [
-      { id: "t1", personId: culprit.id, aboutFactId: "n/a", stance: "lie", statement: "j'étais ailleurs", motiveForStance: "auto-protection" },
+      {
+        id: "t1",
+        personId: culprit.id,
+        aboutFactId: "n/a",
+        stance: "lie",
+        statement: "j'étais ailleurs",
+        motiveForStance: "auto-protection",
+        loyaltyReason: null,
+      },
     ],
     alibis: [
       {

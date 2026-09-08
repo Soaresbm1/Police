@@ -16,6 +16,14 @@ export interface CaseScore {
   mandatesGranted: number;
   mandatesWasted: number;
   gameTimeSpentMinutes: number;
+  /** How many real accomplices the player correctly named. */
+  accompliceIdentified: number;
+  accompliceTotal: number;
+  /** Of the correctly-named accomplices, how many also had the right role. */
+  accompliceRoleCorrect: number;
+  /** Suspects accused as an accomplice who weren't actually one — a
+   * meaningful penalty, scored independently of missing a real accomplice. */
+  accompliceWronglyAccused: number;
   grade: Grade;
   overallPercent: number;
 }
@@ -58,15 +66,33 @@ export function scoreAccusation(truth: CaseTruth, session: GameSession, accusati
 
   const interrogationsCount = Object.values(session.interrogated).reduce((sum, list) => sum + list.length, 0);
 
+  // Accomplices are scored as a bonus/penalty layer on top of the culprit
+  // baseline, never as a pass/fail of their own: naming the right culprit
+  // is never turned into a failure just because an accomplice was missed
+  // (see the D-grade rule below, which depends only on `culpritCorrect`).
+  const trueAccompliceById = new Map(truth.accomplices.map((a) => [a.personId, a]));
+  const accusedAccomplices = accusation.accomplices ?? [];
+  const correctlyNamed = accusedAccomplices.filter((a) => trueAccompliceById.has(a.personId));
+  const accompliceIdentified = correctlyNamed.length;
+  const accompliceRoleCorrect = correctlyNamed.filter((a) => trueAccompliceById.get(a.personId)?.role === a.role).length;
+  const accompliceWronglyAccused = accusedAccomplices.length - correctlyNamed.length;
+
   let overallPercent = 0;
   if (culpritCorrect) {
     const evidenceRatio = importantEvidence.length > 0 ? importantEvidenceFound / importantEvidence.length : 1;
+    const accompliceTotal = truth.accomplices.length;
+    const identifyBonus = accompliceTotal > 0 ? (accompliceIdentified / accompliceTotal) * 10 : 0;
+    const roleBonus = accompliceTotal > 0 ? (accompliceRoleCorrect / accompliceTotal) * 5 : 0;
+    const falseAccusationPenalty = accompliceWronglyAccused * 8;
     overallPercent =
       40 + // baseline for correctly naming the culprit
       (motiveCorrect ? 15 : 0) +
       (methodCorrect ? 10 : 0) +
-      evidenceRatio * 25 +
-      Math.min(10, interrogationsCount);
+      evidenceRatio * 20 +
+      Math.min(10, interrogationsCount) +
+      identifyBonus +
+      roleBonus -
+      falseAccusationPenalty;
   } else {
     overallPercent = 5;
   }
@@ -94,6 +120,10 @@ export function scoreAccusation(truth: CaseTruth, session: GameSession, accusati
     mandatesGranted,
     mandatesWasted,
     gameTimeSpentMinutes: accusation.submittedAt - truth.crimeTimestamp,
+    accompliceIdentified,
+    accompliceTotal: truth.accomplices.length,
+    accompliceRoleCorrect,
+    accompliceWronglyAccused,
     grade,
     overallPercent,
   };

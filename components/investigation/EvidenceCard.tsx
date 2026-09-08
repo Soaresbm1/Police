@@ -1,6 +1,7 @@
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { sendToLabAction, collectEvidenceAction } from "@/lib/game-session/actions";
 import type { VisibleEvidence } from "@/lib/game-session/player-view";
+import { RECORD_TYPE_LABEL } from "@/lib/game-session/labels";
 
 const RELIABILITY_COLOR: Record<string, string> = {
   reliable: "text-success",
@@ -36,7 +37,7 @@ export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
     <div className={`panel border-l-4 ${RELIABILITY_BORDER[evidence.reliability] ?? "border-l-border-strong"} flex flex-col gap-2 p-4`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="data-id">{evidenceCode(evidence.id)}</span>
-        <span className="font-data text-xs uppercase tracking-wide text-muted">{evidence.type}</span>
+        <span className="font-data text-xs uppercase tracking-wide text-muted">{RECORD_TYPE_LABEL[evidence.type]}</span>
       </div>
       <p className="text-sm text-foreground">{evidence.description}</p>
       <div className="flex flex-wrap items-center gap-2 text-xs">

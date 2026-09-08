@@ -2,6 +2,7 @@ import type { CaseTruth } from "../types/case";
 import { travelMinutes } from "../types/location";
 import type { TimelineEvent } from "../types/timeline";
 import { computeSolvability, MIN_INDEPENDENT_CHANNELS } from "./solvability";
+import { ARCHETYPE_POLICIES } from "../case-generator/archetype";
 
 export interface ValidationResult {
   valid: boolean;
@@ -38,6 +39,9 @@ const STATIONARY_ACTIONS = new Set<TimelineEvent["action"]>([
   "destroy_evidence",
   "clean",
   "observe",
+  "stage_scene",
+  "dispose_object",
+  "avoid_location",
 ]);
 
 function buildOccupancyByPerson(timeline: TimelineEvent[]): Map<string, Occupancy[]> {
@@ -153,6 +157,176 @@ function checkAlibis(caseTruth: CaseTruth, errors: string[], warnings: string[])
   }
 }
 
+function checkAccomplices(caseTruth: CaseTruth, errors: string[]) {
+  const peopleIds = new Set(caseTruth.people.map((p) => p.id));
+  const crimeEvent = caseTruth.timeline.find((e) => e.isCrimeEvent);
+
+  for (const accomplice of caseTruth.accomplices) {
+    if (!peopleIds.has(accomplice.personId)) {
+      errors.push(`Complice ${accomplice.personId} ne fait pas partie de la population générée`);
+      continue;
+    }
+    if (accomplice.personId === caseTruth.culpritId) {
+      errors.push(`${accomplice.personId} est à la fois désigné comme coupable et comme complice`);
+    }
+    // An accomplice who doesn't know the full plan must never have directly
+    // witnessed the crime event itself — only their own narrow slice of it.
+    if (!accomplice.knowsFullPlan && crimeEvent) {
+      const witnessedCrime = caseTruth.knowledge.some(
+        (f) =>
+          f.personId === accomplice.personId &&
+          f.aboutEventId === crimeEvent.id &&
+          f.source.kind === "direct_observation",
+      );
+      if (witnessedCrime) {
+        errors.push(
+          `Connaissance impossible: le/la complice ${accomplice.personId} (ne connaît pas l'ensemble du plan) a directement observé l'agression`,
+        );
+      }
+    }
+  }
+}
+
+function checkStaging(caseTruth: CaseTruth, errors: string[]) {
+  if (!caseTruth.staging.staged) return;
+  if (caseTruth.staging.tellEvidenceIds.length === 0) {
+    errors.push(`Mise en scène (${caseTruth.staging.type}) sans aucune incohérence logique découvrable`);
+    return;
+  }
+  const evidenceIds = new Set(caseTruth.evidence.map((e) => e.id));
+  for (const tellId of caseTruth.staging.tellEvidenceIds) {
+    if (!evidenceIds.has(tellId)) {
+      errors.push(`La mise en scène référence une preuve de révélation inexistante (${tellId})`);
+    }
+  }
+}
+
+// A confession's claimed timing must genuinely conflict with the autopsy
+// window — otherwise `conflictingDetail` would be pointing at a "conflict"
+// that isn't actually one, and no careful player could ever catch the lie.
+const FALSE_CONFESSION_MIN_DRIFT_MINUTES = 30;
+
+function checkFalseConfession(caseTruth: CaseTruth, errors: string[]) {
+  const confession = caseTruth.falseConfession;
+  if (!confession) return;
+  if (confession.personId === caseTruth.culpritId) {
+    errors.push("La fausse confession désigne le véritable coupable comme confesseur");
+  }
+  if (confession.disprovingEvidenceIds.length === 0) {
+    errors.push("Fausse confession sans aucune preuve permettant de la réfuter");
+  }
+  const evidenceIds = new Set(caseTruth.evidence.map((e) => e.id));
+  for (const evId of confession.disprovingEvidenceIds) {
+    if (!evidenceIds.has(evId)) {
+      errors.push(`La fausse confession référence une preuve de réfutation inexistante (${evId})`);
+    }
+  }
+  if (confession.claimedTimingStart >= confession.claimedTimingEnd) {
+    errors.push("Fausse confession avec une fenêtre horaire déclarée invalide");
+  }
+  const driftFromDeathWindow = Math.min(
+    Math.abs(confession.claimedTimingStart - caseTruth.autopsy.estimatedDeathWindowStart),
+    Math.abs(confession.claimedTimingEnd - caseTruth.autopsy.estimatedDeathWindowEnd),
+  );
+  if (driftFromDeathWindow < FALSE_CONFESSION_MIN_DRIFT_MINUTES) {
+    errors.push(
+      "Fausse confession dont l'horaire déclaré ne s'écarte pas assez de la fenêtre légiste pour constituer une incohérence détectable",
+    );
+  }
+  if (!confession.conflictingDetail) {
+    errors.push("Fausse confession sans description de l'incohérence objective");
+  }
+}
+
+function checkArchetypeSupport(caseTruth: CaseTruth, errors: string[]) {
+  const policy = ARCHETYPE_POLICIES[caseTruth.archetype];
+  if (!policy) return;
+  const hasSupportingRelationship = caseTruth.relationships.some((r) => policy.preferredRelationshipTypes.includes(r.type));
+  if (!hasSupportingRelationship) {
+    errors.push(
+      `L'archétype "${caseTruth.archetype}" n'est appuyé par aucune relation du type attendu (${policy.preferredRelationshipTypes.join(", ")}) — le graphe de relations ne soutient pas l'histoire choisie`,
+    );
+  }
+}
+
+/** For a false_alibi_provider accomplice, the culprit's and the
+ * accomplice's alibis must actually be *coordinated*: same claimed
+ * location, same claimed window, both false, and both backed by at least
+ * one piece of contradicting evidence a player can find — otherwise it's
+ * just two unrelated lies, not a deliberate cover story. */
+function checkCoordinatedAlibi(caseTruth: CaseTruth, errors: string[]) {
+  const provider = caseTruth.accomplices.find((a) => a.role === "false_alibi_provider");
+  if (!provider) return;
+
+  const culpritAlibi = caseTruth.alibis.find((a) => a.personId === caseTruth.culpritId);
+  const providerAlibi = caseTruth.alibis.find((a) => a.personId === provider.personId);
+  if (!culpritAlibi || !providerAlibi) {
+    errors.push("Alibi concerté attendu (false_alibi_provider) mais l'un des deux alibis est manquant");
+    return;
+  }
+  if (culpritAlibi.isTrue || providerAlibi.isTrue) {
+    errors.push("Alibi concerté attendu (false_alibi_provider) mais l'un des deux alibis est marqué comme vrai");
+  }
+  if (
+    culpritAlibi.claimedLocationId !== providerAlibi.claimedLocationId ||
+    culpritAlibi.windowStart !== providerAlibi.windowStart ||
+    culpritAlibi.windowEnd !== providerAlibi.windowEnd
+  ) {
+    errors.push("Alibi concerté incohérent: le coupable et le/la complice ne déclarent pas la même version des faits");
+  }
+  if (culpritAlibi.contradictingEvidenceIds.length === 0) {
+    errors.push("Alibi concerté sans aucune preuve contradictoire découvrable — la coordination serait indétectable");
+  }
+}
+
+function checkTamperingOpportunity(caseTruth: CaseTruth, errors: string[]) {
+  const occupancyByPerson = buildOccupancyByPerson(caseTruth.timeline);
+  for (const tampering of caseTruth.tamperingEvents) {
+    const occupancies = occupancyByPerson.get(tampering.actorId) ?? [];
+    const hadOpportunity = occupancies.some(
+      (o) => o.locationId === tampering.locationId && tampering.timestamp >= o.start && tampering.timestamp < o.end,
+    );
+    if (!hadOpportunity) {
+      errors.push(
+        `Manipulation de preuve sans opportunité: ${tampering.actorId} n'était pas présent à ${tampering.locationId} au moment de l'action "${tampering.action}"`,
+      );
+    }
+    const evidenceIds = new Set(caseTruth.evidence.map((e) => e.id));
+    if (!evidenceIds.has(tampering.secondaryTraceEvidenceId)) {
+      errors.push(`La manipulation "${tampering.action}" référence une trace secondaire inexistante`);
+    }
+  }
+}
+
+// Every evidence type derived from a timeline event can legitimately carry
+// up to 2 people on its own — `deriveEvidenceFromTimeline` always includes
+// the event's counterparty when there is one (a card payment made while out
+// with a friend lists both diners, independent of any shared resource).
+// Only a count *above* that generic baseline must be explained by an actual
+// SharedResource.
+const SHARED_WIDENABLE_BASELINE = 2;
+
+function checkSharedResources(caseTruth: CaseTruth, errors: string[]) {
+  if (caseTruth.sharedResources.length === 0) return;
+  const ownersByResource = caseTruth.sharedResources.map((r) => new Set(r.ownerPersonIds));
+  const anyGroupContains = (ids: string[]) => ownersByResource.some((owners) => ids.every((id) => owners.has(id)));
+
+  for (const evidence of caseTruth.evidence) {
+    if (evidence.relatedPersonIds.length <= SHARED_WIDENABLE_BASELINE) continue;
+    if (!anyGroupContains(evidence.relatedPersonIds)) {
+      errors.push(`Preuve ${evidence.id} implique plusieurs personnes sans ressource partagée les reliant toutes`);
+    }
+  }
+}
+
+function checkCulpritNotExonerated(solvability: ReturnType<typeof computeSolvability>, errors: string[]) {
+  if (!solvability.culpritDirectlyImplicated) {
+    errors.push(
+      "Le véritable coupable n'est directement mis en cause par aucune preuve ni alibi contredit — l'affaire risque de l'innocenter ou de ne rendre prouvable qu'un complice",
+    );
+  }
+}
+
 function checkCoreFacts(caseTruth: CaseTruth, errors: string[]) {
   const peopleIds = new Set(caseTruth.people.map((p) => p.id));
   if (!peopleIds.has(caseTruth.victimId)) errors.push("La victime ne fait pas partie de la population générée");
@@ -174,8 +348,16 @@ export function validateCase(caseTruth: CaseTruth): ValidationResult {
   checkTimelinePhysicality(caseTruth, errors);
   checkKnowledgeGraph(caseTruth, errors, warnings);
   checkAlibis(caseTruth, errors, warnings);
+  checkAccomplices(caseTruth, errors);
+  checkStaging(caseTruth, errors);
+  checkFalseConfession(caseTruth, errors);
+  checkTamperingOpportunity(caseTruth, errors);
+  checkSharedResources(caseTruth, errors);
+  checkArchetypeSupport(caseTruth, errors);
+  checkCoordinatedAlibi(caseTruth, errors);
 
   const solvability = computeSolvability(caseTruth);
+  checkCulpritNotExonerated(solvability, errors);
   if (solvability.independentChannels.length < MIN_INDEPENDENT_CHANNELS) {
     errors.push(
       `Affaire insuffisamment solvable: seulement ${solvability.independentChannels.length} chaîne(s) de preuve indépendante(s) (${solvability.independentChannels.join(", ") || "aucune"}), minimum requis: ${MIN_INDEPENDENT_CHANNELS}`,

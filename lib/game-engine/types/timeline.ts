@@ -21,6 +21,9 @@ export type TimelineActionType =
   | "clean"
   | "flee"
   | "observe"
+  | "stage_scene"
+  | "dispose_object"
+  | "avoid_location"
   | "other";
 
 /**

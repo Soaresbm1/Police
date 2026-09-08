@@ -99,6 +99,10 @@ export default async function CaseLabPage({
                   <td style={td}>{truth.difficulty}</td>
                 </tr>
                 <tr>
+                  <td style={td}>Archétype</td>
+                  <td style={td}>{truth.archetype}</td>
+                </tr>
+                <tr>
                   <td style={td}>Victime</td>
                   <td style={td}>{nameOf(truth.people, truth.victimId)}</td>
                 </tr>
@@ -173,6 +177,180 @@ export default async function CaseLabPage({
               </ul>
             </section>
           )}
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Complices ({truth.accomplices.length})</h2>
+            {truth.accomplices.length === 0 ? (
+              <p style={{ color: "#8a94a6" }}>Aucun.</p>
+            ) : (
+              <table style={table}>
+                <thead>
+                  <tr>
+                    <th style={th}>Personne</th>
+                    <th style={th}>Rôle</th>
+                    <th style={th}>Connaît le plan ?</th>
+                    <th style={th}>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {truth.accomplices.map((a) => (
+                    <tr key={a.personId}>
+                      <td style={td}>{nameOf(truth.people, a.personId)}</td>
+                      <td style={td}>{a.role}</td>
+                      <td style={td}>{a.knowsFullPlan ? "oui" : "non"}</td>
+                      <td style={td}>{a.involvementDescription}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Mise en scène</h2>
+            <p>
+              {truth.staging.staged ? (
+                <>
+                  <strong>{truth.staging.type}</strong> — {truth.staging.description} (tells :{" "}
+                  {truth.staging.tellEvidenceIds.join(", ")})
+                </>
+              ) : (
+                "Aucune."
+              )}
+            </p>
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Manipulations de preuves ({truth.tamperingEvents.length})</h2>
+            {truth.tamperingEvents.length === 0 ? (
+              <p style={{ color: "#8a94a6" }}>Aucune.</p>
+            ) : (
+              <table style={table}>
+                <thead>
+                  <tr>
+                    <th style={th}>Heure</th>
+                    <th style={th}>Auteur</th>
+                    <th style={th}>Action</th>
+                    <th style={th}>Cible supprimée</th>
+                    <th style={th}>Trace secondaire</th>
+                    <th style={th}>Risque</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {truth.tamperingEvents.map((t) => (
+                    <tr key={t.id}>
+                      <td style={td}>{formatGameTime(t.timestamp)}</td>
+                      <td style={td}>{nameOf(truth.people, t.actorId)}</td>
+                      <td style={td}>{t.action}</td>
+                      <td style={td}>{t.targetEvidenceId ?? "—"}</td>
+                      <td style={td}>{t.secondaryTraceEvidenceId}</td>
+                      <td style={td}>{t.riskOfTrace.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Fausse confession</h2>
+            {truth.falseConfession ? (
+              <table style={table}>
+                <tbody>
+                  <tr>
+                    <td style={td}>Confesseur</td>
+                    <td style={td}>{nameOf(truth.people, truth.falseConfession.personId)}</td>
+                  </tr>
+                  <tr>
+                    <td style={td}>Raison</td>
+                    <td style={td}>{truth.falseConfession.reason}</td>
+                  </tr>
+                  <tr>
+                    <td style={td}>Reconstruction déclarée</td>
+                    <td style={td}>{truth.falseConfession.claimedReconstruction}</td>
+                  </tr>
+                  <tr>
+                    <td style={td}>Méthode / horaire déclarés</td>
+                    <td style={td}>
+                      {truth.falseConfession.claimedMethod} — {formatGameTime(truth.falseConfession.claimedTimingStart)} à{" "}
+                      {formatGameTime(truth.falseConfession.claimedTimingEnd)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={td}>Mobile déclaré</td>
+                    <td style={td}>{truth.falseConfession.claimedMotiveText}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ ...td, color: "#e3b341" }}>Incohérence objective</td>
+                    <td style={{ ...td, color: "#e3b341" }}>{truth.falseConfession.conflictingDetail}</td>
+                  </tr>
+                  <tr>
+                    <td style={td}>Preuves de réfutation</td>
+                    <td style={td}>{truth.falseConfession.disprovingEvidenceIds.join(", ")}</td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ color: "#8a94a6" }}>Aucune.</p>
+            )}
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Ressources partagées ({truth.sharedResources.length})</h2>
+            {truth.sharedResources.length === 0 ? (
+              <p style={{ color: "#8a94a6" }}>Aucune.</p>
+            ) : (
+              <table style={table}>
+                <thead>
+                  <tr>
+                    <th style={th}>Type</th>
+                    <th style={th}>Propriétaires</th>
+                    <th style={th}>Libellé</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {truth.sharedResources.map((r) => (
+                    <tr key={r.id}>
+                      <td style={td}>{r.kind}</td>
+                      <td style={td}>{r.ownerPersonIds.map((id) => nameOf(truth.people, id)).join(", ")}</td>
+                      <td style={td}>{r.label}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Mobiles par suspect</h2>
+            <table style={table}>
+              <thead>
+                <tr>
+                  <th style={th}>Suspect</th>
+                  <th style={th}>Mobiles</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(truth.suspectMotives).map(([personId, motives]) => (
+                  <tr key={personId}>
+                    <td style={td}>{nameOf(truth.people, personId)}</td>
+                    <td style={td}>
+                      {motives.map((m, i) => (
+                        <div key={i}>
+                          {m.type} (force {m.strength.toFixed(2)}) — {m.description}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section style={{ marginBottom: 24 }}>
+            <h2 style={sectionTitle}>Chaînes de preuve indépendantes</h2>
+            <p>{solvability.independentChannels.join(", ") || "aucune"}</p>
+          </section>
 
           <section style={{ marginBottom: 24 }}>
             <h2 style={sectionTitle}>Personnages ({truth.people.length})</h2>

@@ -2,73 +2,20 @@ import type { RNG } from "../random/rng";
 import type { Person } from "../types/person";
 import type { Location, LocationId } from "../types/location";
 import type { MotiveCandidate } from "../case-generator/motive";
-import type { EvidenceSourceTag } from "../types/timeline";
+import type { ArchetypePolicy } from "../case-generator/archetype";
+import { CRIME_METHOD_PROFILES, type MethodProfile } from "./crime-methods";
 
 const IMPULSIVE_MOTIVES = new Set(["jealousy", "crime_passionnel", "rivalry"]);
 
 export type MeetingScenario = "at_victim_home" | "at_culprit_home" | "neutral_ground";
 
-export interface WeaponProfile {
-  weapon: string;
-  method: string;
-  causeOfDeath: string;
-  wounds: string[];
-  physicalTags: EvidenceSourceTag[];
-}
-
-const IMPULSIVE_WEAPON_PROFILES: WeaponProfile[] = [
-  {
-    weapon: "couteau de cuisine",
-    method: "Coup porté avec un couteau de cuisine saisi sur place, lors d'une altercation.",
-    causeOfDeath: "hémorragie interne suite à une plaie par arme blanche",
-    wounds: ["plaie perforante au thorax", "coupures de défense sur les avant-bras"],
-    physicalTags: ["blood", "fingerprint", "dna"],
-  },
-  {
-    weapon: "objet contondant",
-    method: "Coup porté à l'aide d'un objet contondant trouvé sur les lieux.",
-    causeOfDeath: "traumatisme crânien",
-    wounds: ["fracture du crâne", "hématome pariétal"],
-    physicalTags: ["fingerprint", "blood"],
-  },
-  {
-    weapon: "strangulation",
-    method: "Décès par strangulation manuelle lors d'une altercation.",
-    causeOfDeath: "asphyxie par strangulation",
-    wounds: ["ecchymoses au cou", "pétéchies conjonctivales"],
-    physicalTags: ["dna", "fiber"],
-  },
-];
-
-const PREMEDITATED_WEAPON_PROFILES: WeaponProfile[] = [
-  {
-    weapon: "couteau",
-    method: "Coup porté avec un couteau apporté sur place.",
-    causeOfDeath: "hémorragie interne suite à une plaie par arme blanche",
-    wounds: ["plaie perforante profonde", "trajectoire descendante unique"],
-    physicalTags: ["blood", "fingerprint", "dna"],
-  },
-  {
-    weapon: "arme à feu",
-    method: "Décès par arme à feu, tir à courte distance.",
-    causeOfDeath: "hémorragie massive suite à une blessure par balle",
-    wounds: ["orifice d'entrée thoracique", "résidus de tir à proximité de la plaie"],
-    physicalTags: ["blood"],
-  },
-  {
-    weapon: "corde",
-    method: "Décès par strangulation à l'aide d'une corde apportée sur place.",
-    causeOfDeath: "asphyxie par strangulation",
-    wounds: ["sillon cervical net", "absence de traces de lutte importantes"],
-    physicalTags: ["fiber", "dna"],
-  },
-];
+export type { MethodProfile } from "./crime-methods";
 
 export interface CrimePlan {
   premeditated: boolean;
   scenario: MeetingScenario;
   crimeLocationId: LocationId;
-  weaponProfile: WeaponProfile;
+  methodProfile: MethodProfile;
 }
 
 function pickCrimeLocation(
@@ -90,6 +37,7 @@ export function planCrime(
   motive: MotiveCandidate,
   victim: Person,
   neutralCandidates: Location[],
+  archetype: ArchetypePolicy,
 ): CrimePlan {
   const premeditationBias = IMPULSIVE_MOTIVES.has(motive.type)
     ? (1 - culprit.personality.impulsivity) * 0.3
@@ -102,8 +50,25 @@ export function planCrime(
     { item: "neutral_ground", weight: 0.25 },
   ]);
 
-  const weaponProfile = premeditated ? rng.pick(PREMEDITATED_WEAPON_PROFILES) : rng.pick(IMPULSIVE_WEAPON_PROFILES);
-  const crimeLocationId = pickCrimeLocation(rng, scenario, victim, culprit, neutralCandidates);
+  // Method choice blends the archetype's thematic preference with how well
+  // that method fits the culprit's premeditation state — a car-neutral
+  // affinity keeps every archetype able to produce every method sometimes.
+  const methodEntries = Object.values(CRIME_METHOD_PROFILES).map((profile) => {
+    const archetypeWeight = archetype.methodWeights[profile.methodType] ?? 0.5;
+    const premedFit = premeditated ? profile.premeditationAffinity : 1 - profile.premeditationAffinity;
+    return { item: profile, weight: archetypeWeight * (0.3 + premedFit) };
+  });
+  const methodProfile = rng.pickWeighted(methodEntries);
 
-  return { premeditated, scenario, crimeLocationId, weaponProfile };
+  // A workplace conspiracy is far more plausible playing out where the two
+  // of them actually cross paths unsupervised — their shared workplace —
+  // than at either home, when the story-bias step (archetype-bias.ts) has
+  // in fact given them one.
+  const sharedWorkplace =
+    archetype.id === "workplace_conspiracy" && culprit.workLocationId && culprit.workLocationId === victim.workLocationId
+      ? culprit.workLocationId
+      : null;
+  const crimeLocationId = sharedWorkplace && rng.bool(0.7) ? sharedWorkplace : pickCrimeLocation(rng, scenario, victim, culprit, neutralCandidates);
+
+  return { premeditated, scenario, crimeLocationId, methodProfile };
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { ambience, playSound } from "@/lib/sound/sound-manager";
+import { endCurrentCase } from "@/lib/game-session/actions";
 
 const GRADE_COLOR: Record<string, string> = {
   S: "text-accent-strong",
@@ -18,11 +18,16 @@ interface StatRow {
   good?: boolean;
 }
 
-interface TimelineEntry {
-  id: string;
-  timeLabel: string;
-  description: string;
-  isCrimeEvent: boolean;
+interface NarrativeSectionData {
+  heading: string;
+  paragraphs: string[];
+}
+
+interface AccompliceScoreData {
+  identified: number;
+  total: number;
+  roleCorrect: number;
+  wronglyAccused: number;
 }
 
 export interface TruthRevealData {
@@ -36,10 +41,12 @@ export interface TruthRevealData {
   stats: StatRow[];
   realVictimName: string;
   realCulpritName: string;
-  motiveLabel: string;
-  motiveDescription: string;
-  method: string;
-  timeline: TimelineEntry[];
+  /** A coherent, deterministic reconstruction of the whole case — context,
+   * motive, preparation, the crime, accomplice actions, staging/tampering,
+   * aftermath, lies told, and how evidence contradicted them — never a
+   * flat dump of engine fields. See lib/game-session/narrative-reconstruction.ts. */
+  narrative: NarrativeSectionData[];
+  accompliceScore: AccompliceScoreData | null;
 }
 
 const STEP_COUNT = 5;
@@ -114,6 +121,20 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
             {data.stats.map((s) => (
               <Stat key={s.label} label={s.label} value={s.value} good={s.good} />
             ))}
+            {data.accompliceScore && (
+              <>
+                <Stat
+                  label="Complices identifiés"
+                  value={`${data.accompliceScore.identified} / ${data.accompliceScore.total}`}
+                  good={data.accompliceScore.total === 0 || data.accompliceScore.identified === data.accompliceScore.total}
+                />
+                <Stat
+                  label="Personnes accusées à tort"
+                  value={String(data.accompliceScore.wronglyAccused)}
+                  good={data.accompliceScore.wronglyAccused === 0}
+                />
+              </>
+            )}
           </div>
           <button type="button" onClick={advance} className="btn btn-primary self-center !px-8">
             Découvrir la vérité
@@ -127,35 +148,18 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
             <div className="panel-header -mx-6 -mt-6 mb-4">
               <span className="field-label !text-accent-strong">Ce qui s&apos;est réellement passé</span>
             </div>
-            <div className="font-document mb-4 grid gap-2 text-sm sm:grid-cols-2">
-              <p>
-                <span className="text-muted">Victime : </span>
-                <span className="text-foreground">{data.realVictimName}</span>
-              </p>
-              <p>
-                <span className="text-muted">Coupable : </span>
-                <span className="text-foreground">{data.realCulpritName}</span>
-              </p>
-              <p className="sm:col-span-2">
-                <span className="text-muted">Mobile : </span>
-                <span className="text-foreground">
-                  {data.motiveLabel} — {data.motiveDescription}
-                </span>
-              </p>
-              <p className="sm:col-span-2">
-                <span className="text-muted">Méthode : </span>
-                <span className="text-foreground">{data.method}</span>
-              </p>
-            </div>
-            <ol className="flex flex-col gap-2 border-l border-border pl-4">
-              {data.timeline.map((event) => (
-                <li key={event.id} className={`relative ${event.isCrimeEvent ? "text-danger" : ""}`}>
-                  <span className={`absolute -left-[21px] top-1.5 h-2 w-2 ${event.isCrimeEvent ? "bg-danger" : "bg-border-strong"}`} />
-                  <span className="font-data text-xs text-muted">{event.timeLabel}</span>
-                  <p className="text-sm">{event.description}</p>
-                </li>
+            <div className="flex flex-col gap-4">
+              {data.narrative.map((section) => (
+                <div key={section.heading}>
+                  <p className="field-label mb-1">{section.heading}</p>
+                  <div className="font-document flex flex-col gap-1 text-sm text-foreground">
+                    {section.paragraphs.map((p, i) => (
+                      <p key={i}>{p}</p>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </ol>
+            </div>
           </div>
           <div className="text-center">
             <button type="button" onClick={advance} className="btn btn-primary !px-8">
@@ -170,9 +174,11 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
           <p className={`font-data text-5xl font-bold ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
           <p className="text-sm text-muted">{data.overallPercent}% — {data.culpritCorrect ? "Affaire résolue" : "Erreur judiciaire"}</p>
           <p className="mt-2 text-sm text-foreground">Dossier {data.caseRef} classé.</p>
-          <Link href="/" className="btn btn-primary mt-4 !px-8">
-            Retour au commissariat
-          </Link>
+          <form action={endCurrentCase}>
+            <button type="submit" className="btn btn-primary mt-4 !px-8">
+              Retour au commissariat
+            </button>
+          </form>
         </div>
       )}
     </div>
