@@ -18,7 +18,7 @@
  */
 export type SoundName = "success" | "denied" | "notify" | "click" | "alert";
 export type VolumeGroup = "master" | "ui" | "ambience";
-export type AmbienceKind = "office" | "rain";
+export type AmbienceKind = "office" | "rain" | "crime_scene" | "interrogation" | "cctv" | "accusation";
 
 interface Tone {
   freq: number;
@@ -207,12 +207,65 @@ function startRain(ctx: AudioContext, out: GainNode): () => void {
   return () => noise.stop();
 }
 
+/** A tense, near-silent low rumble — used for the crime scene and the
+ * final accusation, where the office room-tone would feel wrong. */
+function startTensionBed(ctx: AudioContext, out: GainNode, freq: number, noiseGainValue: number): () => void {
+  const noise = ctx.createBufferSource();
+  noise.buffer = buildNoiseBuffer(ctx);
+  noise.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 220;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.value = noiseGainValue;
+  noise.connect(filter).connect(noiseGain).connect(out);
+  noise.start();
+
+  const drone = ctx.createOscillator();
+  drone.type = "sine";
+  drone.frequency.value = freq;
+  const droneGain = ctx.createGain();
+  droneGain.gain.value = 0.08;
+  drone.connect(droneGain).connect(out);
+  drone.start();
+
+  return () => {
+    noise.stop();
+    drone.stop();
+  };
+}
+
+/** A faint high-frequency hiss evoking a monitor/tape deck — used while
+ * reviewing CCTV footage. */
+function startCctvHiss(ctx: AudioContext, out: GainNode): () => void {
+  const noise = ctx.createBufferSource();
+  noise.buffer = buildNoiseBuffer(ctx);
+  noise.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 4200;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.18;
+  noise.connect(filter).connect(gain).connect(out);
+  noise.start();
+  return () => noise.stop();
+}
+
+const AMBIENCE_BUILDERS: Record<AmbienceKind, (ctx: AudioContext, out: GainNode) => () => void> = {
+  office: startOffice,
+  rain: startRain,
+  crime_scene: (ctx, out) => startTensionBed(ctx, out, 48, 0.35),
+  interrogation: (ctx, out) => startTensionBed(ctx, out, 55, 0.28),
+  accusation: (ctx, out) => startTensionBed(ctx, out, 42, 0.4),
+  cctv: startCctvHiss,
+};
+
 export const ambience = {
   start(kind: AmbienceKind): void {
     const ctx = getContext();
     if (!ctx || !ambienceGain) return;
     ambience.stop();
-    const stopFn = kind === "rain" ? startRain(ctx, ambienceGain) : startOffice(ctx, ambienceGain);
+    const stopFn = AMBIENCE_BUILDERS[kind](ctx, ambienceGain);
     ambienceNodes = { stop: stopFn };
   },
   stop(): void {

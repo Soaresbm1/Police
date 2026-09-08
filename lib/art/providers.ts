@@ -20,19 +20,22 @@
 // Crime scene backgrounds
 // ---------------------------------------------------------------------
 
+import { hashSeed } from "./hash";
+
+/**
+ * NOTE: `CrimeSceneImageProvider`/`LocationImageProvider` below are kept
+ * for interface-compatibility, but `CrimeSceneScreen.tsx` now renders via
+ * `lib/art/scene-renderer.ts` (a materially richer illustrated background
+ * built from `CrimeSceneVisualDescriptor`) rather than this provider's
+ * flat placeholder rect. `EvidenceImageProvider`/`CCTVFrameProvider` are
+ * likewise superseded by `lib/art/evidence-renderers.tsx` and
+ * `lib/art/cctv-renderer.ts`. Left in place as the original documented
+ * seam/contract shape for anything not yet migrated.
+ */
 export interface CrimeSceneImageProvider {
   /** A background image for the spatial crime-scene screen
    * (`CrimeSceneScreen.tsx`), themed by location type. */
   getSceneBackground(locationType: string, seed: string): string;
-}
-
-function hashSeed(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash << 5) - hash + seed.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
 }
 
 class ProceduralCrimeSceneImageProvider implements CrimeSceneImageProvider {

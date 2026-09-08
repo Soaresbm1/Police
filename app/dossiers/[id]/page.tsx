@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { getCurrentIdentity } from "@/lib/game-session/identity";
 import { getStore } from "@/lib/game-session/persistence";
-import { buildNarrativeReconstruction } from "@/lib/game-session/narrative-reconstruction";
+import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 
@@ -47,7 +47,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
     ],
     realVictimName: `${realVictim.firstName} ${realVictim.lastName}`,
     realCulpritName: `${realCulprit.firstName} ${realCulprit.lastName}`,
-    narrative: buildNarrativeReconstruction(truth),
+    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth)),
     accompliceScore:
       accompliceTotal > 0 || accompliceWronglyAccused > 0
         ? {

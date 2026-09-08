@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { searchCameraAction, type CameraSearchResult } from "@/lib/game-session/app-actions";
 import { AppFrame } from "./AppFrame";
-import { RecordTable } from "./RecordTable";
 import { playSound } from "@/lib/sound/sound-manager";
+import { cctvFrameDataUri } from "@/lib/art/cctv-renderer";
+import { Soundscape } from "../Soundscape";
 
 export interface CameraLocationOption {
   id: string;
@@ -43,6 +44,7 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
 
   return (
     <AppFrame title="Vidéosurveillance" system="VIGIL — Réquisition de bandes de vidéosurveillance" accent="purple">
+      <Soundscape kind="cctv" />
       <div className="panel p-4">
         <p className="text-xs text-muted">
           Les enregistrements sont archivés par tranches de 6 heures. Choisissez le lieu et le créneau à visionner.
@@ -104,7 +106,17 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
               <p className="text-sm text-danger">Ce lieu n&apos;est pas équipé de caméras.</p>
             ) : (
               <>
-                <RecordTable lines={result.lines} emptyLabel="Aucune image exploitable sur ce créneau." />
+                {result.lines.length === 0 && <p className="text-sm text-muted">Aucune image exploitable sur ce créneau.</p>}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {result.lines.map((line) => (
+                    <div key={line.id} className="flex flex-col gap-1.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={cctvFrameDataUri(line.frame)} alt="" className="w-full border border-border-strong" />
+                      <p className="font-data text-[10px] uppercase tracking-wide text-muted">{line.timeLabel} — {line.typeLabel}</p>
+                      <p className="text-xs text-foreground">{line.detail}</p>
+                    </div>
+                  ))}
+                </div>
                 {result.moreOutsideWindow && (
                   <p className="mt-2 text-xs text-warning">
                     D&apos;autres séquences existent en dehors de ce créneau — essayez une autre tranche horaire.

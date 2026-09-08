@@ -2,6 +2,8 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getVisibleEvidence } from "@/lib/game-session/player-view";
 import { sendToLabAction } from "@/lib/game-session/actions";
 import { formatDuration, formatGameTime } from "@/lib/game-engine/types/time";
+import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { DocumentSheet } from "@/components/investigation/DocumentSheet";
 
 const ANALYSIS_LABEL: Record<string, string> = {
   fingerprint: "Empreintes digitales",
@@ -97,10 +99,7 @@ export default async function LaboratoirePage() {
         )}
       </section>
 
-      <section className="panel p-5">
-        <div className="panel-header -mx-5 -mt-5 mb-4">
-          <span className="field-label">Rapports disponibles ({completed.length})</span>
-        </div>
+      <DocumentSheet title={`Rapports disponibles (${completed.length})`} caseRef={formatCaseNumber(session.seed)}>
         {completed.length === 0 ? (
           <p className="text-sm text-muted">Aucun rapport pour l&apos;instant.</p>
         ) : (
@@ -117,7 +116,7 @@ export default async function LaboratoirePage() {
             ))}
           </div>
         )}
-      </section>
+      </DocumentSheet>
     </div>
   );
 }

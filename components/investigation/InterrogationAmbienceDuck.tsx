@@ -2,12 +2,14 @@
 
 import { useEffect } from "react";
 import { ambience } from "@/lib/sound/sound-manager";
+import { Soundscape } from "./Soundscape";
 
-/** Ducks the ambient office bed for a moment when the player steps into an
- * interrogation room, giving the scene a beat of tension. Renders nothing. */
+/** Ducks the ambient bed for a moment when the player steps into an
+ * interrogation room (a beat of tension before the room's own low-tension
+ * soundscape takes over). Renders nothing but the silent `Soundscape`. */
 export function InterrogationAmbienceDuck() {
   useEffect(() => {
-    ambience.duck(2000);
+    ambience.duck(1200);
   }, []);
-  return null;
+  return <Soundscape kind="interrogation" />;
 }

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ambience, playSound } from "@/lib/sound/sound-manager";
 import { endCurrentCase } from "@/lib/game-session/actions";
+import type { DisplayNarrativeSection } from "@/lib/game-session/narrative-reconstruction";
+import { Avatar } from "./Avatar";
 
 const GRADE_COLOR: Record<string, string> = {
   S: "text-accent-strong",
@@ -16,11 +18,6 @@ interface StatRow {
   label: string;
   value: string;
   good?: boolean;
-}
-
-interface NarrativeSectionData {
-  heading: string;
-  paragraphs: string[];
 }
 
 interface AccompliceScoreData {
@@ -45,7 +42,7 @@ export interface TruthRevealData {
    * motive, preparation, the crime, accomplice actions, staging/tampering,
    * aftermath, lies told, and how evidence contradicted them — never a
    * flat dump of engine fields. See lib/game-session/narrative-reconstruction.ts. */
-  narrative: NarrativeSectionData[];
+  narrative: DisplayNarrativeSection[];
   accompliceScore: AccompliceScoreData | null;
 }
 
@@ -148,10 +145,29 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
             <div className="panel-header -mx-6 -mt-6 mb-4">
               <span className="field-label !text-accent-strong">Ce qui s&apos;est réellement passé</span>
             </div>
-            <div className="flex flex-col gap-4">
+            <div className="relative flex flex-col gap-5 border-l border-border-strong pl-6">
               {data.narrative.map((section) => (
-                <div key={section.heading}>
-                  <p className="field-label mb-1">{section.heading}</p>
+                <div key={section.heading} className="relative">
+                  <span className="absolute -left-[29px] top-1 h-2.5 w-2.5 rounded-full border-2 border-accent-strong bg-background-deep" />
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <p className="field-label !mb-0">{section.heading}</p>
+                    {section.timeLabel && <span className="font-data text-[10px] text-accent-strong">{section.timeLabel}</span>}
+                    {section.locationName && (
+                      <span className="border border-border-strong px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                        📍 {section.locationName}
+                      </span>
+                    )}
+                  </div>
+                  {section.people.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {section.people.map((p) => (
+                        <span key={p.id} className="flex items-center gap-1.5 border border-border-strong bg-surface-sunken py-0.5 pl-0.5 pr-2">
+                          <Avatar seed={p.avatarSeed} name={p.name} size={22} />
+                          <span className="text-[11px] text-foreground">{p.name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="font-document flex flex-col gap-1 text-sm text-foreground">
                     {section.paragraphs.map((p, i) => (
                       <p key={i}>{p}</p>

@@ -6,6 +6,9 @@ import { computeSolvability } from "@/lib/game-engine/validator/solvability";
 import { generateCaseSeed, isValidCaseSeed } from "@/lib/game-engine/random/rng";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import type { Difficulty } from "@/lib/game-engine/types/case";
+import { buildCaseVisualManifest } from "@/lib/art/visual-manifest";
+import { crimeSceneSvgDataUri } from "@/lib/art/scene-renderer";
+import { portraitService } from "@/lib/game-engine/portraits/portrait-service";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +44,7 @@ export default async function CaseLabPage({
 
   const validation = truth ? validateCase(truth) : null;
   const solvability = truth ? computeSolvability(truth) : null;
+  const visualManifest = truth ? buildCaseVisualManifest(truth) : null;
 
   return (
     <main style={{ fontFamily: "monospace", padding: 24, background: "#0b0e14", color: "#d6deeb", minHeight: "100vh" }}>
@@ -351,6 +355,38 @@ export default async function CaseLabPage({
             <h2 style={sectionTitle}>Chaînes de preuve indépendantes</h2>
             <p>{solvability.independentChannels.join(", ") || "aucune"}</p>
           </section>
+
+          {visualManifest && (
+            <section style={{ marginBottom: 24 }}>
+              <h2 style={sectionTitle}>Manifeste visuel</h2>
+              <p style={{ color: "#8a94a6", marginBottom: 8 }}>
+                Scène : {visualManifest.crimeScene.layoutTemplate} — {visualManifest.crimeScene.timeOfDay} · {visualManifest.evidence.length} preuve(s) ·{" "}
+                {visualManifest.cctvFrames.length} image(s) CCTV
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={crimeSceneSvgDataUri(visualManifest.crimeScene)}
+                alt=""
+                style={{ width: 320, aspectRatio: "16/9", border: "1px solid #30363d", marginBottom: 12 }}
+              />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {truth.people.map((p) => {
+                  const descriptor = visualManifest.people.find((d) => d.personId === p.id);
+                  return (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #30363d", padding: 4 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={portraitService.getPortraitUrl(p.avatarSeed, `${p.firstName} ${p.lastName}`)} alt="" width={32} height={32} />
+                      <span style={{ fontSize: 11 }}>
+                        {p.firstName} {p.lastName}
+                        <br />
+                        {descriptor ? `${descriptor.hairstyle}, ${descriptor.clothingCategory}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <section style={{ marginBottom: 24 }}>
             <h2 style={sectionTitle}>Personnages ({truth.people.length})</h2>
