@@ -138,6 +138,7 @@ export interface MapLocationView {
   address: string;
   x: number;
   y: number;
+  district: string;
   category: "crime_scene" | "home" | "work" | "evidence";
   occupantNames: string[];
   discoveredEvidenceCount: number;
@@ -175,6 +176,7 @@ export function getMapLocations(truth: CaseTruth, session: GameSession): MapLoca
       id: location.id,
       name: displayLocationName(location),
       address: location.address,
+      district: location.district,
       x: toPct(location.coordinates.x),
       y: toPct(location.coordinates.y),
       category,

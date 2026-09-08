@@ -37,6 +37,10 @@ export interface Location {
   name: string;
   type: LocationType;
   address: string;
+  /** Human-readable district name, derived from `coordinates` at
+   * generation time (see world/city.ts) so an address is always
+   * consistent with where the building actually stands. */
+  district: string;
   coordinates: Coordinates;
   hasCameras: boolean;
   cameraZones: string[];

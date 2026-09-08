@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { isSoundMuted, onSoundMuteChange, playSound, setSoundMuted } from "@/lib/sound/sound-manager";
+import { getVolume, isSoundMuted, onSoundMuteChange, playSound, setSoundMuted, setVolume, type VolumeGroup } from "@/lib/sound/sound-manager";
 import { updateSettingsAction } from "@/lib/game-session/profile-actions";
 
 export function SettingsOverlay({
@@ -18,16 +18,18 @@ export function SettingsOverlay({
 }) {
   const [open, setOpen] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [volumes, setVolumes] = useState<Record<VolumeGroup, number>>({ master: 0.8, ui: 0.8, ambience: 0.35 });
   const [reduceMotion, setReduceMotion] = useState(initialReduceMotion);
   const [hintsDisabled, setHintsDisabled] = useState(initialHintsDisabled);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
-    // One-shot read of the sound preference after mount — it's the one
-    // setting that stays client-only (see profile-actions.ts) so the Web
-    // Audio mute check never needs a server round trip.
+    // One-shot read of the sound preferences after mount — these stay
+    // client-only (see profile-actions.ts) so the Web Audio graph never
+    // needs a server round trip to check them.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMuted(isSoundMuted());
+    setVolumes({ master: getVolume("master"), ui: getVolume("ui"), ambience: getVolume("ambience") });
     return onSoundMuteChange(setMuted);
   }, []);
 
@@ -105,6 +107,29 @@ export function SettingsOverlay({
               {muted ? "Coupé" : "Activé"}
             </button>
           </label>
+
+          {(["master", "ambience", "ui"] as VolumeGroup[]).map((group) => (
+            <label key={group} className="flex flex-col gap-1">
+              <span className="flex items-center justify-between text-xs text-muted">
+                <span>{group === "master" ? "Volume général" : group === "ambience" ? "Ambiance" : "Interface"}</span>
+                <span className="font-data">{Math.round(volumes[group] * 100)}%</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={volumes[group]}
+                disabled={muted}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  setVolumes((v) => ({ ...v, [group]: value }));
+                  setVolume(group, value);
+                }}
+                className="accent-accent"
+              />
+            </label>
+          ))}
 
           <label className="flex items-center justify-between">
             <span className="text-foreground">Animations réduites</span>

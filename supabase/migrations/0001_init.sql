@@ -8,6 +8,27 @@
 -- *after* the fact). There is no column, anywhere, for culpritId, hidden
 -- roles, truthfulness, or undiscovered evidence — there is nothing to leak
 -- because the secret state is never written to Postgres in the first place.
+--
+-- Idempotent by design: every statement can be re-run against a database
+-- that already has some or all of these objects (a partially-applied
+-- previous run, a retry after an error partway through) without erroring
+-- and without dropping/recreating anything that could hold data. Tables
+-- use `create table if not exists` (never altered if already present —
+-- this migration assumes a from-scratch schema, not a column migration);
+-- policies are `drop policy if exists` immediately before each
+-- `create policy`, since Postgres has no `create policy if not exists`;
+-- the function is `create or replace`; the trigger and index already used
+-- the same drop-then-create / `if not exists` pattern; `grant` statements
+-- are naturally idempotent (re-granting an already-held privilege is a
+-- no-op, never an error).
+--
+-- RLS policies only take effect once the querying role already holds the
+-- underlying table-level privilege — creating a table through the SQL
+-- Editor (as this migration does) does **not** auto-grant that privilege
+-- to `authenticated` the way the Supabase dashboard's table editor does.
+-- Without the explicit `grant`s below, every query fails at the Postgres
+-- privilege check before RLS is ever evaluated ("permission denied for
+-- table ..."), regardless of how correct the policies are.
 
 -- ---------------------------------------------------------------------
 -- profiles — one row per authenticated player, created automatically on
@@ -30,10 +51,15 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles
   for select using (auth.uid() = id);
+
+drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles
   for update using (auth.uid() = id);
+
+drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own" on public.profiles
   for insert with check (auth.uid() = id);
 
@@ -65,12 +91,19 @@ create table if not exists public.investigation_sessions (
 
 alter table public.investigation_sessions enable row level security;
 
+drop policy if exists "sessions_select_own" on public.investigation_sessions;
 create policy "sessions_select_own" on public.investigation_sessions
   for select using (auth.uid() = user_id);
+
+drop policy if exists "sessions_insert_own" on public.investigation_sessions;
 create policy "sessions_insert_own" on public.investigation_sessions
   for insert with check (auth.uid() = user_id);
+
+drop policy if exists "sessions_update_own" on public.investigation_sessions;
 create policy "sessions_update_own" on public.investigation_sessions
   for update using (auth.uid() = user_id);
+
+drop policy if exists "sessions_delete_own" on public.investigation_sessions;
 create policy "sessions_delete_own" on public.investigation_sessions
   for delete using (auth.uid() = user_id);
 
@@ -93,13 +126,29 @@ create table if not exists public.case_history (
 
 alter table public.case_history enable row level security;
 
+drop policy if exists "case_history_select_own" on public.case_history;
 create policy "case_history_select_own" on public.case_history
   for select using (auth.uid() = user_id);
+
+drop policy if exists "case_history_insert_own" on public.case_history;
 create policy "case_history_insert_own" on public.case_history
   for insert with check (auth.uid() = user_id);
 
 create index if not exists case_history_user_completed_idx
   on public.case_history (user_id, completed_at desc);
+
+-- ---------------------------------------------------------------------
+-- Grants — see the note at the top of this file: RLS alone is not enough.
+-- `authenticated` is the only role the app ever queries as (there is no
+-- anonymous/public access to any of these tables; `lib/game-session/
+-- identity.ts` requires a signed-in user before any of this is reached),
+-- so it's the only role granted anything here.
+-- ---------------------------------------------------------------------
+grant usage on schema public to authenticated;
+
+grant select, insert, update, delete on public.profiles to authenticated;
+grant select, insert, update, delete on public.investigation_sessions to authenticated;
+grant select, insert on public.case_history to authenticated;
 
 -- ---------------------------------------------------------------------
 -- Auto-create a profile row the moment someone signs up, so the app never

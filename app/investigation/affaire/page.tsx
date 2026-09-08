@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getBriefing, getLocation, getPerson } from "@/lib/game-session/player-view";
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { Avatar } from "@/components/investigation/Avatar";
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 import { OnboardingHint } from "@/components/investigation/OnboardingHint";
@@ -19,6 +20,7 @@ export default async function AffairePage() {
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
       <CaseIntroOverlay
         seed={session.seed}
+        caseNumber={formatCaseNumber(session.seed)}
         crimeType={briefing.crimeType}
         victimName={victimName}
         victimAvatarSeed={victim.avatarSeed}
@@ -34,7 +36,7 @@ export default async function AffairePage() {
 
       <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
         <div>
-          <p className="data-id">DOSSIER N° CL-{session.seed}</p>
+          <p className="data-id">DOSSIER N° {formatCaseNumber(session.seed)}</p>
           <h1 className="mt-1 text-2xl font-bold uppercase tracking-wide text-foreground">
             Homicide — {victimName}
           </h1>

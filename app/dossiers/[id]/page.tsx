@@ -4,6 +4,7 @@ import { getCurrentIdentity } from "@/lib/game-session/identity";
 import { getStore } from "@/lib/game-session/persistence";
 import { MOTIVE_LABEL } from "@/lib/game-session/labels";
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 
 export default async function DossierDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,7 +22,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   const score = entry.score;
 
   const data: TruthRevealData = {
-    caseRef: `CL-${entry.seed}`,
+    caseRef: formatCaseNumber(entry.seed),
     grade: score.grade,
     overallPercent: score.overallPercent,
     culpritCorrect: score.culpritCorrect,

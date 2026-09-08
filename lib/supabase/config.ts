@@ -8,14 +8,14 @@
  */
 export function isSupabaseConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if (Boolean(url) !== Boolean(key)) {
     // Only one of the two is set — almost certainly a copy/paste mistake in
     // .env.local rather than an intentional partial setup. Warn loudly
     // instead of silently limping along in whichever mode this resolves to.
     console.warn(
-      "[CASELINE] Configuration Supabase incomplète : NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY " +
+      "[CASELINE] Configuration Supabase incomplète : NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY " +
         "doivent être définies toutes les deux, ou aucune des deux. Retour au stockage local en mémoire pour l'instant.",
     );
     return false;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { playSound } from "@/lib/sound/sound-manager";
+import { ambience, playSound } from "@/lib/sound/sound-manager";
 
 const GRADE_COLOR: Record<string, string> = {
   S: "text-accent-strong",
@@ -49,7 +49,13 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
 
   const advance = () => {
     playSound("click");
-    setStep((s) => Math.min(STEP_COUNT - 1, s + 1));
+    setStep((s) => {
+      const next = Math.min(STEP_COUNT - 1, s + 1);
+      // The two most dramatic beats — the grade reveal and the truth
+      // reveal — get a moment of near-silence from the ambient bed first.
+      if (next === 1 || next === 3) ambience.duck(2500);
+      return next;
+    });
   };
   const skipToEnd = () => {
     playSound("click");

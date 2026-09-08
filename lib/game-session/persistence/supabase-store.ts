@@ -90,7 +90,7 @@ function rowToHistoryEntry(row: HistoryRow): CaseHistoryEntry {
 
 /**
  * Supabase-backed implementation, used automatically once
- * `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` are set (see
+ * `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are set (see
  * `lib/supabase/config.ts`). Every query runs through the request-scoped,
  * RLS-bound client from `lib/supabase/server.ts` — there is no
  * service-role client here, so a bug in this file can only ever touch rows

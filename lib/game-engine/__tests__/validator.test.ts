@@ -41,6 +41,7 @@ function makeLocation(id: string, x: number, y: number): Location {
     name: id,
     type: "apartment",
     address: "",
+    district: "Centre",
     coordinates: { x, y },
     hasCameras: false,
     cameraZones: [],

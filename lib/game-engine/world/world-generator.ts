@@ -1,6 +1,7 @@
 import type { RNG } from "../random/rng";
 import type { Location, LocationType } from "../types/location";
-import { STREET_NAMES, WIFI_SSID_PREFIXES } from "./data";
+import { WIFI_SSID_PREFIXES } from "./data";
+import { districtForCoordinates } from "./city";
 
 const TOWN_SIZE_KM = 8;
 
@@ -151,10 +152,13 @@ function randomCoordinates(rng: RNG): { x: number; y: number } {
   return { x: rng.range(0, TOWN_SIZE_KM), y: rng.range(0, TOWN_SIZE_KM) };
 }
 
-function randomAddress(rng: RNG): string {
-  const street = rng.pick(STREET_NAMES);
+/** Address + district, drawn together so the street always belongs to the
+ * district the coordinates actually fall in (see world/city.ts). */
+function addressFor(rng: RNG, coordinates: { x: number; y: number }): { address: string; district: string } {
+  const district = districtForCoordinates(coordinates.x, coordinates.y);
+  const street = rng.pick(district.streets);
   const num = rng.int(1, 90);
-  return `${num}, ${street}`;
+  return { address: `${num}, ${street}`, district: district.name };
 }
 
 /** Generates the fixed public infrastructure of the town: everything that
@@ -167,12 +171,15 @@ export function generateTownInfrastructure(rng: RNG): Location[] {
       const name = names[i % names.length];
       const hasWifi = chance(rng, template.wifiChance);
       const hasCameras = chance(rng, template.cameraChance);
+      const coordinates = randomCoordinates(rng);
+      const { address, district } = addressFor(rng, coordinates);
       locations.push({
         id: rng.id("loc"),
         name,
         type: template.type,
-        address: randomAddress(rng),
-        coordinates: randomCoordinates(rng),
+        address,
+        district,
+        coordinates,
         hasCameras,
         cameraZones: hasCameras ? ["entrée", "intérieur"] : [],
         hasWifi,
@@ -192,12 +199,15 @@ export function createHomeLocation(rng: RNG, wealthChf: number): Location {
   const isHouse = wealthChf > 400_000 && chance(rng, 0.6);
   const type: LocationType = isHouse ? "house" : "apartment";
   const hasWifi = chance(rng, 0.85);
+  const coordinates = randomCoordinates(rng);
+  const { address, district } = addressFor(rng, coordinates);
   return {
     id: rng.id("loc"),
     name: isHouse ? "Maison privée" : "Appartement privé",
     type,
-    address: randomAddress(rng),
-    coordinates: randomCoordinates(rng),
+    address,
+    district,
+    coordinates,
     hasCameras: chance(rng, isHouse ? 0.25 : 0.1),
     cameraZones: [],
     hasWifi,

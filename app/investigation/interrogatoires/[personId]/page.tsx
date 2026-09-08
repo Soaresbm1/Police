@@ -5,6 +5,7 @@ import { getInterrogationTopics } from "@/lib/game-session/interrogation-view";
 import { InterrogationTopicButton } from "@/components/investigation/InterrogationTopicButton";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { Avatar } from "@/components/investigation/Avatar";
+import { InterrogationAmbienceDuck } from "@/components/investigation/InterrogationAmbienceDuck";
 
 export default async function InterrogationPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
@@ -19,6 +20,7 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
+      <InterrogationAmbienceDuck />
       <div className="panel panel-bracketed flex items-center gap-4 border-l-4 border-l-danger p-5">
         <Avatar seed={person.avatarSeed} name={`${person.firstName} ${person.lastName}`} size={64} />
         <div>

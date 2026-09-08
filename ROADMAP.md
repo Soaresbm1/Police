@@ -234,32 +234,165 @@ test). `npm run typecheck`, `npm run lint`, and `npm run build` all clean.
     sites. Caught during the mandated in-browser retest, not by
     `tsc`/`eslint` (both were clean — this is a Next.js runtime-only rule).
 
-## Known limitation: session storage is in-memory
+- **Phase 9 — Supabase persistence.** `CaseTruth` still never touches
+  storage (see `DATABASE.md`); everything else a player produces now
+  survives a server restart when Supabase is configured, and gracefully
+  falls back to the pre-Phase-9 in-memory/anonymous-cookie behavior when
+  it isn't:
+  - `lib/game-session/persistence/` — a `SessionStore` interface with two
+    implementations (`MemoryStore`, `SupabaseSessionStore`), picked by
+    `getStore()` based on `lib/supabase/config.ts#isSupabaseConfigured()`.
+  - `lib/game-session/with-session.ts#withSession()` replaced the old
+    `requireSession()` helper in both `actions.ts` and `app-actions.ts`:
+    it fetches the active session, runs the action's mutation (in-place,
+    same as before), then persists the result through whichever store is
+    active — including the evidence-board actions, which don't
+    revalidate but still need to save.
+  - `lib/game-session/identity.ts#getCurrentIdentity()` resolves who's
+    playing: a Supabase `auth.uid()` when configured, or an anonymous id
+    assigned by `proxy.ts` (the renamed `middleware.ts` — see below)
+    otherwise. Cookies can only be written from Proxy/Server
+    Actions/Route Handlers, never a plain render, which is why the
+    anon-id assignment lives in `proxy.ts` and not in `identity.ts`
+    itself (an earlier version tried the latter and hit exactly that
+    Next.js restriction — see the Immersion pass 2 bug list below).
+  - Email/password auth (`app/login/page.tsx`, `AuthForm.tsx`,
+    `auth-actions.ts#signOutAction`) activates automatically once
+    Supabase env vars are set; the main menu shows a login prompt instead
+    of "Nouvelle affaire" until signed in, and falls back to instant
+    anonymous play otherwise.
+  - `supabase/migrations/0001_init.sql` — `profiles`,
+    `investigation_sessions`, `case_history`, all RLS-scoped to
+    `auth.uid()`, no service-role client anywhere in the app.
+  - Renamed `middleware.ts` → `proxy.ts` (Next.js 16 deprecated the
+    `middleware` file convention in favor of `proxy` — caught by a build
+    warning, not a training-data assumption; see AGENTS.md's standing
+    reminder to check `node_modules/next/dist/docs/` before assuming API
+    shapes in a new Next.js version).
 
-`lib/game-session/store.ts` holds session state in a module-level `Map` —
-it does not survive a server restart and does not scale past one process.
-This is intentional for now (see `DATABASE.md`): building real persistence
-against a gameplay UI that didn't exist yet would have meant designing the
-schema twice. `CaseTruth` itself is never stored — it's regenerated
-on-demand from `session.seed`, so the only state that would need a real
-backing store is genuinely small (evidence status, notes, player timeline,
-interrogation log, mandates, accusation).
+- **Career mode foundation.** `profiles.rank`/`xp`/`cases_solved`/
+  `cases_failed`/`accusations_total`, updated atomically with each
+  archived case by `SessionStore#completeCase` (`lib/game-session/
+  career.ts` holds the pure rank-threshold/XP-per-grade logic, shared by
+  both store implementations so they can't drift). The main menu shows
+  the player's rank, XP, and solved count; `/dossiers` lists every
+  completed case with its grade, and `/dossiers/[id]` replays that case's
+  report through the same `TruthRevealSequence` component the live
+  report uses — same data shape, sourced from the stored `accusation` +
+  `score` instead of a live session. No achievements system yet, per the
+  brief's own "don't overbuild" instruction.
+
+- **Content breadth: evidence tampering.** `EvidenceReliability` already
+  had an unused `"falsified"` value; `evidence-generator.ts` now rolls a
+  small, separate chance (`tamperingChance`, default 3%, rarer than plain
+  contamination) for physical trace evidence (fingerprint/DNA/blood/
+  fiber/shoeprint/tire-track) to come back `"falsified"` with a
+  description noting manipulation was detected. Uses the exact same
+  mechanism `solvability.ts` already tolerates for `"contaminated"`
+  evidence (channel-counting is by evidence *family*, not reliability),
+  so this couldn't regress solvability — confirmed by the existing
+  statistical batch-generation test staying green. The other content-
+  breadth items from this pass's brief (accomplices, staged scenes,
+  accidental-death-as-homicide, false confessions, shared vehicles/
+  phones) were **not** attempted: each is a real structural change to
+  case generation (crime-planner, motive, alibis) and doing them
+  properly — without quietly weakening the validator/solvability
+  guarantee the brief explicitly said to keep strict — needs more room
+  than this pass had left. They're good candidates for a dedicated
+  future pass, one at a time, each re-verified against the batch test.
+
+- **Art pipeline architecture.** `lib/art/providers.ts` defines
+  `CrimeSceneImageProvider`, `EvidenceImageProvider`, `CCTVFrameProvider`,
+  and `LocationImageProvider` — the same contract `PersonPortraitService`
+  (`portraits/portrait-service.ts`, left where it is) already established:
+  given a deterministic seed, return a stable, cacheable image URL, with
+  no caller ever knowing or caring how it was produced. Each has a
+  procedural default implementation (inline SVG, no network, no AI
+  dependency) so the interfaces are real and working today, not stubs —
+  but none of the existing screens (crime scene, evidence cards, camera
+  frames) have been rewired to consume them yet. That rewiring is
+  low-risk future work; defining the seam was the point of this item.
+
+- **Atmosphere/audio foundation.** `lib/sound/sound-manager.ts` grew a
+  proper gain graph — `master → { ui, ambience } → destination` — with
+  persisted per-group volumes (`getVolume`/`setVolume`, sliders in
+  `SettingsOverlay`) on top of the existing hard mute. `ambience.start
+  ("office")` (a lowpass-filtered noise bed + a 60Hz hum, both synthesized)
+  runs for the lifetime of the investigation shell
+  (`AmbiencePlayer.tsx`, mounted in `GameShell`); `ambience.start("rain")`
+  exists as an alternate texture, not yet triggered by anything.
+  `ambience.duck()` briefly lowers the bed for the two most tense beats —
+  stepping into an interrogation room (`InterrogationAmbienceDuck.tsx`)
+  and the grade/truth reveals in `TruthRevealSequence`. Still entirely
+  synthesized, matching the project's no-external-asset rule; a
+  real ambience loop can replace `startOffice`/`startRain` later without
+  touching any caller.
+
+- **World identity.** `lib/game-engine/world/city.ts`: the town has a
+  name (`Vironval`, already existed), a police department identity
+  (`Police cantonale de Vironval`), six named districts with their own
+  street pools (`districtForCoordinates` picks one from a location's
+  actual coordinates, so an address's street is always consistent with
+  where the building stands on the map), and a real case-numbering
+  scheme (`formatCaseNumber` → `CL-2026-0421`, deterministic per seed,
+  replacing the raw seed string everywhere a case reference is shown:
+  dossier header, top bar, case intro, report, case history). `Location`
+  gained a `district` field, surfaced on the investigation map's info
+  panel.
+
+- **Immersion pass 2 bugs found and fixed:**
+  - `getCurrentIdentity()` originally tried to *write* the anonymous
+    player cookie from inside a Server Component render path, which
+    Next.js rejects ("Cookies can only be modified in a Server Action or
+    Route Handler"). Fixed by moving cookie assignment into `proxy.ts`
+    (runs before any render) and making `identity.ts` read-only.
+  - That same `proxy.ts` fix initially mutated `request.cookies` *after*
+    already calling `NextResponse.next({ request })`, which snapshots the
+    request — the new cookie never reached the render it was meant to
+    unblock. Fixed by reordering: mutate the request's cookie jar first,
+    construct the response after.
+  - `app-actions.ts` (a `"use server"` file) had picked up a plain
+    `export const RECORD_TYPE_LABEL = {...}` object — Next.js only allows
+    async function exports from a `"use server"` module, which crashed
+    every screen importing it. Fixed by moving the constant to
+    `lib/game-session/labels.ts`. Caught by the mandated in-browser
+    retest, not `tsc`/`eslint` (a Next.js runtime-only rule).
+  - `TruthRevealSequence`'s final "closing" card and its timeline step
+    shared the same step index (`STEP_COUNT` was one short), so both
+    rendered stacked together instead of as distinct steps. Fixed by
+    bumping `STEP_COUNT` to 5.
+
+## Known limitation: session storage falls back to in-memory
+
+Without Supabase configured, `lib/game-session/persistence/memory-store.ts`
+holds session/profile/case-history state in module-level `Map`s — it does
+not survive a server restart and does not scale past one process. This is
+now purely a *fallback*, not the only option (see `DATABASE.md` for the
+Supabase setup that removes this limitation). `CaseTruth` itself is never
+stored in either backend — it's regenerated on-demand from `session.seed`.
 
 ## Not started
 
-- **Phase 9 — Save/Auth.** Supabase Auth + persistence, replacing the
-  in-memory store above. Blocked on the user providing a Supabase project
-  (URL + keys) — this repo will not fabricate a fake backend integration.
-- **Phase 10 — Polish (remaining).** Career mode (grade/XP — needs Phase 9's
-  persistence), manual `CaseDefinition` JSON loading for hand-authored
-  cases. Evidence board, sound, and the six police-software apps are
-  done — see above.
+- **Phase 10 — Polish (remaining).** Manual `CaseDefinition` JSON loading
+  for hand-authored cases. Career mode's foundation (rank/XP/history) is
+  done — see above; achievements/leaderboards were deliberately not
+  built yet.
+- **Content breadth beyond evidence tampering** — accomplices, staged
+  crime scenes, accidental death disguised as homicide, false
+  confessions, suspects sharing a vehicle/phone, a wider weapon/method
+  vocabulary. See the "Content breadth" entry above for why these were
+  deferred rather than rushed.
+- **Rewiring the art providers** into the screens that could use them
+  (crime scene background, evidence card thumbnails, CCTV frame
+  previews) — the interfaces and default implementations exist
+  (`lib/art/providers.ts`) but nothing calls them yet.
+- **Rain ambience trigger** — `ambience.start("rain")` works but nothing
+  in the game currently decides when weather should be raining.
 
 ## Explicitly deferred (by design, not oversight)
 
-- Accomplices, crime types other than homicide — the type system supports
-  them (`accompliceIds`, `CrimeType`) but the generator only produces
-  single-culprit homicides. Extending this is additive, not a rewrite.
+- Crime types other than homicide — the type system supports it
+  (`CrimeType`) but the generator only produces homicides.
 - Any LLM/external-API dependency in the generation path — the engine is
   and must stay fully algorithmic; an LLM may only ever rephrase, per the
   `NarrativeProvider` boundary. The interrogation UI is built against that
@@ -269,4 +402,7 @@ interrogation log, mandates, accusation).
 - Person portraits are a deterministic generated avatar
   (`portraits/portrait-service.ts`), not an AI image generator — the
   interface is written so a future implementation can swap in without any
-  caller changing (brief §34).
+  caller changing (brief §34). The four newer providers in
+  `lib/art/providers.ts` follow the same pattern.
+- Localization and controller support — explicitly out of scope for this
+  milestone per the brief.

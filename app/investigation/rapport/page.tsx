@@ -4,6 +4,7 @@ import { getPerson } from "@/lib/game-session/player-view";
 import { scoreAccusation } from "@/lib/game-session/scoring";
 import { MOTIVE_LABEL } from "@/lib/game-session/labels";
 import { formatDuration, formatGameTime } from "@/lib/game-engine/types/time";
+import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 
 export default async function RapportPage() {
@@ -18,7 +19,7 @@ export default async function RapportPage() {
   const realVictim = getPerson(truth, truth.victimId);
 
   const data: TruthRevealData = {
-    caseRef: `CL-${session.seed}`,
+    caseRef: formatCaseNumber(session.seed),
     grade: score.grade,
     overallPercent: score.overallPercent,
     culpritCorrect: score.culpritCorrect,

@@ -1,4 +1,5 @@
 import { formatGameTime } from "@/lib/game-engine/types/time";
+import { CITY, formatCaseNumber } from "@/lib/game-engine/world/city";
 import { advanceTimeAction, endCurrentCase } from "@/lib/game-session/actions";
 import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
@@ -25,9 +26,9 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
           </span>
           <span className="text-sm font-semibold tracking-[0.2em] text-foreground">CASELINE</span>
         </div>
-        <span className="hidden text-[10px] uppercase tracking-[0.18em] text-muted-dim sm:inline">Réseau Police</span>
+        <span className="hidden text-[10px] uppercase tracking-[0.18em] text-muted-dim sm:inline">{CITY.policeShortName}</span>
         <span className="mx-1 hidden h-5 w-px bg-border sm:inline" />
-        <span className="data-id hidden sm:inline">DOSSIER {session.seed}</span>
+        <span className="data-id hidden sm:inline">DOSSIER {formatCaseNumber(session.seed)}</span>
         <span className="hidden border border-border-strong px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted md:inline">
           {DIFFICULTY_LABEL[session.difficulty]}
         </span>

@@ -5,6 +5,9 @@ import { Avatar } from "./Avatar";
 
 interface CaseIntroOverlayProps {
   seed: string;
+  /** Display-only case reference (`CL-2026-0421`); `seed` stays the
+   * storage key so the intro still plays exactly once per case. */
+  caseNumber: string;
   crimeType: string;
   victimName: string;
   victimAvatarSeed: string;
@@ -17,6 +20,7 @@ const STEP_DELAY_MS = 850;
 
 export function CaseIntroOverlay({
   seed,
+  caseNumber,
   crimeType,
   victimName,
   victimAvatarSeed,
@@ -83,7 +87,7 @@ export function CaseIntroOverlay({
         )}
         {step >= 2 && (
           <div className="fade-up flex flex-col items-center gap-1">
-            <p className="data-id text-base">CL-{seed}</p>
+            <p className="data-id text-base">{caseNumber}</p>
             <p className="text-2xl font-bold uppercase tracking-[0.15em] text-danger">{crimeType}</p>
           </div>
         )}

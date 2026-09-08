@@ -66,10 +66,19 @@ lib/
                             (it has opinions about gameplay, the engine has none)
     types.ts                GameSession shape (evidence status, lab queue,
                              notes, player timeline, interrogation log, mandates)
-    store.ts                In-memory session store (see DATABASE.md — Phase 9
-                             will replace this with Supabase)
-    current.ts               Cookie → session → regenerated CaseTruth accessor
-                             for Server Components
+    identity.ts              Resolves who's playing — Supabase auth.uid()
+                             or an anonymous cookie id (see lib/supabase/)
+    persistence/              SessionStore interface + two implementations
+                             (memory-store.ts, supabase-store.ts), picked by
+                             getStore() — see DATABASE.md
+    with-session.ts           Fetch session + truth, run a mutation, persist
+                             through the active store — used by every action
+                             in actions.ts/app-actions.ts instead of a bare
+                             in-memory lookup
+    career.ts                 Pure rank/XP math, shared by both store
+                             implementations so they can't drift
+    current.ts               Identity → session → regenerated CaseTruth
+                             accessor for Server Components
     actions.ts               "use server" mutations for the core gameplay
                              loop (examine scene, collect/lab evidence,
                              advance time, ask a question, timeline entries,
@@ -79,8 +88,13 @@ lib/
                              Client Component caller (not just revalidate +
                              redirect), since a search app renders a report
                              inline rather than navigating away
+    profile-actions.ts         "use server" settings mutations — no active
+                             case required, unlike everything above
     discovery.ts, mandates.ts  Evidence-reveal and warrant-grant rules,
                              shared by both actions.ts and app-actions.ts
+    crime-scene.ts             Presentation layer laying the crime-scene
+                             evidence set out as spatial hotspots — see
+                             GAME_ENGINE.md
     criminal-record.ts        Deterministic per-person criminal history,
                              derived purely from existing personality/
                              addiction traits — flavor for the Casier
@@ -90,24 +104,55 @@ lib/
     player-view.ts            CaseTruth + GameSession → player-safe projections
                              (PersonPublicView never carries `roles`, evidence
                              lists never include undiscovered items, home
-                             names are disambiguated by address, etc.)
+                             names are disambiguated by address, map markers
+                             only for discovered locations, etc.)
     interrogation-view.ts     KnowledgeFact/TestimonyLine → askable topics
     scoring.ts                Accusation vs. CaseTruth → graded CaseScore
-    labels.ts                 Shared French labels for motive types, weapons
+    labels.ts                 Shared French labels (motive types, weapons,
+                             evidence type names — kept out of app-actions.ts
+                             because a "use server" file can only export
+                             async functions)
+
+  supabase/
+    config.ts, server.ts, client.ts  isSupabaseConfigured() + the
+                             request-scoped (server) and browser Supabase
+                             clients — no service-role client anywhere
+    auth-actions.ts            signOutAction
+
+  art/
+    providers.ts               CrimeSceneImageProvider, EvidenceImageProvider,
+                             CCTVFrameProvider, LocationImageProvider —
+                             same seed-in, stable-URL-out contract as
+                             portraits/portrait-service.ts, with procedural
+                             default implementations; not yet wired into
+                             the screens that could use them
 
   sound/
-    sound-manager.ts          Web Audio API tone synthesis behind a
-                             `playSound(name)` call — see GAME_ENGINE.md
+    sound-manager.ts          Web Audio synthesis: short UI tones plus an
+                             ambience bed, behind a master/ui/ambience gain
+                             graph with per-group volume and a duck() for
+                             tense moments — see GAME_ENGINE.md
+
+proxy.ts                    Runs before every render: refreshes the Supabase
+                            auth cookie, or assigns the anonymous player-id
+                            cookie in dev-fallback mode. Named `proxy.ts` per
+                            Next.js 16's file convention (the deprecated
+                            name is `middleware.ts`) — see AGENTS.md.
 
 components/investigation/  Small presentational + the handful of Client
                             Components that need interactivity beyond a plain
-                            form action (Nav for active-link state, the
-                            timeline status select, the interrogation topic
-                            button, the evidence board canvas)
+                            form action (the timeline status select, the
+                            interrogation topic button, the evidence board
+                            canvas, the crime-scene hotspot screen)
   apps/                     The six police-software apps: each is a Client
                             Component (search state, loading, results) fed
                             by a thin server page; AppFrame/RecordTable/
                             PersonPicker are the shared chrome
+
+components/auth/           AuthForm.tsx — email/password sign in/up,
+                            calling Supabase directly from the client
+                            (every other read/write in the game goes
+                            through a Server Action instead)
 ```
 
 ## Data flow (case generation)

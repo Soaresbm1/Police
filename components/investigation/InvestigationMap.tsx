@@ -88,6 +88,7 @@ export function InvestigationMap({ locations }: { locations: MapLocationView[] }
                 <p className="data-id">{CATEGORY[selected.category].label.toUpperCase()}</p>
                 <h2 className="text-base font-bold text-foreground">{selected.name}</h2>
                 <p className="text-xs text-muted">{selected.address}</p>
+                <p className="font-data text-[10px] uppercase tracking-wide text-muted-dim">Quartier : {selected.district}</p>
                 {selected.occupantNames.length > 0 && (
                   <p className="mt-2 text-xs text-foreground">
                     Occupant(s) : {selected.occupantNames.join(", ")}

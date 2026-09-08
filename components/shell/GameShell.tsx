@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { TopBar } from "./TopBar";
 import { AppRail } from "./AppRail";
 import { ActionMessage } from "@/components/investigation/ActionMessage";
+import { AmbiencePlayer } from "@/components/investigation/AmbiencePlayer";
 import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
 
@@ -16,6 +17,7 @@ export function GameShell({
 }) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background-deep">
+      <AmbiencePlayer />
       <TopBar session={session} settings={settings} />
       <ActionMessage message={session.lastActionMessage} />
       <div className="flex flex-1 overflow-hidden">

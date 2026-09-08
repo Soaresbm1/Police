@@ -114,7 +114,15 @@ export interface DeriveEvidenceOptions {
   caseOpenedAt: GameMinutes;
   crimeTimestamp: GameMinutes;
   contaminationChance?: number;
+  /** Chance a physical trace near the crime turns out to have been
+   * tampered with (planted, wiped, or altered) rather than merely
+   * mishandled. Rarer than plain contamination and, unlike it, leaves a
+   * visible note in the description once analyzed — tampering is a clue
+   * in its own right, not just noise. */
+  tamperingChance?: number;
 }
+
+const TAMPERABLE_TYPES: EvidenceType[] = ["fingerprint", "dna", "blood", "fiber", "shoeprint", "tire_track"];
 
 export function deriveEvidenceFromTimeline(
   rng: RNG,
@@ -126,6 +134,7 @@ export function deriveEvidenceFromTimeline(
   const peopleById = new Map(people.map((p) => [p.id, p]));
   const locationsById = new Map(locations.map((l) => [l.id, l]));
   const contamination = options.contaminationChance ?? 0.06;
+  const tampering = options.tamperingChance ?? 0.03;
   const evidence: Evidence[] = [];
 
   for (const event of timeline) {
@@ -133,8 +142,10 @@ export function deriveEvidenceFromTimeline(
       const mapping = TAG_MAPPINGS[tag];
       if (!mapping) continue;
       const { discoveryDifficulty } = computeDiscoverability(event, options.crimeTimestamp);
-      const reliability: EvidenceReliability = rng.bool(contamination) ? "contaminated" : mapping.baseReliability;
+      const isTampered = TAMPERABLE_TYPES.includes(mapping.type) && rng.bool(tampering);
+      const reliability: EvidenceReliability = isTampered ? "falsified" : rng.bool(contamination) ? "contaminated" : mapping.baseReliability;
       const relatedPersonIds = [event.actorId, ...(event.counterpartyId ? [event.counterpartyId] : [])];
+      const baseDescription = mapping.describe(event, peopleById, locationsById);
 
       evidence.push({
         id: rng.id("ev"),
@@ -151,7 +162,7 @@ export function deriveEvidenceFromTimeline(
         requiresLabAnalysis: mapping.requiresLabAnalysis,
         isRedHerring: false,
         status: "undiscovered",
-        description: mapping.describe(event, peopleById, locationsById),
+        description: isTampered ? `${baseDescription} Des traces de manipulation ont été relevées lors de l'analyse.` : baseDescription,
       });
     }
   }
