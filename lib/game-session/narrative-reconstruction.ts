@@ -1,5 +1,5 @@
 import type { CaseTruth } from "@/lib/game-engine/types/case";
-import { fullName } from "@/lib/game-engine/types/person";
+import { fullName, type PersonId } from "@/lib/game-engine/types/person";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { ACCOMPLICE_ROLE_LABEL, ARCHETYPE_LABEL, MOTIVE_LABEL } from "./labels";
 
@@ -192,6 +192,10 @@ export interface NarrativeEntityRef {
   id: string;
   name: string;
   avatarSeed: string;
+  /** Signed URL of this person's generated portrait, if one is `ready` —
+   * resolved by the caller (read-only, never generates) and merged in
+   * here so `TruthRevealSequence` doesn't need its own lookup. */
+  generatedSrc?: string | null;
 }
 
 export interface DisplayNarrativeSection {
@@ -204,15 +208,22 @@ export interface DisplayNarrativeSection {
 
 /** Resolves the id references on `NarrativeSection` (people/location) into
  * display-ready names/seeds for the client — called only after the
- * accusation is final, when `CaseTruth` secrecy no longer applies. */
-export function enrichNarrativeForDisplay(truth: CaseTruth, sections: NarrativeSection[]): DisplayNarrativeSection[] {
+ * accusation is final, when `CaseTruth` secrecy no longer applies.
+ * `portraitUrls` (personId -> signed URL) is optional so existing callers
+ * that don't have one keep working unchanged, falling back to procedural
+ * portraits everywhere. */
+export function enrichNarrativeForDisplay(
+  truth: CaseTruth,
+  sections: NarrativeSection[],
+  portraitUrls: Map<PersonId, string> = new Map(),
+): DisplayNarrativeSection[] {
   return sections.map((section) => ({
     heading: section.heading,
     paragraphs: section.paragraphs,
     people: (section.personIds ?? [])
       .map((id) => truth.people.find((p) => p.id === id))
       .filter((p): p is NonNullable<typeof p> => Boolean(p))
-      .map((p) => ({ id: p.id, name: fullName(p), avatarSeed: p.avatarSeed })),
+      .map((p) => ({ id: p.id, name: fullName(p), avatarSeed: p.avatarSeed, generatedSrc: portraitUrls.get(p.id) ?? null })),
     locationName: section.locationId ? (locationName(truth, section.locationId) ?? null) : null,
     timeLabel: section.timeLabel ?? null,
   }));

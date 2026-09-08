@@ -1,6 +1,6 @@
 import type { GeneratedAssetProvider, GeneratedAssetResult } from "../../generated-asset-provider";
 import type { GeneratedAssetKind } from "../types";
-import { hashSeed } from "../../hash";
+import { readJpegDimensions } from "../jpeg-dimensions";
 
 /**
  * `GeneratedAssetProvider` adapter for Cloudflare Workers AI's
@@ -11,6 +11,16 @@ import { hashSeed } from "../../hash";
  * knows Cloudflare exists; every caller only ever sees the neutral
  * `GeneratedAssetProvider` interface (`generate(kind, prompt, seed)`), so
  * swapping providers later needs no change anywhere else.
+ *
+ * NOTE: several publicly documented examples for this model (including
+ * Cloudflare's own docs site, confirmed via research before writing this
+ * file) show a `seed` request parameter for reproducibility. The LIVE API
+ * rejected it during the real pilot run with `"Additional or unevaluated
+ * properties '/seed' at '/' not allowed"` (error code 5006) — so `seed`
+ * is deliberately NOT sent here, overriding the originally-planned design.
+ * CASELINE's own descriptor-hash-based caching (see `pipeline.ts`) is what
+ * actually provides determinism/reuse — Cloudflare-side seeding was never
+ * load-bearing for that guarantee, only a would-be quality nicety.
  */
 const CLOUDFLARE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4/accounts";
@@ -40,20 +50,14 @@ export function isCloudflareConfigured(): boolean {
   return Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
 }
 
-/** Documented output size for this model's REST endpoint: the input
- * schema exposes no width/height/size parameter, so resolution isn't
- * configurable — 1024x1024 is FLUX.1 [schnell]'s native default output.
- * Not yet cross-checked against a real response (there hasn't been one);
- * flag this in the pilot report rather than assume it's exact. */
-const OUTPUT_WIDTH = 1024;
-const OUTPUT_HEIGHT = 1024;
-
-/** Cloudflare's `seed` parameter wants a positive integer; CASELINE's
- * visual-descriptor seeds are strings. Deterministic either way — the
- * same descriptor seed always maps to the same numeric seed. */
-function seedToPositiveInt(seed: string): number {
-  return hashSeed(seed) % 2_147_483_647;
-}
+/** Fallback only — used solely if the real JPEG bytes can't be parsed
+ * (`readJpegDimensions` returns `null`, which shouldn't happen for a
+ * well-formed response but must still degrade safely). The model's
+ * documented input schema exposes no width/height/size parameter, so
+ * this can't be asserted as configurable; real dimensions are read
+ * directly from the returned bytes below instead of assumed. */
+const FALLBACK_WIDTH = 1024;
+const FALLBACK_HEIGHT = 1024;
 
 interface CloudflareRunResponse {
   result?: { image?: string };
@@ -63,13 +67,20 @@ interface CloudflareRunResponse {
 }
 
 export class CloudflareGeneratedAssetProvider implements GeneratedAssetProvider {
+  // `seed` is part of the shared `GeneratedAssetProvider` contract (every
+  // implementation receives one) but this model's live API rejects a
+  // `seed` request field — see the class doc comment above. Determinism
+  // still comes from CASELINE's own descriptor-hash cache, not from this
+  // provider re-deriving the same image bit-for-bit.
   async generate(kind: GeneratedAssetKind, prompt: string, seed: string): Promise<GeneratedAssetResult | null> {
+    void seed; // required by the shared interface, unused — see comment above
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.CLOUDFLARE_API_TOKEN;
     if (!accountId || !apiToken) return null;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const startedAt = Date.now();
 
     try {
       const response = await fetch(`${CLOUDFLARE_API_BASE}/${accountId}/ai/run/${CLOUDFLARE_MODEL}`, {
@@ -80,7 +91,6 @@ export class CloudflareGeneratedAssetProvider implements GeneratedAssetProvider 
         },
         body: JSON.stringify({
           prompt,
-          seed: seedToPositiveInt(seed),
           steps: resolveSteps(),
         }),
         signal: controller.signal,
@@ -91,7 +101,11 @@ export class CloudflareGeneratedAssetProvider implements GeneratedAssetProvider 
         return null;
       }
       if (!response.ok) {
-        console.warn(`[CASELINE] Cloudflare Workers AI request failed: HTTP ${response.status}`);
+        // The response body here is Cloudflare's own error payload (never
+        // our prompt or credentials) — safe and useful to log verbatim
+        // while diagnosing pilot failures.
+        const bodyText = await response.text().catch(() => "");
+        console.warn(`[CASELINE] Cloudflare Workers AI request failed: HTTP ${response.status} — ${bodyText.slice(0, 500)}`);
         return null;
       }
 
@@ -123,11 +137,22 @@ export class CloudflareGeneratedAssetProvider implements GeneratedAssetProvider 
 
       if (bytes.byteLength === 0) return null;
 
+      const dimensions = readJpegDimensions(bytes);
+      if (!dimensions) {
+        console.warn("[CASELINE] Cloudflare Workers AI response bytes did not parse as a valid JPEG header — using fallback dimensions.");
+      }
+
+      const elapsedMs = Date.now() - startedAt;
+      console.log(
+        `[CASELINE] Cloudflare Workers AI generated a "${kind}" asset in ${elapsedMs}ms ` +
+          `(model=${CLOUDFLARE_MODEL}, bytes=${bytes.byteLength}, dimensions=${dimensions ? `${dimensions.width}x${dimensions.height}` : "unknown"}, content-type=${contentType || "unknown"}).`,
+      );
+
       return {
         bytes,
         contentType: "image/jpeg",
-        width: OUTPUT_WIDTH,
-        height: OUTPUT_HEIGHT,
+        width: dimensions?.width ?? FALLBACK_WIDTH,
+        height: dimensions?.height ?? FALLBACK_HEIGHT,
         model: CLOUDFLARE_MODEL,
       };
     } catch (err) {

@@ -10,7 +10,8 @@ import {
 } from "@/lib/game-session/player-view";
 import { EvidenceCard } from "@/components/investigation/EvidenceCard";
 import { formatGameTime } from "@/lib/game-engine/types/time";
-import { Avatar } from "@/components/investigation/Avatar";
+import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 function AppLink({ href, label }: { href: string; label: string }) {
   return (
@@ -25,10 +26,11 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
   const { personId } = await params;
   const game = await getCurrentGame();
   if (!game) return null;
-  const { truth, session } = game;
+  const { truth, session, userId } = game;
   const person = getPerson(truth, personId);
   if (!person) notFound();
 
+  const portraitUrls = await getReadyPortraitUrls(userId, truth);
   const home = getLocation(truth, person.homeLocationId);
   const work = person.workLocationId ? getLocation(truth, person.workLocationId) : null;
   const alibi = getAlibi(truth, personId);
@@ -40,7 +42,12 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
       <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="flex items-center gap-4">
-          <Avatar seed={person.avatarSeed} name={`${person.firstName} ${person.lastName}`} size={72} />
+          <CharacterPortrait
+            seed={person.avatarSeed}
+            name={`${person.firstName} ${person.lastName}`}
+            size={72}
+            generatedSrc={portraitUrls.get(person.id)}
+          />
           <div>
             <p className="field-label">{role}</p>
             <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">

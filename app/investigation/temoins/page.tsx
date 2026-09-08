@@ -1,11 +1,13 @@
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getVisibleEvidenceForPerson, getWitnesses } from "@/lib/game-session/player-view";
 import { PersonListCard } from "@/components/investigation/PersonListCard";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 export default async function TemoinsPage() {
   const game = await getCurrentGame();
   if (!game) return null;
   const witnesses = getWitnesses(game.truth);
+  const portraitUrls = await getReadyPortraitUrls(game.userId, game.truth);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
@@ -19,6 +21,7 @@ export default async function TemoinsPage() {
             key={person.id}
             person={person}
             evidenceCount={getVisibleEvidenceForPerson(game.truth, game.session, person.id).length}
+            generatedPortraitUrl={portraitUrls.get(person.id)}
           />
         ))}
       </div>

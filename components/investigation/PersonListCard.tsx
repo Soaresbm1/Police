@@ -1,15 +1,23 @@
 import Link from "next/link";
 import type { PersonPublicView } from "@/lib/game-session/player-view";
-import { Avatar } from "./Avatar";
+import { CharacterPortrait } from "./CharacterPortrait";
 
-export function PersonListCard({ person, evidenceCount }: { person: PersonPublicView; evidenceCount?: number }) {
+export function PersonListCard({
+  person,
+  evidenceCount,
+  generatedPortraitUrl,
+}: {
+  person: PersonPublicView;
+  evidenceCount?: number;
+  generatedPortraitUrl?: string | null;
+}) {
   const fullName = `${person.firstName} ${person.lastName}`;
   return (
     <Link
       href={`/investigation/personnes/${person.id}`}
       className="panel group flex items-center gap-3 p-3 transition-colors hover:border-accent"
     >
-      <Avatar seed={person.avatarSeed} name={fullName} size={48} />
+      <CharacterPortrait seed={person.avatarSeed} name={fullName} size={48} generatedSrc={generatedPortraitUrl} />
       <div className="flex flex-1 flex-col gap-0.5">
         <span className="text-[15px] font-medium text-foreground group-hover:text-accent-strong">{fullName}</span>
         <span className="font-data text-xs text-muted">

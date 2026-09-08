@@ -26,7 +26,7 @@ end. It is dependency-injected (`{ store, provider }`) so the orchestration
 logic (dedup, cooldown, cost cap, state transitions) is unit-tested without
 a live Supabase instance — see `lib/art/generation/__tests__/`.
 
-## Status: Cloudflare Workers AI pilot provider implemented, not yet triggered for real
+## Status: Cloudflare Workers AI pilot — one real portrait generated and verified
 
 `lib/art/generation/providers/cloudflare-provider.ts` implements
 `GeneratedAssetProvider` against Cloudflare Workers AI's
@@ -36,6 +36,34 @@ this is a Next.js app, not a Worker, so there's no `env.AI` binding).
 `CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN` are both set in the
 environment; with either missing, `activeGeneratedAssetProvider` resolves
 to the null provider and CASELINE stays 100% procedural, no crash.
+
+**First real pilot generation completed successfully** via `/case-lab/art`
+— one character portrait, persisted to Supabase Storage, confirmed reused
+across a page refresh and a full dev-server restart with zero additional
+Cloudflare calls. Two real bugs were found and fixed during this pilot
+(both now covered by regression tests or structurally prevented):
+
+1. **The live API rejects a `seed` request field** — several documented
+   examples (including Cloudflare's own docs site) show one, but the real
+   endpoint returned `HTTP 400` / error code 5006 (*"Additional or
+   unevaluated properties '/seed' at '/' not allowed"*). Removed from the
+   request body; CASELINE's own descriptor-hash cache is what actually
+   provides reuse/determinism, so nothing about the "generate once"
+   guarantee depended on Cloudflare-side seeding.
+2. **`hashDescriptor()` returned raw JSON, not an actual hash** — it
+   serialized the descriptor deterministically but never hashed it, so a
+   `descriptor_hash` value like `{"approxAge":"young",...}` was used
+   directly as a Supabase Storage object-key path segment, which Storage
+   rejects (`Invalid key`). Fixed to a proper SHA-256 hex digest
+   (`lib/art/asset-cache.ts`) — short, stable, and storage-path-safe. This
+   also fixed a related gap: `pipeline.ts`'s outer error handler didn't
+   log the failure or mark the record `failed` when something threw
+   *after* a successful provider call, leaving the row stuck at
+   `generating` forever; both are now fixed (logged, and marked `failed`
+   so the normal retry/cooldown rules apply to it like any other
+   failure). A dev-only "Débloquer" (unstick) action was added to
+   `/case-lab/art` to recover any future row stuck at `queued`/`generating`
+   without needing direct database access.
 
 **No screen calls the pipeline automatically yet.** The only live call
 site is a manual, dev-only trigger: `/case-lab/art` (never reachable in
@@ -57,8 +85,10 @@ Cloudflare's documented examples for this model are inconsistent about
 whether the REST endpoint returns a JSON envelope (`{"result":{"image":
 "<base64>"}, "success":true}`, matching every other Workers AI REST
 response) or raw image bytes directly. The provider handles both, keyed
-off the response's `content-type` header — confirmed empirically once the
-first real request runs (see the pilot report).
+off the response's `content-type` header. **Confirmed by the real pilot
+request**: this account/model combination returns the JSON-wrapped form
+(`content-type: application/json`, `result.image` as base64) — the raw-
+binary branch is exercised only by tests, not (so far) by the real API.
 
 ## Schema
 

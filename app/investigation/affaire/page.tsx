@@ -3,19 +3,22 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getBriefing, getLocation, getPerson } from "@/lib/game-session/player-view";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
-import { Avatar } from "@/components/investigation/Avatar";
+import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 import { OnboardingHint } from "@/components/investigation/OnboardingHint";
 import { DocumentSheet } from "@/components/investigation/DocumentSheet";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 export default async function AffairePage() {
   const game = await getCurrentGame();
   if (!game) return null;
-  const { truth, session } = game;
+  const { truth, session, userId } = game;
   const briefing = getBriefing(truth);
   const victim = getPerson(truth, truth.victimId)!;
   const crimeScene = getLocation(truth, truth.crimeLocationId);
   const victimName = `${victim.firstName} ${victim.lastName}`;
+  const portraitUrls = await getReadyPortraitUrls(userId, truth);
+  const victimGeneratedPortraitUrl = portraitUrls.get(victim.id) ?? null;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
@@ -28,6 +31,7 @@ export default async function AffairePage() {
         locationName={crimeScene?.name ?? "Lieu inconnu"}
         locationAddress={crimeScene?.address ?? ""}
         reportedAtLabel={formatGameTime(briefing.reportedAt)}
+        victimGeneratedPortraitUrl={victimGeneratedPortraitUrl}
       />
 
       <OnboardingHint
@@ -49,7 +53,7 @@ export default async function AffairePage() {
       </div>
 
       <section className="panel flex flex-col gap-4 p-5 md:flex-row">
-        <Avatar seed={victim.avatarSeed} name={victimName} size={88} />
+        <CharacterPortrait seed={victim.avatarSeed} name={victimName} size={88} generatedSrc={victimGeneratedPortraitUrl} />
         <div className="grid flex-1 gap-4 sm:grid-cols-2">
           <div>
             <p className="field-label">Victime</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Avatar } from "./Avatar";
+import { CharacterPortrait } from "./CharacterPortrait";
 
 interface CaseIntroOverlayProps {
   seed: string;
@@ -14,6 +14,10 @@ interface CaseIntroOverlayProps {
   locationName: string;
   locationAddress: string;
   reportedAtLabel: string;
+  /** Signed URL of the victim's generated portrait, if `ready` — resolved
+   * server-side by the parent page, never fetched from this client
+   * component. */
+  victimGeneratedPortraitUrl?: string | null;
 }
 
 const STEP_DELAY_MS = 850;
@@ -27,6 +31,7 @@ export function CaseIntroOverlay({
   locationName,
   locationAddress,
   reportedAtLabel,
+  victimGeneratedPortraitUrl,
 }: CaseIntroOverlayProps) {
   const storageKey = `caseline:intro-shown:${seed}`;
   const [visible, setVisible] = useState(false);
@@ -93,7 +98,7 @@ export function CaseIntroOverlay({
         )}
         {step >= 3 && (
           <div className="fade-up flex flex-col items-center gap-3 border border-border bg-surface px-6 py-5">
-            <Avatar seed={victimAvatarSeed} name={victimName} size={64} />
+            <CharacterPortrait seed={victimAvatarSeed} name={victimName} size={64} generatedSrc={victimGeneratedPortraitUrl} />
             <p className="text-lg font-semibold text-foreground">{victimName}</p>
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-left">
               <div>

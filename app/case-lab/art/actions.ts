@@ -38,3 +38,31 @@ export async function triggerAssetGenerationAction(formData: FormData): Promise<
 
   revalidatePath("/case-lab/art");
 }
+
+/**
+ * Manually clears a row stuck at `queued`/`generating` — the pipeline
+ * deliberately never auto-retries those (to avoid piling concurrent
+ * generations onto the same descriptor), so a row whose process died
+ * between `markGenerating` and `markReady`/`markFailed` (a crashed dev
+ * server, an uncaught exception fixed after the fact) needs an explicit
+ * unstick before it can be retried. Marks it `failed` — the normal retry/
+ * cooldown rules then apply to it like any other failure. Dev-only, same
+ * gating as the rest of this inspector.
+ */
+export async function unstickAssetAction(formData: FormData): Promise<void> {
+  if (process.env.NODE_ENV === "production") return;
+
+  const identity = await getCurrentIdentity();
+  if (!identity.authenticated) return;
+
+  const descriptorHash = String(formData.get("descriptorHash") ?? "");
+  const generationVersion = Number(formData.get("generationVersion") ?? 0);
+  if (!descriptorHash) return;
+
+  const record = await assetStore.findAssetRecord(identity.userId, descriptorHash, generationVersion, ACTIVE_PROVIDER_NAME);
+  if (record && (record.status === "queued" || record.status === "generating")) {
+    await assetStore.markFailed(identity.userId, record.id, "manually unstuck from the dev inspector", record.attemptCount);
+  }
+
+  revalidatePath("/case-lab/art");
+}

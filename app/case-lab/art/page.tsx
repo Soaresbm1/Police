@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { generateCaseSeed, isValidCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
@@ -12,9 +12,11 @@ import { buildCrimeSceneEnvironmentPrompt, CRIME_SCENE_PROMPT_VERSION } from "@/
 import { hashDescriptor } from "@/lib/art/asset-cache";
 import * as assetStore from "@/lib/art/generation/asset-store";
 import { CHARACTER_PORTRAIT_GENERATION_VERSION, CRIME_SCENE_GENERATION_VERSION, ACTIVE_PROVIDER_NAME } from "@/lib/art/generation/asset-kinds";
+import { importantPeopleForPortraits } from "@/lib/art/generation/pilot-scope";
 import { isCloudflareConfigured } from "@/lib/art/generation/providers/cloudflare-provider";
 import type { GeneratedAssetRecord } from "@/lib/art/generation/types";
-import { triggerAssetGenerationAction } from "./actions";
+import { triggerAssetGenerationAction, unstickAssetAction } from "./actions";
+import { AssetPreview } from "./AssetPreview";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,7 @@ interface AssetRow {
   prompt: string;
   seed: string;
   record: GeneratedAssetRecord | null;
+  signedUrl: string | null;
 }
 
 export default async function ArtInspectorPage({ searchParams }: { searchParams: Promise<{ seed?: string; difficulty?: string }> }) {
@@ -44,19 +47,26 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
 
   const params = await searchParams;
   const difficulty: Difficulty = DIFFICULTIES.includes(params.difficulty as Difficulty) ? (params.difficulty as Difficulty) : "investigator";
-  const seed = params.seed && isValidCaseSeed(params.seed) ? params.seed : generateCaseSeed();
+
+  // A bare visit (no ?seed=) used to silently pick a fresh random case on
+  // EVERY render — including a plain refresh or a server restart — which
+  // made any persisted "ready" asset from a previous visit invisible
+  // without the user knowing why (the row for its case was still there,
+  // just not the case currently being displayed). Redirecting once, here,
+  // pins the chosen seed into the URL so it survives refreshes and is
+  // shareable/bookmarkable; only the explicit "Nouveau cas" link below
+  // picks a new one deliberately.
+  if (!params.seed || !isValidCaseSeed(params.seed)) {
+    redirect(`/case-lab/art?seed=${generateCaseSeed()}&difficulty=${difficulty}`);
+  }
+  const seed = params.seed;
 
   const truth = generateCase(seed, { difficulty });
   const identity = await getCurrentIdentity();
   const supabaseReady = isSupabaseConfigured();
   const canQuery = supabaseReady && identity.authenticated;
 
-  // Pilot scope: victim + suspects (includes the culprit) + witnesses
-  // (excludes plain bystanders/red herrings) — the same set the real
-  // pipeline is meant to be triggered for, never every person in the case.
-  const importantPeople = truth.people.filter(
-    (p) => p.id === truth.victimId || truth.suspectIds.includes(p.id) || (p.roles.includes("witness") && !truth.redHerringPersonIds.includes(p.id)),
-  );
+  const importantPeople = importantPeopleForPortraits(truth);
 
   const rows: AssetRow[] = [];
 
@@ -66,6 +76,7 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
     const record = canQuery
       ? await assetStore.findAssetRecord(identity.userId, descriptorHash, CHARACTER_PORTRAIT_GENERATION_VERSION, ACTIVE_PROVIDER_NAME)
       : null;
+    const signedUrl = record?.status === "ready" && record.storagePath ? await assetStore.getSignedAssetUrl(record.storagePath) : null;
     rows.push({
       assetKind: "character_portrait",
       refLabel: `${fullName(person)} (${person.id === truth.victimId ? "victime" : truth.suspectIds.includes(person.id) ? "suspect" : "témoin"})`,
@@ -75,6 +86,7 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
       prompt: buildCharacterPortraitPrompt(descriptor),
       seed: descriptor.seed,
       record,
+      signedUrl,
     });
   }
 
@@ -85,6 +97,7 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
     const record = canQuery
       ? await assetStore.findAssetRecord(identity.userId, descriptorHash, CRIME_SCENE_GENERATION_VERSION, ACTIVE_PROVIDER_NAME)
       : null;
+    const signedUrl = record?.status === "ready" && record.storagePath ? await assetStore.getSignedAssetUrl(record.storagePath) : null;
     rows.push({
       assetKind: "crime_scene_environment",
       refLabel: `Scène de crime — ${crimeLocation.name}`,
@@ -94,6 +107,7 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
       prompt: buildCrimeSceneEnvironmentPrompt(sceneDescriptor),
       seed: sceneDescriptor.seed,
       record,
+      signedUrl,
     });
   }
 
@@ -122,14 +136,32 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
         <button type="submit" style={{ padding: "6px 12px", background: "#30363d", color: "#d6deeb", border: "1px solid #484f58" }}>
           Charger
         </button>
+        <a
+          href={`/case-lab/art?seed=${generateCaseSeed()}&difficulty=${difficulty}`}
+          style={{ padding: "6px 12px", background: "#30363d", color: "#d6deeb", textDecoration: "none" }}
+        >
+          Nouveau cas (aléatoire)
+        </a>
       </form>
 
+      <p style={{ marginBottom: 4, color: "#8a94a6" }}>
+        Cas actuel : <b style={{ color: "#d6deeb" }}>{seed}</b> — cette URL est fixée sur ce cas ; un rafraîchissement ou un
+        redémarrage du serveur y reste (seul « Nouveau cas » en change).
+      </p>
       <p style={{ marginBottom: 4 }}>
         Cloudflare configuré : <b style={{ color: isCloudflareConfigured() ? "#6c9c72" : "#b8493e" }}>{isCloudflareConfigured() ? "oui" : "non (fallback procédural actif)"}</b>
       </p>
       <p style={{ marginBottom: 4 }}>
         Supabase configuré : <b style={{ color: supabaseReady ? "#6c9c72" : "#b8493e" }}>{supabaseReady ? "oui" : "non — persistance des assets indisponible"}</b>
         {supabaseReady && !identity.authenticated && <span style={{ color: "#c9a23d" }}> (non connecté — connectez-vous pour voir/déclencher des assets)</span>}
+      </p>
+      <p style={{ marginBottom: 4 }}>
+        Identité utilisée par cet onglet : <b style={{ color: identity.authenticated ? "#6c9c72" : "#b8493e" }}>{identity.authenticated ? (identity.displayEmail ?? "connecté (email inconnu)") : "non connecté"}</b>{" "}
+        <span style={{ color: "#5c5f66" }}>(user_id : {identity.userId ? `${identity.userId.slice(0, 8)}…` : "—"})</span>
+        {/* RLS-safe on purpose: this only ever shows THIS tab's own identity, never another user's — a "missing" row for
+            an asset you know is ready elsewhere almost always means the tab you're looking at is authenticated as a
+            different account than the one that generated it. Compare this line against the account you used when you
+            triggered generation. */}
       </p>
       <p style={{ marginBottom: 16, color: "#8a94a6" }}>
         {rows.length} asset(s) dans le périmètre pilote — {readyCount} prêt(s), {failedCount} échoué(s), {attemptedCount} avec au moins 1 tentative.
@@ -142,12 +174,13 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
             <th style={th}>Type</th>
             <th style={th}>Référence</th>
             <th style={th}>Statut</th>
+            <th style={th}>Aperçu</th>
             <th style={th}>Fournisseur</th>
             <th style={th}>Modèle</th>
             <th style={th}>Hash descripteur</th>
             <th style={th}>Version</th>
             <th style={th}>Tentatives</th>
-            <th style={th}>Dimensions</th>
+            <th style={th}>Dimensions (DB)</th>
             <th style={th}>Fallback procédural actif</th>
             <th style={th}>Action</th>
           </tr>
@@ -163,6 +196,13 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
                 <td style={td}>{row.refLabel}</td>
                 <td style={td}>
                   <span style={badge(STATUS_COLOR[status])}>{status}</span>
+                </td>
+                <td style={td}>
+                  {row.signedUrl ? (
+                    <AssetPreview src={row.signedUrl} dbWidth={row.record?.width ?? null} dbHeight={row.record?.height ?? null} />
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td style={td}>{row.record?.provider ?? "—"}</td>
                 <td style={td}>{row.record?.providerModel ?? "—"}</td>
@@ -188,6 +228,19 @@ export default async function ArtInspectorPage({ searchParams }: { searchParams:
                       Générer
                     </button>
                   </form>
+                  {(status === "queued" || status === "generating") && (
+                    <form action={unstickAssetAction} style={{ display: "inline-block", marginLeft: 4 }}>
+                      <input type="hidden" name="descriptorHash" value={row.descriptorHash} />
+                      <input type="hidden" name="generationVersion" value={row.generationVersion} />
+                      <button
+                        type="submit"
+                        title="Marque cette ligne comme échouée si son processus s'est interrompu (crash, bug corrigé depuis) — n'appelle jamais le fournisseur."
+                        style={{ padding: "3px 8px", background: "#161b22", color: "#c9a23d", border: "1px solid #484f58" }}
+                      >
+                        Débloquer
+                      </button>
+                    </form>
+                  )}
                 </td>
               </tr>
             );

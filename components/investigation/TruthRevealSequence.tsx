@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ambience, playSound } from "@/lib/sound/sound-manager";
 import { endCurrentCase } from "@/lib/game-session/actions";
 import type { DisplayNarrativeSection } from "@/lib/game-session/narrative-reconstruction";
-import { Avatar } from "./Avatar";
+import { CharacterPortrait } from "./CharacterPortrait";
 
 const GRADE_COLOR: Record<string, string> = {
   S: "text-accent-strong",
@@ -162,7 +162,7 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
                     <div className="mb-2 flex flex-wrap gap-2">
                       {section.people.map((p) => (
                         <span key={p.id} className="flex items-center gap-1.5 border border-border-strong bg-surface-sunken py-0.5 pl-0.5 pr-2">
-                          <Avatar seed={p.avatarSeed} name={p.name} size={22} />
+                          <CharacterPortrait seed={p.avatarSeed} name={p.name} size={22} generatedSrc={p.generatedSrc} />
                           <span className="text-[11px] text-foreground">{p.name}</span>
                         </span>
                       ))}

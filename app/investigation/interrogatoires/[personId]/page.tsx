@@ -4,8 +4,9 @@ import { getPerson } from "@/lib/game-session/player-view";
 import { getInterrogationTopics } from "@/lib/game-session/interrogation-view";
 import { InterrogationTopicButton } from "@/components/investigation/InterrogationTopicButton";
 import { formatGameTime } from "@/lib/game-engine/types/time";
-import { Avatar } from "@/components/investigation/Avatar";
+import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { InterrogationAmbienceDuck } from "@/components/investigation/InterrogationAmbienceDuck";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 export default async function InterrogationPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
@@ -13,6 +14,8 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
   if (!game) return null;
   const person = getPerson(game.truth, personId);
   if (!person) notFound();
+
+  const portraitUrls = await getReadyPortraitUrls(game.userId, game.truth);
 
   const topics = getInterrogationTopics(game.truth, game.session, personId);
   const asked = topics.filter((t) => t.asked).sort((a, b) => a.time - b.time);
@@ -22,7 +25,12 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
       <InterrogationAmbienceDuck />
       <div className="panel panel-bracketed flex items-center gap-4 border-l-4 border-l-danger p-5">
-        <Avatar seed={person.avatarSeed} name={`${person.firstName} ${person.lastName}`} size={64} />
+        <CharacterPortrait
+          seed={person.avatarSeed}
+          name={`${person.firstName} ${person.lastName}`}
+          size={64}
+          generatedSrc={portraitUrls.get(person.id)}
+        />
         <div>
           <p className="font-data text-[10px] uppercase tracking-[0.25em] text-danger">Salle d&apos;audition</p>
           <h1 className="text-xl font-bold uppercase tracking-wide text-foreground">

@@ -86,6 +86,12 @@ export async function getOrGenerateAsset(
   args: GetOrGenerateAssetArgs,
 ): Promise<GetOrGenerateAssetResult> {
   const { store, provider } = deps;
+  // Tracked outside the inner try so the outer catch can still mark this
+  // specific record failed (rather than leaving it stuck at "generating"
+  // forever) if something throws after generation succeeded — an upload
+  // or database failure is exactly as real a failure as the provider
+  // itself declining, and must reach the same terminal state.
+  let record: GeneratedAssetRecord | undefined;
 
   try {
     const existing = await store.findAssetRecord(args.userId, args.descriptorHash, args.generationVersion, args.providerName);
@@ -105,7 +111,7 @@ export async function getOrGenerateAsset(
       if (!cooledDown || !attemptsLeft) return FAILED;
     }
 
-    let record = existing;
+    record = existing ?? undefined;
     if (!record) {
       const currentCount = await store.countAssetsForCase(args.userId, args.caseSeed);
       if (currentCount >= MAX_ASSETS_PER_CASE) return MISSING; // pilot cap reached — stay procedural
@@ -117,7 +123,8 @@ export async function getOrGenerateAsset(
     let generated;
     try {
       generated = await withTimeout(provider.generate(args.assetKind, args.prompt, args.seed), GENERATION_TIMEOUT_MS);
-    } catch {
+    } catch (err) {
+      console.warn(`[CASELINE] Provider "${args.providerName}" threw during generation: ${err instanceof Error ? err.message : String(err)}`);
       generated = null;
     }
 
@@ -136,9 +143,22 @@ export async function getOrGenerateAsset(
     });
     const url = await store.getSignedAssetUrl(path);
     return { status: "ready", url };
-  } catch {
-    // A store-layer failure (network, RLS misconfiguration, etc.) is exactly
-    // as recoverable as a provider failure from the caller's point of view.
+  } catch (err) {
+    // A store-layer failure (network, RLS misconfiguration, a bad upload,
+    // etc.) is exactly as recoverable as a provider failure from the
+    // caller's point of view — but unlike a plain provider decline, this
+    // is unexpected enough to be worth logging (message only; never the
+    // prompt or a credential) and, if a record was already created, worth
+    // actually marking failed so it doesn't stay stuck at "generating".
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[CASELINE] getOrGenerateAsset failed unexpectedly (${args.assetKind}, ${args.descriptorHash}): ${reason}`);
+    if (record) {
+      try {
+        await store.markFailed(args.userId, record.id, reason.slice(0, 500), record.attemptCount + 1);
+      } catch {
+        // The store is already failing — nothing more we can safely do.
+      }
+    }
     return FAILED;
   }
 }

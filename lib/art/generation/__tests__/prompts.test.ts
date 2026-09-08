@@ -14,7 +14,7 @@ function makeCharacterDescriptor(overrides: Partial<CharacterVisualDescriptor> =
     faceShape: "oval",
     clothingCategory: "formal",
     skinTone: "#d4a878",
-    framing: "three_quarter",
+    framing: "slight_turn",
     ...overrides,
   };
 }
@@ -53,6 +53,36 @@ describe("buildCharacterPortraitPrompt", () => {
     const a = buildCharacterPortraitPrompt(makeCharacterDescriptor({ hairstyle: "bald" }));
     const b = buildCharacterPortraitPrompt(makeCharacterDescriptor({ hairstyle: "long" }));
     expect(a).not.toBe(b);
+  });
+
+  it("includes the required anti-professional-portrait negative-prompt block verbatim (v3)", () => {
+    const prompt = buildCharacterPortraitPrompt(makeCharacterDescriptor());
+    expect(prompt).toContain(
+      "ordinary administrative identification photograph, utilitarian documentation photo, flat practical lighting, " +
+        "normal depth of field, background remains visible and in focus, no bokeh, no shallow depth of field, " +
+        "no portrait lens look, no studio photography, no cinematic lighting, no beauty photography, " +
+        "no fashion photography, no corporate headshot, no LinkedIn portrait, no glamour, no dramatic lighting, " +
+        "no color grading, no professional portrait composition",
+    );
+  });
+
+  it("uses skinTone for physical diversity, and it varies the prompt", () => {
+    const light = buildCharacterPortraitPrompt(makeCharacterDescriptor({ skinTone: "#e8c9a8" }));
+    const dark = buildCharacterPortraitPrompt(makeCharacterDescriptor({ skinTone: "#5c4028" }));
+    expect(light).toContain("light skin");
+    expect(dark).toContain("dark skin");
+    expect(light).not.toBe(dark);
+  });
+
+  it("never implies the subject looks sinister, criminal, or unsettling", () => {
+    const prompt = buildCharacterPortraitPrompt(makeCharacterDescriptor()).toLowerCase();
+    for (const forbidden of ["sinister", "criminal", "menacing", "creepy", "evil"]) {
+      expect(prompt).not.toContain(forbidden);
+    }
+    // The one deliberate exception: a negative instruction ruling out
+    // villain/hero framing, phrased as "no ... visual cues" — never as a
+    // positive description of the subject.
+    expect(prompt).toContain("no heroic or villainous visual cues");
   });
 });
 

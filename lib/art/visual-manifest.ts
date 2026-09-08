@@ -2,7 +2,7 @@ import type { Person, PersonId } from "@/lib/game-engine/types/person";
 import type { Location, LocationId, LocationType } from "@/lib/game-engine/types/location";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import { timeOfDayMinutes } from "@/lib/game-engine/types/time";
-import { hashSeed, pick } from "./hash";
+import { hashSeed, pick, pickChance } from "./hash";
 import type { TimeOfDay } from "./lighting";
 import { chooseLayoutTemplate, type LayoutTemplateId } from "./crime-scene-layouts";
 import { buildCCTVFrameDescriptor, type CCTVFrameDescriptor } from "./cctv";
@@ -18,11 +18,23 @@ export type FaceShape = "oval" | "square" | "round" | "angular";
 export type ClothingCategory = "casual" | "formal" | "workwear" | "uniform" | "sport";
 
 /**
- * A person's deterministic visual identity. Built from `Person` fields
+ * The exact fields `buildCharacterVisualDescriptor` reads, and no more —
+ * `Person`'s full shape (personality, wealth, roles, ...) is deliberately
+ * NOT the parameter type, so passing a smaller, already-guilt-safe view
+ * (e.g. `PersonPublicView` from `lib/game-session/player-view.ts`, used
+ * throughout the gameplay UI) satisfies this structurally without any
+ * cast. This is the guilt-safety guarantee made checkable by the
+ * compiler, not just documented: there is no field here `roles`/`Person`
+ * could smuggle guilt through even if someone tried.
+ */
+export type GuiltSafePersonFields = Pick<Person, "id" | "age" | "sex" | "profession" | "avatarSeed">;
+
+/**
+ * A person's deterministic visual identity. Built from guilt-safe fields
  * ONLY — this function has no way to know who the culprit is, so it is
- * structurally impossible for guilt to bias a portrait. Never pass
- * `CaseTruth` or a role/roles list into this function; if a future change
- * needs one, that is a sign the guilt-safety guarantee is being broken.
+ * structurally impossible for guilt to bias a portrait. Never widen the
+ * parameter type to `Person` or `CaseTruth`; if a future change needs
+ * one, that is a sign the guilt-safety guarantee is being broken.
  */
 export interface CharacterVisualDescriptor {
   personId: PersonId;
@@ -34,7 +46,13 @@ export interface CharacterVisualDescriptor {
   faceShape: FaceShape;
   clothingCategory: ClothingCategory;
   skinTone: string;
-  framing: "front" | "three_quarter";
+  /** "front": facing the camera. "slight_turn": head turned very slightly
+   * off-axis — a subtle, mundane variation (an ordinary snapshot rarely
+   * has a perfectly square head angle), not a deliberate professional
+   * three-quarter portrait pose. Weighted toward "front" (see
+   * `buildCharacterVisualDescriptor`) since that's the norm for an
+   * administrative record photo. */
+  framing: "front" | "slight_turn";
 }
 
 const HAIRSTYLES_BY_PRESENTATION: Record<Presentation, Hairstyle[]> = {
@@ -54,7 +72,7 @@ function clothingCategoryForProfession(profession: string): ClothingCategory {
   return "casual";
 }
 
-export function buildCharacterVisualDescriptor(person: Person): CharacterVisualDescriptor {
+export function buildCharacterVisualDescriptor(person: GuiltSafePersonFields): CharacterVisualDescriptor {
   const seed = person.avatarSeed;
   const presentation: Presentation = person.sex === "male" ? "masculine" : "feminine";
   const approxAge = person.age < 32 ? "young" : person.age < 55 ? "middle" : "older";
@@ -68,7 +86,10 @@ export function buildCharacterVisualDescriptor(person: Person): CharacterVisualD
     faceShape: pick(`${seed}:face`, FACE_SHAPES),
     clothingCategory: clothingCategoryForProfession(person.profession),
     skinTone: pick(`${seed}:skin`, SKIN_TONES),
-    framing: "three_quarter",
+    // Mostly front-facing, like a real administrative photo — only a
+    // minority get a subtle head-angle variation, never a posed portrait
+    // angle. Guilt-safe: keyed purely off the person's own seed.
+    framing: pickChance(`${seed}:framing`, 0.75) ? "front" : "slight_turn",
   };
 }
 

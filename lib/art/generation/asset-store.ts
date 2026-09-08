@@ -136,6 +136,40 @@ export async function markFailed(userId: string, id: string, errorMessage: strin
   if (error) throw new Error(`Supabase markFailed failed: ${error.message}`);
 }
 
+/**
+ * Batched read for gameplay display: one query for every descriptor hash
+ * a page cares about, instead of one query per person (the N+1 a naive
+ * per-avatar lookup would cause on a suspect/witness list). Only ever
+ * returns `ready` rows — this is a pure read path with no way to trigger
+ * generation, so "never regenerate an existing ready asset" and "never
+ * block gameplay" both hold by construction: a missing/queued/failed
+ * asset simply isn't in the result, and the caller falls back to
+ * procedural art immediately.
+ */
+export async function findReadyAssetsByHashes(
+  userId: string,
+  caseSeed: string,
+  assetKind: GeneratedAssetKind,
+  generationVersion: number,
+  provider: string,
+  descriptorHashes: string[],
+): Promise<GeneratedAssetRecord[]> {
+  if (descriptorHashes.length === 0) return [];
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("generated_assets")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("case_seed", caseSeed)
+    .eq("asset_kind", assetKind)
+    .eq("generation_version", generationVersion)
+    .eq("provider", provider)
+    .eq("status", "ready")
+    .in("descriptor_hash", descriptorHashes);
+  if (error) throw new Error(`Supabase findReadyAssetsByHashes failed: ${error.message}`);
+  return (data ?? []).map(rowToRecord);
+}
+
 export async function countAssetsForCase(userId: string, caseSeed: string): Promise<number> {
   const supabase = await createServerSupabaseClient();
   const { count, error } = await supabase
@@ -176,4 +210,25 @@ export async function getSignedAssetUrl(path: string, expiresInSeconds = 3600): 
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, expiresInSeconds);
   if (error || !data) return null;
   return data.signedUrl;
+}
+
+/** Bulk counterpart to `getSignedAssetUrl` — one Storage call for every
+ * path a page needs instead of one per row, used together with
+ * `findReadyAssetsByHashes` for gameplay display. Paths that fail to sign
+ * (e.g. the underlying object was somehow removed) are simply absent from
+ * the returned map rather than throwing — same "degrade to procedural,
+ * never break the page" contract as the single-path version. Default TTL
+ * is longer than the dev-inspector's (4h vs. 1h): a gameplay page is
+ * meant to stay readable for a normal play session between navigations,
+ * not just one dev-tool lookup. */
+export async function getSignedAssetUrls(paths: string[], expiresInSeconds = 14_400): Promise<Map<string, string>> {
+  if (paths.length === 0) return new Map();
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(paths, expiresInSeconds);
+  if (error || !data) return new Map();
+  const result = new Map<string, string>();
+  for (const entry of data) {
+    if (entry.path && entry.signedUrl && !entry.error) result.set(entry.path, entry.signedUrl);
+  }
+  return result;
 }

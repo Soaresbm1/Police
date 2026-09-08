@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * `descriptorHash → asset` cache. Every procedural renderer here is a pure
  * function of its descriptor, so caching is purely a performance layer —
@@ -10,11 +12,21 @@
  * since nothing in this milestone requires it to survive a process
  * restart; swapping the `Map` below for a Storage-backed lookup is the
  * only change a future persistent cache would need.
+ *
+ * Server-only (uses `node:crypto`) — everything that imports this file
+ * today is a Server Component/Server Action; do not import it from a
+ * "use client" file.
  */
 const cache = new Map<string, string>();
 
 /** Stable hash of any JSON-serializable descriptor object — sorts keys so
- * property order never changes the hash. */
+ * property order never changes the hash. A real SHA-256 hex digest, not
+ * just the serialized JSON: the descriptor hash is also used verbatim as
+ * a Supabase Storage object-key path segment
+ * (`{userId}/{caseSeed}/{descriptorHash}.{ext}`, see
+ * `lib/art/generation/asset-store.ts`), and Storage keys reject `{`, `"`,
+ * `:`, and other JSON punctuation — a raw JSON string is not a valid path
+ * segment. */
 export function hashDescriptor(descriptor: unknown): string {
   const normalize = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(normalize);
@@ -27,7 +39,8 @@ export function hashDescriptor(descriptor: unknown): string {
     }
     return value;
   };
-  return JSON.stringify(normalize(descriptor));
+  const json = JSON.stringify(normalize(descriptor));
+  return createHash("sha256").update(json).digest("hex");
 }
 
 export function getCachedAsset(key: string): string | undefined {

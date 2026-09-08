@@ -5,6 +5,7 @@ import { getStore } from "@/lib/game-session/persistence";
 import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 export default async function DossierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,6 +16,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   if (!entry) notFound();
 
   const truth = generateCase(entry.seed, { difficulty: entry.difficulty });
+  const portraitUrls = await getReadyPortraitUrls(identity.userId, truth);
   const accusedPerson = truth.people.find((p) => p.id === entry.accusation.culpritId);
   const realCulprit = truth.people.find((p) => p.id === truth.culpritId)!;
   const realVictim = truth.people.find((p) => p.id === truth.victimId)!;
@@ -47,7 +49,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
     ],
     realVictimName: `${realVictim.firstName} ${realVictim.lastName}`,
     realCulpritName: `${realCulprit.firstName} ${realCulprit.lastName}`,
-    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth)),
+    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth), portraitUrls),
     accompliceScore:
       accompliceTotal > 0 || accompliceWronglyAccused > 0
         ? {

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudflareGeneratedAssetProvider, isCloudflareConfigured } from "../cloudflare-provider";
-import { hashSeed } from "../../../hash";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -79,15 +78,14 @@ describe("CloudflareGeneratedAssetProvider", () => {
     expect(Array.from(result!.bytes)).toEqual([1, 2, 3, 4]);
   });
 
-  it("sends a deterministic positive-integer seed derived from the string seed", async () => {
+  it("never sends a seed field — the live API rejects it (see class doc comment)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ result: { image: Buffer.from("x").toString("base64") } }));
     const provider = new CloudflareGeneratedAssetProvider();
     await provider.generate("character_portrait", "a prompt", "same-seed");
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.seed).toBe(hashSeed("same-seed") % 2_147_483_647);
-    expect(Number.isInteger(body.seed)).toBe(true);
-    expect(body.seed).toBeGreaterThanOrEqual(0);
+    expect(body).not.toHaveProperty("seed");
+    expect(body.prompt).toBe("a prompt");
   });
 
   it("sends the Authorization header and account id in the URL, never logging the token", async () => {

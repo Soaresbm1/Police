@@ -6,14 +6,16 @@ import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/g
 import { formatDuration } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
+import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 
 export default async function RapportPage() {
   const game = await getCurrentGame();
   if (!game) return null;
-  const { truth, session } = game;
+  const { truth, session, userId } = game;
   if (!session.accusation) redirect("/investigation/accusation");
 
   const score = scoreAccusation(truth, session, session.accusation);
+  const portraitUrls = await getReadyPortraitUrls(userId, truth);
   const accusedPerson = getPerson(truth, session.accusation.culpritId);
   const realCulprit = getPerson(truth, truth.culpritId);
   const realVictim = getPerson(truth, truth.victimId);
@@ -44,7 +46,7 @@ export default async function RapportPage() {
     ],
     realVictimName: `${realVictim?.firstName} ${realVictim?.lastName}`,
     realCulpritName: `${realCulprit?.firstName} ${realCulprit?.lastName}`,
-    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth)),
+    narrative: enrichNarrativeForDisplay(truth, buildNarrativeReconstruction(truth), portraitUrls),
     accompliceScore:
       score.accompliceTotal > 0 || score.accompliceWronglyAccused > 0
         ? {

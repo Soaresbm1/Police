@@ -74,6 +74,16 @@ describe("buildCharacterVisualDescriptor", () => {
     const b = buildCharacterVisualDescriptor(makePerson({ avatarSeed: "seed-two" }));
     expect(a).not.toEqual(b);
   });
+
+  it("framing is mostly front-facing, not a posed portrait angle for most characters", () => {
+    const counts = { front: 0, slight_turn: 0 };
+    for (let i = 0; i < 200; i++) {
+      const { framing } = buildCharacterVisualDescriptor(makePerson({ avatarSeed: `seed-${i}` }));
+      counts[framing]++;
+    }
+    // ~75% front by design — assert the clear majority without pinning an exact count.
+    expect(counts.front).toBeGreaterThan(counts.slight_turn * 2);
+  });
 });
 
 describe("buildLocationVisualDescriptor", () => {
