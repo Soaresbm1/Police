@@ -7,6 +7,7 @@ import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { generateCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
 import { isAutoPortraitGenerationEnabled, runAutoPortraitGeneration } from "@/lib/art/generation/auto-portrait-trigger";
+import { isAutoCrimeSceneGenerationEnabled, runAutoCrimeSceneGeneration } from "@/lib/art/generation/auto-scene-trigger";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { getStore } from "./persistence";
@@ -33,19 +34,33 @@ export async function startNewCase(formData: FormData) {
   const truth = generateCase(seed, { difficulty });
   await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
 
-  // Pilot-gated (see `.env.example`): queues portrait generation for this
-  // brand-new case's important characters to run after this response is
-  // sent, so the redirect below — and the procedural avatars it lands
-  // on — are never delayed by it. `userId`/`truth` are read above and
-  // captured by closure, per `after()`'s own request-data rule.
-  if (isAutoPortraitGenerationEnabled()) {
+  // Pilot-gated (see `.env.example`): queues portrait/crime-scene
+  // generation for this brand-new case to run after this response is
+  // sent, so the redirect below — and the procedural art it lands on —
+  // is never delayed by either. Independently gated flags, so any
+  // combination (both off, either alone, both on) works; each has its
+  // own try/catch so a failure in one never skips or crashes the other.
+  // `userId`/`truth` are read above and captured by closure, per
+  // `after()`'s own request-data rule.
+  if (isAutoPortraitGenerationEnabled() || isAutoCrimeSceneGenerationEnabled()) {
     after(async () => {
-      try {
-        await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
-      } catch (err) {
-        console.error(
-          `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+      if (isAutoPortraitGenerationEnabled()) {
+        try {
+          await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+        } catch (err) {
+          console.error(
+            `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      if (isAutoCrimeSceneGenerationEnabled()) {
+        try {
+          await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+        } catch (err) {
+          console.error(
+            `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     });
   }

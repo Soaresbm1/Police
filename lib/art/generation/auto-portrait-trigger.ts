@@ -135,7 +135,7 @@ export async function runAutoPortraitGeneration(
   }
 
   console.log(
-    `[CASELINE] Automatic portrait generation for case ${truth.seed}: ` +
+    `[CASELINE] [auto-portrait] case ${truth.seed}: ` +
       `attempted=${diagnostics.attempted}, cacheHits=${diagnostics.cacheHits}, ready=${diagnostics.ready}, ` +
       `failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}.`,
   );

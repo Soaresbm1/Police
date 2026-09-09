@@ -31,10 +31,15 @@ export async function triggerAssetGenerationAction(formData: FormData): Promise<
   const seed = String(formData.get("seed") ?? "");
   if (!caseSeed || !descriptorHash || !prompt || !seed) return;
 
-  await getOrGenerateAsset(
+  const result = await getOrGenerateAsset(
     { store: assetStore, provider: activeGeneratedAssetProvider },
     { userId: identity.userId, caseSeed, assetKind, descriptorHash, generationVersion, providerName: ACTIVE_PROVIDER_NAME, promptVersion, prompt, seed },
   );
+  // Tagged distinctly from the automatic triggers' own summary lines
+  // (auto-portrait-trigger.ts / auto-scene-trigger.ts) so dev logs can
+  // tell manual clicks apart from background generation — counts and
+  // status only, never the prompt or a credential.
+  console.log(`[CASELINE] [manual-dev] case ${caseSeed}: assetKind=${assetKind}, result=${result.status}.`);
 
   revalidatePath("/case-lab/art");
 }
