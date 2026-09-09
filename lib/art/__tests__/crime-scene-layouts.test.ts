@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { ALL_LAYOUT_IDS, chooseLayoutTemplate, getLayout, getZonesForLocation } from "../crime-scene-layouts";
+import { ALL_LAYOUT_IDS, chooseLayoutTemplate, getLayout, getZonesForLocation, type SemanticAnchor } from "../crime-scene-layouts";
 import type { LocationType } from "@/lib/game-engine/types/location";
+
+const VALID_SEMANTIC_ANCHORS: SemanticAnchor[] = [
+  "desk",
+  "floor",
+  "shelf",
+  "door",
+  "window",
+  "chair",
+  "cabinet",
+  "wall",
+  "generic_surface",
+];
 
 const ALL_LOCATION_TYPES: LocationType[] = [
   "police_station",
@@ -45,5 +57,13 @@ describe("crime-scene-layouts", () => {
     const zones = getZonesForLocation("warehouse", "loc-2:warehouse");
     expect(zones).toHaveLength(7);
     expect(zones.every((z) => typeof z.x === "number" && typeof z.y === "number")).toBe(true);
+  });
+
+  it("every zone in every layout has exactly one valid semanticAnchor", () => {
+    for (const id of ALL_LAYOUT_IDS) {
+      for (const zone of getLayout(id).zones) {
+        expect(VALID_SEMANTIC_ANCHORS).toContain(zone.semanticAnchor);
+      }
+    }
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { CrimeSceneHotspot } from "@/lib/game-session/crime-scene";
 import { collectEvidenceAction, inspectCrimeSceneZoneAction, sendToLabAction } from "@/lib/game-session/actions";
 import { RECORD_TYPE_LABEL } from "@/lib/game-session/labels";
@@ -9,6 +9,37 @@ import type { EvidencePlayerStatus } from "@/lib/game-session/types";
 import { playSound } from "@/lib/sound/sound-manager";
 import { Soundscape } from "./Soundscape";
 import { GeneratedImageWithFallback } from "./GeneratedImageWithFallback";
+import { DESKTOP_CONTAINER_ASPECT, MOBILE_CONTAINER_ASPECT, resolveHotspotLayout } from "@/lib/art/hotspot-layout";
+
+const WIDE_VIEWPORT_QUERY = "(min-width: 640px)"; // Tailwind's `sm` breakpoint, unmodified default
+
+function subscribeToWideViewport(callback: () => void): () => void {
+  const mql = window.matchMedia(WIDE_VIEWPORT_QUERY);
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
+}
+
+function getWideViewportSnapshot(): boolean {
+  return window.matchMedia(WIDE_VIEWPORT_QUERY).matches;
+}
+
+/** Server snapshot: no `window` during SSR, so this matches the mobile
+ * band the component's own `aspect-[4/5]` container renders by default
+ * before any `sm:` override applies — keeps hydration consistent. */
+function getWideViewportServerSnapshot(): boolean {
+  return false;
+}
+
+/** Tracks Tailwind's `sm` breakpoint via `matchMedia` — only two fixed
+ * aspect bands exist (see `CrimeSceneScreen`'s own `aspect-[4/5]
+ * sm:aspect-[16/9]` container), so a boolean is all the coordinate
+ * transform needs; no `ResizeObserver` required. `useSyncExternalStore` is
+ * the correct primitive for subscribing to this kind of external browser
+ * state — it re-renders on a real breakpoint change without ever calling
+ * `setState` inside an effect. */
+function useIsWideViewport(): boolean {
+  return useSyncExternalStore(subscribeToWideViewport, getWideViewportSnapshot, getWideViewportServerSnapshot);
+}
 
 interface EvidenceDetail {
   evidenceId: string;
@@ -55,6 +86,26 @@ export function CrimeSceneScreen({
   const foundCount = hotspots.filter((h) => h.kind === "evidence" && h.discovered).length;
   const totalEvidence = hotspots.filter((h) => h.kind === "evidence").length;
 
+  const isWide = useIsWideViewport();
+  // Corrects each marker's on-screen position for the generated photo's
+  // object-cover crop at the current breakpoint (see hotspot-layout.ts).
+  // Never touches which hotspots exist, only where they're drawn — and
+  // falls back to each hotspot's own untransformed x/y (today's
+  // deterministic behavior) if the transform ever throws, so a bug here
+  // can never hide a marker or block the scene.
+  const resolvedPositions = useMemo(() => {
+    const containerAspect = isWide ? DESKTOP_CONTAINER_ASPECT : MOBILE_CONTAINER_ASPECT;
+    try {
+      const resolved = resolveHotspotLayout(
+        hotspots.map((h) => ({ id: h.zoneId, semanticAnchor: h.semanticAnchor, x: h.x, y: h.y })),
+        containerAspect,
+      );
+      return new Map(resolved.map((r) => [r.hotspotId, { x: r.xPercent, y: r.yPercent }]));
+    } catch {
+      return new Map(hotspots.map((h) => [h.zoneId, { x: h.x, y: h.y }]));
+    }
+  }, [hotspots, isWide]);
+
   return (
     <div className="flex flex-col gap-3">
       <Soundscape kind="crime_scene" />
@@ -93,12 +144,13 @@ export function CrimeSceneScreen({
         {hotspots.map((h) => {
           const isSelected = h.zoneId === selectedZoneId;
           const dotColor = h.kind === "body" ? "bg-danger" : h.discovered ? "bg-success" : "bg-accent-strong";
+          const position = resolvedPositions.get(h.zoneId) ?? { x: h.x, y: h.y };
           return (
             <button
               key={h.zoneId}
               type="button"
               onClick={() => setSelectedZoneId(h.zoneId)}
-              style={{ left: `${h.x}%`, top: `${h.y}%` }}
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
               className="group absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
               title={h.label}
               aria-label={h.label}

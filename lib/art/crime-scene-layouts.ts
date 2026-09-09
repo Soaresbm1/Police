@@ -11,11 +11,24 @@ export type LayoutTemplateId =
   | "hotel_room"
   | "restaurant_backroom";
 
+/**
+ * Purely visual/presentational classification of what kind of surface or
+ * fixture a zone represents — never evidence, never truth. Derived below
+ * from each zone's existing hand-placed position relative to this same
+ * layout's `furniture` silhouettes (e.g. the "fenetre" zone sits directly
+ * over the window rect), not from anything about the case. Used only by
+ * `lib/art/hotspot-layout.ts` to reason about placement; the evidence/
+ * hotspot inventory itself (`lib/game-session/crime-scene.ts`) is entirely
+ * unaffected by this field's value.
+ */
+export type SemanticAnchor = "desk" | "floor" | "shelf" | "door" | "window" | "chair" | "cabinet" | "wall" | "generic_surface";
+
 export interface SceneZoneSlot {
   id: string;
   label: string;
   x: number;
   y: number;
+  semanticAnchor: SemanticAnchor;
 }
 
 /** A silhouette shape used to build the illustrated background — kept
@@ -64,13 +77,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 6, y: 12, w: 16, h: 34, opacity: 0.3 }, // bookshelf
     ],
     zones: [
-      { id: "table", label: "Table basse", x: 28, y: 68 },
-      { id: "fenetre", label: "Fenêtre", x: 82, y: 18 },
-      { id: "porte", label: "Porte d'entrée", x: 14, y: 22 },
-      { id: "sol", label: "Sol", x: 62, y: 82 },
-      { id: "telephone", label: "Téléphone", x: 72, y: 50 },
-      { id: "poubelle", label: "Poubelle", x: 18, y: 78 },
-      { id: "armoire", label: "Armoire", x: 86, y: 62 },
+      { id: "table", label: "Table basse", x: 28, y: 68, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Fenêtre", x: 82, y: 18, semanticAnchor: "window" },
+      { id: "porte", label: "Porte d'entrée", x: 14, y: 22, semanticAnchor: "door" },
+      { id: "sol", label: "Sol", x: 62, y: 82, semanticAnchor: "floor" },
+      { id: "telephone", label: "Téléphone", x: 72, y: 50, semanticAnchor: "generic_surface" },
+      { id: "poubelle", label: "Poubelle", x: 18, y: 78, semanticAnchor: "floor" },
+      { id: "armoire", label: "Armoire", x: 86, y: 62, semanticAnchor: "cabinet" },
     ],
   },
   bedroom: {
@@ -85,13 +98,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 8, y: 12, w: 16, h: 12, opacity: 0.3 }, // nightstand
     ],
     zones: [
-      { id: "table", label: "Table de chevet", x: 12, y: 40 },
-      { id: "fenetre", label: "Fenêtre", x: 70, y: 20 },
-      { id: "porte", label: "Porte de la chambre", x: 12, y: 20 },
-      { id: "sol", label: "Sol, sous le lit", x: 34, y: 82 },
-      { id: "telephone", label: "Téléphone", x: 16, y: 50 },
-      { id: "poubelle", label: "Corbeille", x: 84, y: 22 },
-      { id: "armoire", label: "Armoire", x: 76, y: 66 },
+      { id: "table", label: "Table de chevet", x: 12, y: 40, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Fenêtre", x: 70, y: 20, semanticAnchor: "window" },
+      { id: "porte", label: "Porte de la chambre", x: 12, y: 20, semanticAnchor: "door" },
+      { id: "sol", label: "Sol, sous le lit", x: 34, y: 82, semanticAnchor: "floor" },
+      { id: "telephone", label: "Téléphone", x: 16, y: 50, semanticAnchor: "generic_surface" },
+      { id: "poubelle", label: "Corbeille", x: 84, y: 22, semanticAnchor: "floor" },
+      { id: "armoire", label: "Armoire", x: 76, y: 66, semanticAnchor: "cabinet" },
     ],
   },
   office: {
@@ -106,13 +119,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 32, y: 68, w: 12, h: 16, opacity: 0.4 }, // chair
     ],
     zones: [
-      { id: "table", label: "Bureau", x: 50, y: 50 },
-      { id: "fenetre", label: "Fenêtre", x: 84, y: 30 },
-      { id: "porte", label: "Porte du bureau", x: 12, y: 24 },
-      { id: "sol", label: "Sol, sous le bureau", x: 50, y: 78 },
-      { id: "telephone", label: "Téléphone fixe", x: 62, y: 46 },
-      { id: "poubelle", label: "Corbeille à papier", x: 20, y: 74 },
-      { id: "armoire", label: "Classeur", x: 14, y: 30 },
+      { id: "table", label: "Bureau", x: 50, y: 50, semanticAnchor: "desk" },
+      { id: "fenetre", label: "Fenêtre", x: 84, y: 30, semanticAnchor: "window" },
+      { id: "porte", label: "Porte du bureau", x: 12, y: 24, semanticAnchor: "door" },
+      { id: "sol", label: "Sol, sous le bureau", x: 50, y: 78, semanticAnchor: "floor" },
+      { id: "telephone", label: "Téléphone fixe", x: 62, y: 46, semanticAnchor: "desk" },
+      { id: "poubelle", label: "Corbeille à papier", x: 20, y: 74, semanticAnchor: "floor" },
+      { id: "armoire", label: "Classeur", x: 14, y: 30, semanticAnchor: "cabinet" },
     ],
   },
   warehouse: {
@@ -127,13 +140,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 40, y: 6, w: 20, h: 8, opacity: 0.25 }, // overhead beam
     ],
     zones: [
-      { id: "table", label: "Caisses empilées", x: 18, y: 44 },
-      { id: "fenetre", label: "Verrière", x: 50, y: 10 },
-      { id: "porte", label: "Porte de quai", x: 12, y: 74 },
-      { id: "sol", label: "Sol en béton", x: 50, y: 84 },
-      { id: "telephone", label: "Établi", x: 76, y: 60 },
-      { id: "poubelle", label: "Bidon métallique", x: 84, y: 24 },
-      { id: "armoire", label: "Casier à outils", x: 66, y: 20 },
+      { id: "table", label: "Caisses empilées", x: 18, y: 44, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Verrière", x: 50, y: 10, semanticAnchor: "window" },
+      { id: "porte", label: "Porte de quai", x: 12, y: 74, semanticAnchor: "door" },
+      { id: "sol", label: "Sol en béton", x: 50, y: 84, semanticAnchor: "floor" },
+      { id: "telephone", label: "Établi", x: 76, y: 60, semanticAnchor: "generic_surface" },
+      { id: "poubelle", label: "Bidon métallique", x: 84, y: 24, semanticAnchor: "generic_surface" },
+      { id: "armoire", label: "Casier à outils", x: 66, y: 20, semanticAnchor: "shelf" },
     ],
   },
   alley: {
@@ -148,13 +161,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 55, y: 8, w: 6, h: 30, opacity: 0.35 }, // fire escape
     ],
     zones: [
-      { id: "table", label: "Conteneur", x: 38, y: 66 },
-      { id: "fenetre", label: "Fenêtre basse", x: 20, y: 40 },
-      { id: "porte", label: "Porte de service", x: 78, y: 34 },
-      { id: "sol", label: "Sol, entre les bâtiments", x: 50, y: 84 },
-      { id: "telephone", label: "Cabine technique", x: 64, y: 54 },
-      { id: "poubelle", label: "Poubelle renversée", x: 22, y: 78 },
-      { id: "armoire", label: "Casier électrique", x: 82, y: 58 },
+      { id: "table", label: "Conteneur", x: 38, y: 66, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Fenêtre basse", x: 20, y: 40, semanticAnchor: "window" },
+      { id: "porte", label: "Porte de service", x: 78, y: 34, semanticAnchor: "door" },
+      { id: "sol", label: "Sol, entre les bâtiments", x: 50, y: 84, semanticAnchor: "floor" },
+      { id: "telephone", label: "Cabine technique", x: 64, y: 54, semanticAnchor: "cabinet" },
+      { id: "poubelle", label: "Poubelle renversée", x: 22, y: 78, semanticAnchor: "floor" },
+      { id: "armoire", label: "Casier électrique", x: 82, y: 58, semanticAnchor: "cabinet" },
     ],
   },
   parking: {
@@ -169,13 +182,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 44, y: 4, w: 12, h: 6, opacity: 0.25 }, // pillar
     ],
     zones: [
-      { id: "table", label: "Véhicule stationné", x: 25, y: 55 },
-      { id: "fenetre", label: "Rampe d'accès", x: 8, y: 14 },
-      { id: "porte", label: "Porte piétonne", x: 90, y: 20 },
-      { id: "sol", label: "Sol du niveau -1", x: 50, y: 86 },
-      { id: "telephone", label: "Borne d'appel", x: 70, y: 50 },
-      { id: "poubelle", label: "Local poubelles", x: 82, y: 74 },
-      { id: "armoire", label: "Coffret électrique", x: 48, y: 14 },
+      { id: "table", label: "Véhicule stationné", x: 25, y: 55, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Rampe d'accès", x: 8, y: 14, semanticAnchor: "wall" },
+      { id: "porte", label: "Porte piétonne", x: 90, y: 20, semanticAnchor: "door" },
+      { id: "sol", label: "Sol du niveau -1", x: 50, y: 86, semanticAnchor: "floor" },
+      { id: "telephone", label: "Borne d'appel", x: 70, y: 50, semanticAnchor: "wall" },
+      { id: "poubelle", label: "Local poubelles", x: 82, y: 74, semanticAnchor: "wall" },
+      { id: "armoire", label: "Coffret électrique", x: 48, y: 14, semanticAnchor: "cabinet" },
     ],
   },
   hotel_room: {
@@ -190,13 +203,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 8, y: 12, w: 14, h: 12, opacity: 0.3 }, // luggage rack
     ],
     zones: [
-      { id: "table", label: "Guéridon", x: 74, y: 66 },
-      { id: "fenetre", label: "Fenêtre", x: 76, y: 20 },
-      { id: "porte", label: "Porte de la chambre", x: 12, y: 20 },
-      { id: "sol", label: "Sol, près du lit", x: 40, y: 82 },
-      { id: "telephone", label: "Téléphone de chambre", x: 68, y: 56 },
-      { id: "poubelle", label: "Corbeille", x: 18, y: 76 },
-      { id: "armoire", label: "Minibar", x: 12, y: 56 },
+      { id: "table", label: "Guéridon", x: 74, y: 66, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Fenêtre", x: 76, y: 20, semanticAnchor: "window" },
+      { id: "porte", label: "Porte de la chambre", x: 12, y: 20, semanticAnchor: "door" },
+      { id: "sol", label: "Sol, près du lit", x: 40, y: 82, semanticAnchor: "floor" },
+      { id: "telephone", label: "Téléphone de chambre", x: 68, y: 56, semanticAnchor: "desk" },
+      { id: "poubelle", label: "Corbeille", x: 18, y: 76, semanticAnchor: "floor" },
+      { id: "armoire", label: "Minibar", x: 12, y: 56, semanticAnchor: "cabinet" },
     ],
   },
   restaurant_backroom: {
@@ -211,13 +224,13 @@ const LAYOUTS: Record<LayoutTemplateId, CrimeSceneLayout> = {
       { kind: "rect", x: 10, y: 66, w: 20, h: 20, opacity: 0.35 }, // crates
     ],
     zones: [
-      { id: "table", label: "Table de préparation", x: 60, y: 58 },
-      { id: "fenetre", label: "Fenêtre de service", x: 82, y: 22 },
-      { id: "porte", label: "Porte de la cuisine", x: 14, y: 26 },
-      { id: "sol", label: "Sol de la réserve", x: 50, y: 84 },
-      { id: "telephone", label: "Téléphone du personnel", x: 68, y: 44 },
-      { id: "poubelle", label: "Poubelle de cuisine", x: 20, y: 78 },
-      { id: "armoire", label: "Étagère de stockage", x: 18, y: 34 },
+      { id: "table", label: "Table de préparation", x: 60, y: 58, semanticAnchor: "generic_surface" },
+      { id: "fenetre", label: "Fenêtre de service", x: 82, y: 22, semanticAnchor: "window" },
+      { id: "porte", label: "Porte de la cuisine", x: 14, y: 26, semanticAnchor: "door" },
+      { id: "sol", label: "Sol de la réserve", x: 50, y: 84, semanticAnchor: "floor" },
+      { id: "telephone", label: "Téléphone du personnel", x: 68, y: 44, semanticAnchor: "generic_surface" },
+      { id: "poubelle", label: "Poubelle de cuisine", x: 20, y: 78, semanticAnchor: "floor" },
+      { id: "armoire", label: "Étagère de stockage", x: 18, y: 34, semanticAnchor: "shelf" },
     ],
   },
 };

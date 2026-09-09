@@ -2,11 +2,12 @@ import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { GameSession } from "./types";
 import { getCrimeSceneEvidence } from "./discovery";
 import { evidenceStatusOf } from "./player-view";
-import { getZonesForLocation } from "@/lib/art/crime-scene-layouts";
+import { getZonesForLocation, type SemanticAnchor } from "@/lib/art/crime-scene-layouts";
 
 /** "Le corps" is reserved separately from the room's prop zones — always
- * shown, never gated behind discovery (the body itself isn't a secret). */
-const BODY_ZONE = { id: "corps", label: "Le corps", x: 50, y: 58 };
+ * shown, never gated behind discovery (the body itself isn't a secret).
+ * Anchored as "floor": a body is always found lying on the ground. */
+const BODY_ZONE = { id: "corps", label: "Le corps", x: 50, y: 58, semanticAnchor: "floor" as const };
 
 const DECOY_LINES = [
   "Rien de particulier ici.",
@@ -27,6 +28,9 @@ export interface CrimeSceneHotspot {
   label: string;
   x: number;
   y: number;
+  /** Purely visual classification (see `crime-scene-layouts.ts`) — never
+   * read by evidence/discovery logic, only by `lib/art/hotspot-layout.ts`. */
+  semanticAnchor: SemanticAnchor;
   kind: "body" | "evidence" | "decoy";
   evidenceId: string | null;
   discovered: boolean;
@@ -62,6 +66,7 @@ export function getCrimeSceneHotspots(truth: CaseTruth, session: GameSession): C
       label: BODY_ZONE.label,
       x: BODY_ZONE.x,
       y: BODY_ZONE.y,
+      semanticAnchor: BODY_ZONE.semanticAnchor,
       kind: "body",
       evidenceId: null,
       discovered: true,
@@ -82,6 +87,7 @@ export function getCrimeSceneHotspots(truth: CaseTruth, session: GameSession): C
         label: zone.label,
         x: zone.x,
         y: zone.y,
+        semanticAnchor: zone.semanticAnchor,
         kind: "evidence",
         evidenceId: ev.id,
         discovered,
@@ -97,6 +103,7 @@ export function getCrimeSceneHotspots(truth: CaseTruth, session: GameSession): C
         label: zone.label,
         x: zone.x,
         y: zone.y,
+        semanticAnchor: zone.semanticAnchor,
         kind: "decoy",
         evidenceId: null,
         discovered: inspected,
