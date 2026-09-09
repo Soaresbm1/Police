@@ -85,3 +85,14 @@ export async function resolveReadyPortraitUrls(deps: PortraitLookupDeps, userId:
 export const getReadyPortraitUrls = cache((userId: string, truth: CaseTruth): Promise<Map<PersonId, string>> =>
   resolveReadyPortraitUrls(assetStore, userId, truth),
 );
+
+/**
+ * Generated Art V2A helper: does at least one of the given person ids lack
+ * a resolved portrait URL in `urls`? Pages pass this as the `pending` prop
+ * to `ArtRefreshWatcher` so a page showing procedural fallback right after
+ * case creation can pick up the real portrait once background generation
+ * finishes, without the player needing to navigate away and back.
+ */
+export function hasMissingPortraits(personIds: PersonId[], urls: Map<PersonId, string>): boolean {
+  return personIds.some((id) => !urls.has(id));
+}

@@ -45,26 +45,44 @@ export async function startNewCase(formData: FormData) {
   // own try/catch so a failure in one never skips or crashes the other.
   // `userId`/`truth` are read above and captured by closure, per
   // `after()`'s own request-data rule.
+  //
+  // Generated Art V2A: portrait and crime-scene generation now run
+  // concurrently (via Promise.all) rather than one fully finishing before
+  // the other starts — they generate different asset kinds, and neither
+  // waits on the other's result, so there's nothing to serialize. The
+  // combined peak burst is still small and bounded: up to
+  // PORTRAIT_GENERATION_CONCURRENCY portrait calls plus this one scene
+  // call, never every candidate at once. Once both finish (successfully
+  // or not — each already contains its own failure), `refreshInvestigation()`
+  // invalidates the investigation route's cache so a player already
+  // sitting on a page picks up the newly-ready art on the client-side
+  // nudge in `ArtRefreshWatcher` (see the investigation pages), without
+  // needing to navigate away and back.
   if (isAutoPortraitGenerationEnabled() || isAutoCrimeSceneGenerationEnabled()) {
     after(async () => {
-      if (isAutoPortraitGenerationEnabled()) {
-        try {
-          await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
-        } catch (err) {
-          console.error(
-            `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-      if (isAutoCrimeSceneGenerationEnabled()) {
-        try {
-          await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
-        } catch (err) {
-          console.error(
-            `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+      await Promise.all([
+        (async () => {
+          if (!isAutoPortraitGenerationEnabled()) return;
+          try {
+            await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+          } catch (err) {
+            console.error(
+              `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        })(),
+        (async () => {
+          if (!isAutoCrimeSceneGenerationEnabled()) return;
+          try {
+            await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+          } catch (err) {
+            console.error(
+              `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        })(),
+      ]);
+      refreshInvestigation();
     });
   }
 

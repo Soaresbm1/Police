@@ -6,7 +6,9 @@ import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/g
 import { formatDuration } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
-import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
+import { importantPeopleForPortraits } from "@/lib/art/generation/pilot-scope";
 
 export default async function RapportPage() {
   const game = await getCurrentGame();
@@ -58,5 +60,11 @@ export default async function RapportPage() {
         : null,
   };
 
-  return <TruthRevealSequence data={data} />;
+  const pending = hasMissingPortraits(importantPeopleForPortraits(truth).map((p) => p.id), portraitUrls);
+  return (
+    <>
+      <ArtRefreshWatcher pending={pending} />
+      <TruthRevealSequence data={data} />
+    </>
+  );
 }

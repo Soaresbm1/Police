@@ -5,7 +5,9 @@ import { getStore } from "@/lib/game-session/persistence";
 import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
-import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
+import { importantPeopleForPortraits } from "@/lib/art/generation/pilot-scope";
 
 export default async function DossierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,5 +63,11 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
         : null,
   };
 
-  return <TruthRevealSequence data={data} />;
+  const pending = hasMissingPortraits(importantPeopleForPortraits(truth).map((p) => p.id), portraitUrls);
+  return (
+    <>
+      <ArtRefreshWatcher pending={pending} />
+      <TruthRevealSequence data={data} />
+    </>
+  );
 }

@@ -93,4 +93,20 @@ describe("resolveReadySceneUrl", () => {
     };
     await expect(resolveReadySceneUrl(deps, "user-1", makeDescriptor())).resolves.toBeNull();
   });
+
+  it("[G] repeated calls (simulating router.refresh()'s ArtRefreshWatcher nudge) only ever call the two read-only deps — never a generation entry point", async () => {
+    const findSpy = vi.fn().mockResolvedValue(null);
+    const signSpy = vi.fn();
+    // SceneLookupDeps has exactly two fields — there is structurally no
+    // generation-capable method available to call even if this function's
+    // implementation changed to try.
+    const deps: SceneLookupDeps = { findAssetRecord: findSpy, getSignedAssetUrl: signSpy };
+
+    for (let i = 0; i < 3; i++) {
+      await resolveReadySceneUrl(deps, "user-1", makeDescriptor());
+    }
+
+    expect(findSpy).toHaveBeenCalledTimes(3);
+    expect(Object.keys(deps)).toEqual(["findAssetRecord", "getSignedAssetUrl"]);
+  });
 });

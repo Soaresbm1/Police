@@ -6,7 +6,8 @@ import { InterrogationTopicButton } from "@/components/investigation/Interrogati
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { InterrogationAmbienceDuck } from "@/components/investigation/InterrogationAmbienceDuck";
-import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 import { getWitnessCallbackContent } from "@/lib/game-session/witness-callbacks";
 import { WitnessCallbackViewTracker } from "@/components/investigation/WitnessCallbackViewTracker";
 import { getConfrontationOptions, getPerformedConfrontations } from "@/lib/game-session/confrontations";
@@ -35,6 +36,7 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
+      <ArtRefreshWatcher pending={hasMissingPortraits([person.id], portraitUrls)} />
       <InterrogationAmbienceDuck />
       <div className="panel panel-bracketed flex items-center gap-4 border-l-4 border-l-danger p-5">
         <CharacterPortrait

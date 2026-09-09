@@ -181,4 +181,22 @@ describe("resolveReadyPortraitUrls", () => {
     const bystanderHash = hashDescriptor(buildCharacterVisualDescriptor(bystander));
     expect(requestedHashes).not.toContain(bystanderHash);
   });
+
+  it("[G] repeated calls (simulating router.refresh()'s ArtRefreshWatcher nudge) only ever call the two read-only deps — never a generation entry point", async () => {
+    const victim = makePerson({ id: "victim", avatarSeed: "seed-victim" });
+    const truth = makeTruth([victim]);
+    const findSpy = vi.fn().mockResolvedValue([]);
+    const signSpy = vi.fn().mockResolvedValue(new Map());
+    // PortraitLookupDeps has exactly two fields — there is structurally no
+    // generation-capable method available to call even if this function's
+    // implementation changed to try.
+    const deps: PortraitLookupDeps = { findReadyAssetsByHashes: findSpy, getSignedAssetUrls: signSpy };
+
+    for (let i = 0; i < 3; i++) {
+      await resolveReadyPortraitUrls(deps, "user-1", truth);
+    }
+
+    expect(findSpy).toHaveBeenCalledTimes(3);
+    expect(Object.keys(deps)).toEqual(["findReadyAssetsByHashes", "getSignedAssetUrls"]);
+  });
 });

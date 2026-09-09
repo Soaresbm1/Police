@@ -7,7 +7,8 @@ import { CharacterPortrait } from "@/components/investigation/CharacterPortrait"
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 import { OnboardingHint } from "@/components/investigation/OnboardingHint";
 import { DocumentSheet } from "@/components/investigation/DocumentSheet";
-import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 
 export default async function AffairePage() {
   const game = await getCurrentGame();
@@ -22,6 +23,7 @@ export default async function AffairePage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      <ArtRefreshWatcher pending={hasMissingPortraits([victim.id], portraitUrls)} />
       <CaseIntroOverlay
         seed={session.seed}
         caseNumber={formatCaseNumber(session.seed)}

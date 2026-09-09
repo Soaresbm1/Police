@@ -6,6 +6,7 @@ import { formatGameTime } from "@/lib/game-engine/types/time";
 import { buildCrimeSceneVisualDescriptor } from "@/lib/art/visual-manifest";
 import { crimeSceneSvgDataUri } from "@/lib/art/scene-renderer";
 import { getReadyCrimeSceneUrl } from "@/lib/art/generation/scene-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
 
 export default async function ScenePage() {
   const game = await getCurrentGame();
@@ -32,21 +33,24 @@ export default async function ScenePage() {
     });
 
   return (
-    <CrimeSceneScreen
-      hotspots={hotspots}
-      evidenceDetails={evidenceDetails}
-      locationName={location?.name ?? "Scène de crime"}
-      locationAddress={location?.address ?? ""}
-      victimName={`${victim.firstName} ${victim.lastName}`}
-      sceneBackground={sceneBackground}
-      generatedSceneBackground={generatedSceneBackground}
-      autopsy={{
-        estimatedDeathWindowStart: formatGameTime(truth.autopsy.estimatedDeathWindowStart),
-        estimatedDeathWindowEnd: formatGameTime(truth.autopsy.estimatedDeathWindowEnd),
-        causeOfDeath: truth.autopsy.causeOfDeath,
-        bodyPosition: truth.autopsy.bodyPosition,
-        wounds: truth.autopsy.wounds,
-      }}
-    />
+    <>
+      <ArtRefreshWatcher pending={Boolean(sceneDescriptor) && !generatedSceneBackground} />
+      <CrimeSceneScreen
+        hotspots={hotspots}
+        evidenceDetails={evidenceDetails}
+        locationName={location?.name ?? "Scène de crime"}
+        locationAddress={location?.address ?? ""}
+        victimName={`${victim.firstName} ${victim.lastName}`}
+        sceneBackground={sceneBackground}
+        generatedSceneBackground={generatedSceneBackground}
+        autopsy={{
+          estimatedDeathWindowStart: formatGameTime(truth.autopsy.estimatedDeathWindowStart),
+          estimatedDeathWindowEnd: formatGameTime(truth.autopsy.estimatedDeathWindowEnd),
+          causeOfDeath: truth.autopsy.causeOfDeath,
+          bodyPosition: truth.autopsy.bodyPosition,
+          wounds: truth.autopsy.wounds,
+        }}
+      />
+    </>
   );
 }

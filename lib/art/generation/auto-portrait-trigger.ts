@@ -8,12 +8,22 @@ import { buildCharacterPortraitPrompt, CHARACTER_PROMPT_VERSION } from "./charac
 import { getOrGenerateAsset, type AssetStoreLike } from "./pipeline";
 import { ACTIVE_PROVIDER_NAME, CHARACTER_PORTRAIT_GENERATION_VERSION } from "./asset-kinds";
 import { importantPeopleForPortraits } from "./pilot-scope";
+import { mapWithConcurrency } from "./concurrency";
+import { MAX_ASSETS_PER_CASE } from "./limits";
 
 /** Pilot-scoped hard cap — deliberately tighter than the generic
  * `MAX_ASSETS_PER_CASE` (10) in `limits.ts`, which also covers manual
- * dev-inspector generations and the not-yet-built crime-scene kind. Only
- * this automatic trigger is bound by this number. */
+ * dev-inspector generations and the crime-scene kind. Only this automatic
+ * trigger is bound by this number. */
 export const MAX_AUTO_PORTRAITS_PER_CASE = 6;
+
+/** Living Investigation System — Generated Art V2A. How many portrait
+ * generations may be in flight at once for one case's automatic batch.
+ * Bounded, never `Promise.all` over every candidate at once — 2-3 is the
+ * approved conservative range; 3 divides `MAX_AUTO_PORTRAITS_PER_CASE`
+ * evenly (two batches of 3) and keeps the combined burst (this + the one
+ * concurrent crime-scene call, see `actions.ts`) at a small, bounded 4. */
+export const PORTRAIT_GENERATION_CONCURRENCY = 3;
 
 /** Server-only gate — never `NEXT_PUBLIC_`, checked only from Server
  * Actions/Components. Defaults to disabled (see `.env.example`); automatic
@@ -86,6 +96,29 @@ export interface AutoPortraitDiagnostics {
  * `activeGeneratedAssetProvider`; tests pass a fake store/provider, the
  * same DI pattern `pipeline.test.ts` already uses, no Supabase/Cloudflare
  * mocking required.
+ *
+ * Runs candidates with bounded concurrency (`PORTRAIT_GENERATION_CONCURRENCY`
+ * at a time, via `mapWithConcurrency` — never an uncontrolled `Promise.all`
+ * over every candidate). This introduces a real race that sequential
+ * execution never had: `getOrGenerateAsset` checks
+ * `store.countAssetsForCase` itself before creating a new row, but several
+ * concurrent candidates can each read the same stale count and all decide
+ * there's room, collectively overshooting `MAX_ASSETS_PER_CASE`. Fixed by
+ * reading the count exactly ONCE up front and tracking a plain in-process
+ * `remainingBudget` counter shared (by closure) across the concurrent
+ * workers below — every check-and-decrement of it happens in a single
+ * synchronous statement with no `await` in between, which is what makes it
+ * safe without a lock: JS never interleaves two synchronous statements
+ * within one event-loop turn, even across "concurrent" async calls. This
+ * only bounds what THIS batch schedules; `getOrGenerateAsset`'s own
+ * DB-level check is left completely unchanged and still guards the case
+ * this batch can't see — a genuinely different process (e.g. someone
+ * using the `/case-lab/art` dev inspector on this same case while this
+ * batch is still running) writing to the same case concurrently. That
+ * remains a narrow, low-severity residual risk (a soft cost cap, not a
+ * security invariant) — see the V2A report for the full analysis of why a
+ * fresh case's own seed can never collide with another `startNewCase`
+ * invocation.
  */
 export async function runAutoPortraitGeneration(
   deps: { store: AssetStoreLike; provider: GeneratedAssetProvider },
@@ -102,7 +135,18 @@ export async function runAutoPortraitGeneration(
     skippedDueToCap: Math.max(0, allImportant.length - candidates.length),
   };
 
-  for (const person of candidates) {
+  let remainingBudget: number;
+  try {
+    const currentCount = await deps.store.countAssetsForCase(userId, truth.seed);
+    remainingBudget = Math.max(0, MAX_ASSETS_PER_CASE - currentCount);
+  } catch {
+    // Pre-check-only read failed — fall back to letting each
+    // getOrGenerateAsset call make its own (still-authoritative) decision,
+    // exactly as if this budget guard didn't exist.
+    remainingBudget = candidates.length;
+  }
+
+  await mapWithConcurrency(candidates, PORTRAIT_GENERATION_CONCURRENCY, async (person) => {
     const descriptor = buildCharacterVisualDescriptor(person);
     const descriptorHash = hashDescriptor(descriptor);
 
@@ -115,8 +159,17 @@ export async function runAutoPortraitGeneration(
     }
     if (existing?.status === "ready") {
       diagnostics.cacheHits++;
-      continue;
+      return;
     }
+
+    // Synchronous check-and-decrement, no `await` between them — see the
+    // function doc comment above for why this is race-safe under
+    // concurrency without needing a lock.
+    if (remainingBudget <= 0) {
+      diagnostics.failed++; // matches getOrGenerateAsset's own cap-reached bucketing below
+      return;
+    }
+    remainingBudget--;
 
     diagnostics.attempted++;
     const result = await getOrGenerateAsset(deps, {
@@ -132,7 +185,7 @@ export async function runAutoPortraitGeneration(
     });
     if (result.status === "ready") diagnostics.ready++;
     else diagnostics.failed++;
-  }
+  });
 
   console.log(
     `[CASELINE] [auto-portrait] case ${truth.seed}: ` +

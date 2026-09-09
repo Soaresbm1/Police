@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { MAX_AUTO_PORTRAITS_PER_CASE, isAutoPortraitGenerationEnabled, runAutoPortraitGeneration, selectAutoPortraitCandidates } from "../auto-portrait-trigger";
+import {
+  MAX_AUTO_PORTRAITS_PER_CASE,
+  PORTRAIT_GENERATION_CONCURRENCY,
+  isAutoPortraitGenerationEnabled,
+  runAutoPortraitGeneration,
+  selectAutoPortraitCandidates,
+} from "../auto-portrait-trigger";
 import { MockGeneratedAssetProvider, AlwaysMissingGeneratedAssetProvider } from "../mock-provider";
+import { MAX_ASSETS_PER_CASE } from "../limits";
 import type { AssetStoreLike } from "../pipeline";
+import type { GeneratedAssetProvider, GeneratedAssetResult } from "../../generated-asset-provider";
 import type { GeneratedAssetKind, GeneratedAssetRecord } from "../types";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { Person } from "@/lib/game-engine/types/person";
@@ -200,7 +208,7 @@ describe("selectAutoPortraitCandidates", () => {
 });
 
 describe("runAutoPortraitGeneration", () => {
-  it("generates for every selected candidate, sequentially, and reports diagnostics", async () => {
+  it("[B] generates for every selected candidate under bounded concurrency and reports correct diagnostics", async () => {
     const { truth } = makeCandidatePool();
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
@@ -245,5 +253,115 @@ describe("runAutoPortraitGeneration", () => {
     process.env.AUTO_GENERATED_PORTRAITS_ENABLED = "true";
     expect(isAutoPortraitGenerationEnabled()).toBe(true);
     delete process.env.AUTO_GENERATED_PORTRAITS_ENABLED;
+  });
+});
+
+/** A provider whose `generate()` only resolves once the test calls
+ * `releaseOne()`/`releaseAll()` — used to force several candidates into
+ * flight at the same time so concurrency bounds can be observed directly,
+ * rather than inferred from timing. */
+function makeGatedProvider() {
+  let active = 0;
+  let maxActive = 0;
+  const pendingReleases: (() => void)[] = [];
+  const provider: GeneratedAssetProvider = {
+    async generate(): Promise<GeneratedAssetResult | null> {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise<void>((resolve) => pendingReleases.push(resolve));
+      active--;
+      return { bytes: new Uint8Array([1, 2, 3]), contentType: "image/jpeg", width: 1, height: 1, model: "gated-fake" };
+    },
+  };
+  return {
+    provider,
+    get active() {
+      return active;
+    },
+    get maxActive() {
+      return maxActive;
+    },
+    releaseOne() {
+      pendingReleases.shift()?.();
+    },
+    releaseAll() {
+      while (pendingReleases.length > 0) pendingReleases.shift()!();
+    },
+  };
+}
+
+/** A provider that fails only for a chosen subset of seeds — used to prove
+ * one candidate's failure never stops or skips its siblings. */
+function makePartiallyFailingProvider(failSeeds: Set<string>) {
+  const calls: string[] = [];
+  const provider: GeneratedAssetProvider = {
+    async generate(_kind, _prompt, seed): Promise<GeneratedAssetResult | null> {
+      calls.push(seed);
+      if (failSeeds.has(seed)) return null;
+      return { bytes: new Uint8Array([1]), contentType: "image/jpeg", width: 1, height: 1, model: "fake" };
+    },
+  };
+  return { provider, calls };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)", () => {
+  it("[A] never runs more than PORTRAIT_GENERATION_CONCURRENCY generations at once", async () => {
+    const { truth } = makeCandidatePool(); // 6 eligible candidates after the selection cap
+    const store = new FakeAssetStore();
+    const gated = makeGatedProvider();
+
+    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth);
+
+    for (let i = 0; i < MAX_AUTO_PORTRAITS_PER_CASE; i++) {
+      await flushMicrotasks();
+      expect(gated.active).toBeLessThanOrEqual(PORTRAIT_GENERATION_CONCURRENCY);
+      gated.releaseOne();
+    }
+    await donePromise;
+
+    expect(gated.maxActive).toBe(PORTRAIT_GENERATION_CONCURRENCY); // actually saturates the bound, not just "never exceeds" trivially
+  });
+
+  it("[C] one candidate's provider failure never cancels or skips the others", async () => {
+    const { truth, suspects } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const { provider, calls } = makePartiallyFailingProvider(new Set([suspects[0].avatarSeed]));
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+
+    expect(calls).toHaveLength(MAX_AUTO_PORTRAITS_PER_CASE); // every candidate was still attempted
+    expect(diagnostics.attempted).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(diagnostics.ready).toBe(MAX_AUTO_PORTRAITS_PER_CASE - 1);
+    expect(diagnostics.failed).toBe(1);
+  });
+
+  it("[D] a concurrent batch can never push a case's total asset count over MAX_ASSETS_PER_CASE", async () => {
+    const { truth } = makeCandidatePool(); // 6 eligible candidates
+    const store = new FakeAssetStore();
+    // Pre-seed unrelated existing rows for this exact case so only 2 of
+    // MAX_ASSETS_PER_CASE (10) slots remain — narrow enough that the old
+    // per-item-only check (no shared batch budget) could let several
+    // concurrent workers all read the same stale "8 used" count and all
+    // proceed.
+    for (let i = 0; i < MAX_ASSETS_PER_CASE - 2; i++) {
+      await store.createQueuedRecord("user-1", truth.seed, "character_portrait", `preexisting-${i}`, 3, "cloudflare");
+    }
+    const gated = makeGatedProvider();
+
+    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth);
+    // Let every candidate's cache-check + budget-check settle (they all
+    // resolve near-instantly against the fake store), then release every
+    // gated generation at once — the worst-case simultaneous-completion
+    // scenario the budget guard has to survive.
+    await flushMicrotasks();
+    gated.releaseAll();
+    const diagnostics = await donePromise;
+
+    expect(store.rows.length).toBeLessThanOrEqual(MAX_ASSETS_PER_CASE);
+    expect(diagnostics.attempted).toBeLessThanOrEqual(2);
   });
 });

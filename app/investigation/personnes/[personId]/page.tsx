@@ -11,7 +11,8 @@ import {
 import { EvidenceCard } from "@/components/investigation/EvidenceCard";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
-import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 
 function AppLink({ href, label }: { href: string; label: string }) {
   return (
@@ -40,6 +41,7 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      <ArtRefreshWatcher pending={hasMissingPortraits([person.id], portraitUrls)} />
       <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="flex items-center gap-4">
           <CharacterPortrait
