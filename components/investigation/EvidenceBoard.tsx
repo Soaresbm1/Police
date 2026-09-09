@@ -25,6 +25,7 @@ import {
 } from "@/lib/game-session/actions";
 import type { BoardEdge, BoardNode, BoardNodeKind } from "@/lib/game-session/types";
 import type { BoardPaletteItem } from "@/lib/game-session/player-view";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 const KIND_COLOR: Record<BoardNodeKind, { background: string; border: string }> = {
   person: { background: "#1a2620", border: "#6c9c72" },
@@ -113,6 +114,12 @@ export function EvidenceBoard({
   const [placedRefIds, setPlacedRefIds] = useState<Set<string>>(
     () => new Set(initialNodes.map((n) => n.refId).filter(Boolean)),
   );
+  // On mobile there isn't room for a permanent 256px side panel next to
+  // the canvas — it becomes a toggled sheet instead, closed by default so
+  // the board itself gets the full screen. Irrelevant at `lg+`, where the
+  // panel is always visible regardless of this state (see the JSX below).
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  useBodyScrollLock(mobilePanelOpen);
 
   const availablePalette = useMemo(() => palette.filter((item) => !placedRefIds.has(item.refId)), [palette, placedRefIds]);
 
@@ -190,46 +197,88 @@ export function EvidenceBoard({
     setNoteText("");
   };
 
-  return (
-    <div className="flex h-[calc(100vh-140px)] gap-3">
-      <div className="panel w-64 shrink-0 overflow-y-auto p-3">
-        <p className="field-label mb-2">Ajouter au tableau</p>
-        <div className="flex flex-col gap-1">
-          {availablePalette.map((item) => (
-            <button
-              key={`${item.kind}-${item.refId}`}
-              onClick={() => addFromPalette(item)}
-              className="border border-border-strong px-2 py-1.5 text-left text-xs text-foreground hover:border-accent"
-              title={item.detail}
-            >
-              <span className="mr-1 border border-border-strong bg-surface-raised px-1 text-[10px] uppercase text-muted">
-                {KIND_LABEL[item.kind]}
-              </span>
-              {item.label}
-            </button>
-          ))}
-          {availablePalette.length === 0 && <p className="text-xs text-muted">Rien de plus à ajouter pour l&apos;instant.</p>}
-        </div>
-
-        <p className="field-label mb-2 mt-4">Ajouter une note</p>
-        <textarea
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          rows={3}
-          placeholder="Votre hypothèse..."
-          className="w-full border border-border-strong bg-surface-sunken p-2 text-xs text-foreground"
-        />
-        <button onClick={addNote} className="btn btn-primary mt-1 w-full">
-          Ajouter la note
-        </button>
-
-        <p className="mt-4 text-xs text-muted">
-          Glissez pour déplacer, tirez depuis le bord d&apos;un élément vers un autre pour les relier, sélectionnez et
-          appuyez sur Suppr pour retirer.
-        </p>
+  const panelContent = (
+    <>
+      <p className="field-label mb-2">Ajouter au tableau</p>
+      <div className="flex flex-col gap-1">
+        {availablePalette.map((item) => (
+          <button
+            key={`${item.kind}-${item.refId}`}
+            onClick={() => {
+              addFromPalette(item);
+            }}
+            className="min-h-11 border border-border-strong px-2 py-1.5 text-left text-xs text-foreground hover:border-accent"
+            title={item.detail}
+          >
+            <span className="mr-1 border border-border-strong bg-surface-raised px-1 text-[10px] uppercase text-muted">
+              {KIND_LABEL[item.kind]}
+            </span>
+            {item.label}
+          </button>
+        ))}
+        {availablePalette.length === 0 && <p className="text-xs text-muted">Rien de plus à ajouter pour l&apos;instant.</p>}
       </div>
 
-      <div className="board-surface caseline-board flex-1 border border-border">
+      <p className="field-label mb-2 mt-4">Ajouter une note</p>
+      <textarea
+        value={noteText}
+        onChange={(e) => setNoteText(e.target.value)}
+        rows={3}
+        placeholder="Votre hypothèse..."
+        className="w-full border border-border-strong bg-surface-sunken p-2 text-base text-foreground sm:text-xs"
+      />
+      <button onClick={addNote} className="btn btn-primary mt-1 w-full">
+        Ajouter la note
+      </button>
+
+      <p className="mt-4 text-xs text-muted">
+        Glissez pour déplacer, tirez depuis le bord d&apos;un élément vers un autre pour les relier, sélectionnez et
+        appuyez sur Suppr pour retirer.
+      </p>
+    </>
+  );
+
+  return (
+    <div className="board-shell-height flex flex-col gap-2 lg:flex-row lg:gap-3">
+      {/* Desktop: permanent left panel, unchanged from before. */}
+      <div className="panel hidden w-64 shrink-0 overflow-y-auto p-3 lg:block">{panelContent}</div>
+
+      {/* Mobile/tablet: a small toolbar instead of a permanent 256px
+         panel — there's no room for both it and a usable canvas below
+         `lg`. The panel itself becomes a bottom sheet, opened on demand,
+         so the board defaults to the full width/height of the screen. */}
+      <div className="flex items-center gap-2 lg:hidden">
+        <button type="button" onClick={() => setMobilePanelOpen(true)} className="btn flex-1">
+          Ajouter au tableau {availablePalette.length > 0 && `(${availablePalette.length})`}
+        </button>
+      </div>
+
+      {mobilePanelOpen && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-background-deep/80 lg:hidden" onClick={() => setMobilePanelOpen(false)}>
+          <div
+            className="pb-sheet-safe-sm panel panel-bracketed max-h-[75dvh] overflow-y-auto p-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <p className="field-label">Tableau des preuves</p>
+              <button type="button" onClick={() => setMobilePanelOpen(false)} className="btn btn-ghost !px-2 !py-1 !text-xs" aria-label="Fermer">
+                ✕
+              </button>
+            </div>
+            {panelContent}
+          </div>
+        </div>
+      )}
+
+      {/* `flex-1` only at `lg` — at that breakpoint the parent is a ROW,
+         so flex-1 controls WIDTH (correct, matches the sidebar's own
+         layout) via `align-items: stretch` for height. Below `lg` the
+         parent is a COLUMN, where flex-1's flex-basis:0% would instead
+         govern HEIGHT and silently override `board-canvas-height`
+         entirely (confirmed empirically — even a `!important` inline
+         height couldn't beat it) since the parent has no fixed height
+         of its own to flex-grow into. */}
+      <div className="board-canvas-height board-surface caseline-board min-h-[320px] touch-none border border-border lg:flex-1">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -244,7 +293,7 @@ export function EvidenceBoard({
           fitView
         >
           <Controls />
-          <MiniMap pannable zoomable />
+          <MiniMap pannable zoomable className="!hidden sm:!block" />
         </ReactFlow>
       </div>
     </div>

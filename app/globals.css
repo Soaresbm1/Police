@@ -61,6 +61,90 @@ html {
   color-scheme: dark;
 }
 
+/* ---------- Mobile viewport / safe-area foundations ---------- */
+
+:root {
+  /* iOS/Android safe-area insets, zero on devices without a notch/home
+     indicator — env() itself falls back to 0px, this just gives every
+     consumer a single named value instead of repeating env(...) calls. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* Height of the fixed mobile bottom nav (see MobileNav.tsx) — a single
+     source of truth so both the nav itself and any screen that needs to
+     reserve space above it (full-height board/crime-scene/map screens)
+     agree on the same number. */
+  --mobile-nav-height: 60px;
+}
+
+/* `100vh` on a mobile browser measures the LARGEST possible viewport
+   (address bar hidden), so a `h-screen` shell is routinely taller than
+   what's actually visible and gets clipped by the browser's own chrome.
+   `100dvh` tracks the viewport that's actually visible at any moment.
+   Applied narrowly (not a blanket `html,body{height:100dvh}`) so it
+   only affects elements that opt in via `.h-dvh-screen`/`.min-h-dvh-screen`
+   below — used in place of Tailwind's `h-screen`/`min-h-screen` on the
+   handful of full-viewport shells (game shell, login, main menu). */
+.h-dvh-screen {
+  height: 100vh;
+  height: 100dvh;
+}
+.min-h-dvh-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Space-bearing `calc()` expressions as real classes rather than Tailwind
+   arbitrary values — Tailwind v4's arbitrary-value parser does not
+   reliably generate a rule for `h-[calc(100dvh_-_260px)]`-style classes
+   (confirmed empirically: no matching CSSOM rule is ever produced, the
+   element silently falls back to whatever `min-h-*`/auto height is also
+   present). Plain authored CSS has no such ambiguity. Breakpoints match
+   Tailwind's own `sm`/`lg` (640px/1024px) so these compose predictably
+   with the Tailwind utilities already next to them in a className. */
+.pb-mobile-nav-safe {
+  padding-bottom: calc(var(--mobile-nav-height) + var(--safe-bottom));
+}
+@media (min-width: 1024px) {
+  .pb-mobile-nav-safe {
+    padding-bottom: 0;
+  }
+}
+
+.board-shell-height {
+  height: auto;
+}
+@media (min-width: 1024px) {
+  .board-shell-height {
+    height: calc(100dvh - 140px);
+  }
+}
+
+.board-canvas-height {
+  height: calc(100dvh - 260px);
+}
+@media (min-width: 640px) {
+  .board-canvas-height {
+    height: calc(100dvh - 230px);
+  }
+}
+@media (min-width: 1024px) {
+  .board-canvas-height {
+    height: auto;
+  }
+}
+
+/* Same Tailwind-arbitrary-value limitation as above, for `max()` rather
+   than `calc()` — a slide-up sheet's bottom padding needs to be at least
+   its own base padding OR the safe-area inset, whichever is larger. */
+.pb-sheet-safe {
+  padding-bottom: max(1rem, var(--safe-bottom));
+}
+.pb-sheet-safe-sm {
+  padding-bottom: max(0.75rem, var(--safe-bottom));
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -213,6 +297,14 @@ body {
 .btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+/* A touch target comfortably near the ~44px guideline without inflating
+   every desktop button — extra invisible hit area via padding on top of
+   whatever visual padding the size utility already sets, mobile only. */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 40px;
+  }
 }
 .btn-primary {
   background: var(--accent);
@@ -407,4 +499,23 @@ body {
 .caseline-board .react-flow__node.selected {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
+}
+
+/* Touch devices: bigger handles and a much larger invisible grab area —
+   the mouse-tuned 14px handle + 8px pad from above is workable with a
+   precise cursor but too small for a fingertip. Node dragging itself
+   needs no change (React Flow's pane already treats a drag-on-node the
+   same via pointer events on touch as on mouse). */
+@media (pointer: coarse) {
+  .caseline-board .react-flow__handle {
+    width: 20px;
+    height: 20px;
+  }
+  .caseline-board .react-flow__handle::before {
+    inset: -14px;
+  }
+  .caseline-board .react-flow__controls-button {
+    width: 32px;
+    height: 32px;
+  }
 }

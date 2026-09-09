@@ -36,11 +36,11 @@ export function MainMenu({
   const requiresLogin = supabaseConfigured && !authenticated;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background-deep">
+    <div className="min-h-dvh-screen relative flex items-center justify-center overflow-x-hidden overflow-y-auto bg-background-deep">
       <div className="menu-sweep pointer-events-none absolute inset-0" />
       <div className="crt-vignette" />
 
-      <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-10 px-6">
+      <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-6 px-4 py-8 sm:gap-10 sm:px-6">
         <div className="flex flex-col items-center gap-2 text-center">
           <span className="flex h-14 w-14 items-center justify-center border-2 border-accent text-2xl font-bold text-accent-strong">
             C

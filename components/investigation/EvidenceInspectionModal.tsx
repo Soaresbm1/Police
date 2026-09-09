@@ -43,9 +43,9 @@ export function EvidenceInspectionTrigger({ evidence, label = "Examiner" }: { ev
         {label}
       </button>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background-deep/92 p-6" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background-deep/92 p-4 sm:p-6" onClick={() => setOpen(false)}>
           <div
-            className="fade-up panel panel-bracketed flex max-h-full w-full max-w-3xl flex-col gap-4 overflow-y-auto p-6"
+            className="fade-up panel panel-bracketed flex max-h-[90dvh] w-full max-w-3xl flex-col gap-4 overflow-y-auto p-4 sm:p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">

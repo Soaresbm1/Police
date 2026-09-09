@@ -63,11 +63,12 @@ export function InvestigationMap({ locations }: { locations: MapLocationView[] }
                   type="button"
                   onClick={() => setSelectedId(loc.id)}
                   style={{ left: `${loc.x}%`, top: `${loc.y}%` }}
-                  className={`group absolute -translate-x-1/2 -translate-y-1/2 transition-opacity ${isDimmed(loc) ? "opacity-25" : "opacity-100"}`}
+                  className={`group absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity ${isDimmed(loc) ? "opacity-25" : "opacity-100"}`}
                   title={loc.name}
+                  aria-label={loc.name}
                 >
                   <span
-                    className={`block h-3.5 w-3.5 border-2 bg-surface-sunken transition-transform group-hover:scale-125 ${c.color} ${
+                    className={`block h-3.5 w-3.5 border-2 bg-surface-sunken transition-transform group-hover:scale-125 group-active:scale-125 ${c.color} ${
                       isSelected ? "scale-150" : ""
                     } ${loc.category === "crime_scene" ? "rotate-45" : ""}`}
                   />

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Oswald, Geist_Mono, Courier_Prime } from "next/font/google";
 import "./globals.css";
 import { getCurrentIdentity } from "@/lib/game-session/identity";
@@ -24,6 +24,14 @@ const documentFont = Courier_Prime({
 export const metadata: Metadata = {
   title: "CASELINE",
   description: "Système d'enquête policière",
+};
+
+// `viewportFit: "cover"` is required for env(safe-area-inset-*) to report
+// real values on iPhone (notch/Dynamic Island/home indicator) instead of 0.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

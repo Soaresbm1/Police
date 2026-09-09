@@ -11,7 +11,7 @@ export default async function LoginPage() {
   if (authenticated) redirect("/");
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background-deep px-6">
+    <div className="min-h-dvh-screen relative flex items-center justify-center overflow-x-hidden overflow-y-auto bg-background-deep px-4 py-8 sm:px-6">
       <div className="menu-sweep pointer-events-none absolute inset-0" />
       <div className="crt-vignette" />
       <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-8">

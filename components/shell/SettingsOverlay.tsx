@@ -83,8 +83,8 @@ export function SettingsOverlay({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background-deep/80" onClick={() => setOpen(false)}>
-      <div className="panel panel-bracketed w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background-deep/80 p-4" onClick={() => setOpen(false)}>
+      <div className="panel panel-bracketed max-h-[85dvh] w-full max-w-sm overflow-y-auto p-5 sm:p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold uppercase tracking-wide text-foreground">Paramètres</h2>
           <button type="button" onClick={() => setOpen(false)} className="font-data text-xs text-muted hover:text-foreground">

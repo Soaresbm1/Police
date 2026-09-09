@@ -54,7 +54,7 @@ export default async function ChronologiePage() {
               <div className="flex items-center gap-2">
                 <PlayerTimelineStatusSelect entryId={entry.id} status={entry.status} />
                 <form action={deletePlayerTimelineEntryAction.bind(null, entry.id)}>
-                  <button type="submit" className="text-xs text-muted hover:text-danger">
+                  <button type="submit" className="min-h-11 px-2 text-xs text-muted hover:text-danger">
                     Supprimer
                   </button>
                 </form>
@@ -71,7 +71,7 @@ export default async function ChronologiePage() {
               name="description"
               required
               placeholder="Ex : Marc serait arrivé chez la victime vers 21h30"
-              className="min-w-[240px] flex-1 border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground"
+              className="min-w-[240px] flex-1 border border-border-strong bg-surface-sunken px-3 py-2 text-base text-foreground sm:text-sm"
             />
             <select name="status" defaultValue="hypothesis" className="border border-border-strong bg-surface-sunken px-2 py-2 text-sm">
               {Object.entries(STATUS_LABEL).map(([value, label]) => (

@@ -2,45 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ACCUSATION_LINK, NAV_SECTIONS, type NavLink } from "./navigation";
 
-interface RailLink {
-  href: string;
-  tag: string;
-  label: string;
-}
-
-interface RailSection {
-  caption: string;
-  links: RailLink[];
-}
-
-const SECTIONS: RailSection[] = [
-  {
-    caption: "Enquête",
-    links: [
-      { href: "/investigation/affaire", tag: "DOS", label: "Dossier" },
-      { href: "/investigation/scene", tag: "SCN", label: "Scène" },
-      { href: "/investigation/suspects", tag: "SUS", label: "Suspects" },
-      { href: "/investigation/temoins", tag: "TEM", label: "Témoins" },
-      { href: "/investigation/preuves", tag: "PRV", label: "Preuves" },
-      { href: "/investigation/laboratoire", tag: "LAB", label: "Laboratoire" },
-      { href: "/investigation/activite", tag: "ACT", label: "Activité" },
-    ],
-  },
-  {
-    caption: "Outils",
-    links: [
-      { href: "/investigation/applications", tag: "APP", label: "Applications" },
-      { href: "/investigation/carte", tag: "CAR", label: "Carte" },
-      { href: "/investigation/tableau", tag: "TAB", label: "Tableau" },
-      { href: "/investigation/chronologie", tag: "CHR", label: "Chronologie" },
-      { href: "/investigation/relations", tag: "REL", label: "Relations" },
-      { href: "/investigation/notes", tag: "NOT", label: "Notes" },
-    ],
-  },
-];
-
-function RailItem({ link, active }: { link: RailLink; active: boolean }) {
+function RailItem({ link, active }: { link: NavLink; active: boolean }) {
   return (
     <Link
       href={link.href}
@@ -69,7 +33,7 @@ export function AppRail() {
   return (
     <nav className="flex h-full flex-col justify-between overflow-y-auto bg-surface">
       <div className="flex flex-col gap-4 py-4">
-        {SECTIONS.map((section) => (
+        {NAV_SECTIONS.map((section) => (
           <div key={section.caption} className="flex flex-col gap-0.5">
             <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-dim">
               {section.caption}
@@ -82,7 +46,7 @@ export function AppRail() {
       </div>
       <div className="border-t border-border p-3">
         <Link
-          href="/investigation/accusation"
+          href={ACCUSATION_LINK.href}
           className="flex items-center justify-center gap-2 border border-danger/50 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-danger transition-colors hover:bg-danger-bg"
         >
           Procéder à l&apos;accusation

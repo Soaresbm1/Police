@@ -58,10 +58,10 @@ export function CrimeSceneScreen({
   return (
     <div className="flex flex-col gap-3">
       <Soundscape kind="crime_scene" />
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <p className="field-label">Scène de crime</p>
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">{locationName}</h1>
+          <h1 className="text-xl font-bold uppercase tracking-wide text-foreground sm:text-2xl">{locationName}</h1>
         </div>
         <p className="text-sm text-muted">
           {locationAddress} — {foundCount}/{totalEvidence} élément(s) relevé(s)
@@ -70,8 +70,11 @@ export function CrimeSceneScreen({
 
       {/* The scene itself dominates the screen — a full-bleed illustrated
          background with subtle hotspot indicators; navigation/details are
-         an overlay, never a large panel competing with the scene. */}
-      <div className="panel relative aspect-[16/9] w-full overflow-hidden">
+         an overlay, never a large panel competing with the scene. Taller
+         aspect ratio on narrow screens: 16/9 leaves very little vertical
+         room for the scene once the shell's own chrome is subtracted, and
+         a short box makes hotspots hard to tap precisely. */}
+      <div className="panel relative aspect-[4/5] w-full overflow-hidden sm:aspect-[16/9]">
         {sceneBackground && (
           <GeneratedImageWithFallback
             proceduralSrc={sceneBackground}
@@ -96,33 +99,42 @@ export function CrimeSceneScreen({
               type="button"
               onClick={() => setSelectedZoneId(h.zoneId)}
               style={{ left: `${h.x}%`, top: `${h.y}%` }}
-              className="group absolute -translate-x-1/2 -translate-y-1/2 p-2"
+              className="group absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
               title={h.label}
+              aria-label={h.label}
             >
               <span
-                className={`relative flex h-3 w-3 items-center justify-center rounded-full ${dotColor} shadow-[0_0_0_1.5px_rgba(0,0,0,0.55),0_0_6px_1px_rgba(0,0,0,0.5)] transition-transform group-hover:scale-150 ${
+                className={`relative flex h-3 w-3 items-center justify-center rounded-full ${dotColor} shadow-[0_0_0_1.5px_rgba(0,0,0,0.55),0_0_6px_1px_rgba(0,0,0,0.5)] transition-transform group-hover:scale-150 group-active:scale-150 ${
                   isSelected ? "ring-2 ring-accent-strong ring-offset-2 ring-offset-background-deep" : ""
                 }`}
               >
                 {!h.discovered && h.kind !== "body" && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${dotColor} opacity-60`} />}
               </span>
-              <span className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap bg-background-deep/85 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted opacity-0 transition-opacity group-hover:opacity-100">
+              <span className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap bg-background-deep/85 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted opacity-0 transition-opacity group-hover:opacity-100 group-active:opacity-100">
                 {h.label}
               </span>
             </button>
           );
         })}
 
-        {/* Compact overlay drawer — only present once a zone is selected,
-           so the scene is unobstructed by default. */}
+        {/* Detail overlay — only present once a zone is selected, so the
+           scene is unobstructed by default. A right-side drawer at
+           `sm+` (room enough beside the scene image); a bottom sheet
+           below it, since the image itself is short there and a
+           right-anchored drawer would have almost no vertical room. */}
         {selected && (
-          <div className="fade-up absolute inset-y-0 right-0 flex w-[300px] max-w-[80%] flex-col gap-3 border-l border-border-strong bg-background-deep/92 p-4 backdrop-blur-sm">
+          <div className="fade-up absolute inset-x-0 bottom-0 flex max-h-[70%] flex-col gap-3 overflow-y-auto border-t border-border-strong bg-background-deep/95 p-4 backdrop-blur-sm sm:inset-x-auto sm:inset-y-0 sm:bottom-auto sm:right-0 sm:max-h-none sm:w-[300px] sm:max-w-[80%] sm:border-l sm:border-t-0 sm:bg-background-deep/92">
             <div className="flex items-start justify-between">
               <div>
                 <p className="data-id">ZONE {selected.zoneNumber.toString().padStart(2, "0")}</p>
                 <h2 className="text-lg font-bold uppercase tracking-wide text-foreground">{selected.label}</h2>
               </div>
-              <button type="button" onClick={() => setSelectedZoneId(null)} className="btn btn-ghost !px-2 !py-1 !text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedZoneId(null)}
+                className="btn btn-ghost !px-2 !py-1 !text-xs"
+                aria-label="Fermer le détail de la zone"
+              >
                 ✕
               </button>
             </div>

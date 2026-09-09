@@ -71,7 +71,7 @@ export function AuthForm() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+          className="border border-border-strong bg-surface-sunken px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none sm:text-sm"
           autoComplete="email"
         />
       </div>
@@ -84,7 +84,7 @@ export function AuthForm() {
           minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+          className="border border-border-strong bg-surface-sunken px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none sm:text-sm"
           autoComplete={mode === "signin" ? "current-password" : "new-password"}
         />
       </div>

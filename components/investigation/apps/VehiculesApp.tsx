@@ -40,7 +40,7 @@ export function VehiculesApp({ initialQuery }: { initialQuery?: string }) {
             onChange={(e) => setQuery(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="VD AB 123"
-            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-sm uppercase tracking-widest text-foreground focus:border-success focus:outline-none"
+            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-base uppercase tracking-widest text-foreground focus:border-success focus:outline-none sm:text-sm"
           />
           <button onClick={handleSearch} disabled={isPending || query.trim().length < 3} className="btn btn-primary">
             {isPending ? "Recherche…" : "Rechercher"}

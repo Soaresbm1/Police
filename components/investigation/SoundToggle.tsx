@@ -25,7 +25,8 @@ export function SoundToggle() {
         if (!next) playSound("click");
       }}
       title={muted ? "Activer le son" : "Couper le son"}
-      className="rounded px-2 py-1 text-xs text-muted hover:text-foreground"
+      aria-label={muted ? "Activer le son" : "Couper le son"}
+      className="flex h-9 w-9 items-center justify-center px-2 py-1 text-sm text-muted hover:text-foreground sm:h-auto sm:w-auto sm:text-xs"
     >
       {muted ? "🔇" : "🔊"}
     </button>

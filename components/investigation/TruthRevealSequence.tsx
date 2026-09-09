@@ -82,7 +82,7 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
       </div>
 
       {step === 0 && (
-        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-3 p-10 text-center">
+        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-3 p-6 text-center sm:p-10">
           <p className="font-data text-xs uppercase tracking-[0.3em] text-muted">Dossier transmis</p>
           <p className="data-id text-base">{data.caseRef}</p>
           <p className="mt-2 text-lg text-foreground">Évaluation par le parquet en cours...</p>
@@ -93,9 +93,9 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
       )}
 
       {step === 1 && (
-        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-2 p-8 text-center">
+        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-2 p-5 text-center sm:p-8">
           <p className="font-data text-[10px] uppercase tracking-[0.3em] text-muted">Résultat de l&apos;accusation</p>
-          <p className={`font-data text-7xl font-bold ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
+          <p className={`font-data text-5xl font-bold sm:text-7xl ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
           <p className="text-sm text-muted">{data.overallPercent}%</p>
           <span className={`stamp mt-2 ${data.culpritCorrect ? "stamp-blue" : "stamp-red"}`}>
             {data.culpritCorrect ? "Affaire résolue" : "Erreur judiciaire"}
@@ -186,7 +186,7 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
       )}
 
       {step === STEP_COUNT - 1 && (
-        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-3 p-8 text-center">
+        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-3 p-5 text-center sm:p-8">
           <p className={`font-data text-5xl font-bold ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
           <p className="text-sm text-muted">{data.overallPercent}% — {data.culpritCorrect ? "Affaire résolue" : "Erreur judiciaire"}</p>
           <p className="mt-2 text-sm text-foreground">Dossier {data.caseRef} classé.</p>

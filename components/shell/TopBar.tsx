@@ -22,16 +22,23 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
   const [dayLabel, clockLabel] = formatGameTime(session.currentTime).split(", ");
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
-      <div className="flex items-center gap-3">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-2 pt-[var(--safe-top)] sm:px-4">
+      <div className="flex min-w-0 items-center gap-3">
         <div className="flex items-center gap-2">
           <PoliceEmblem size={22} className="text-accent-strong" />
-          <span className="text-sm font-semibold tracking-[0.2em] text-foreground">CASELINE</span>
+          {/* These extra identity/case-number reveals used to key off
+             `sm`/`md` (640/768px) — fine when that was already desktop
+             territory, but the mobile shell (bottom nav, no sidebar) now
+             runs all the way up to `lg` (1024px, see GameShell.tsx), and
+             cramming this much text into a tablet-width bar with no
+             sidebar to absorb the width caused real overlap at ~768px.
+             Gated on `lg` now, matching the actual shell breakpoint. */}
+          <span className="hidden text-sm font-semibold tracking-[0.2em] text-foreground lg:inline">CASELINE</span>
         </div>
-        <span className="hidden text-[10px] uppercase tracking-[0.18em] text-muted-dim sm:inline">{CITY.policeShortName}</span>
-        <span className="mx-1 hidden h-5 w-px bg-border sm:inline" />
-        <span className="data-id hidden sm:inline">DOSSIER {formatCaseNumber(session.seed)}</span>
-        <span className="hidden border border-border-strong px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted md:inline">
+        <span className="hidden text-[10px] uppercase tracking-[0.18em] text-muted-dim lg:inline">{CITY.policeShortName}</span>
+        <span className="mx-1 hidden h-5 w-px bg-border lg:inline" />
+        <span className="data-id hidden lg:inline">DOSSIER {formatCaseNumber(session.seed)}</span>
+        <span className="hidden border border-border-strong px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted lg:inline">
           {DIFFICULTY_LABEL[session.difficulty]}
         </span>
         {pendingLabJobs.length > 0 && (
@@ -51,24 +58,28 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
         )}
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-baseline gap-2 font-data">
-          <span className="text-[11px] uppercase tracking-wide text-muted">{dayLabel}</span>
-          <span className="text-lg font-semibold text-foreground">{clockLabel}</span>
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
+        <div className="flex items-baseline gap-1.5 font-data sm:gap-2">
+          <span className="hidden text-[11px] uppercase tracking-wide text-muted sm:inline">{dayLabel}</span>
+          <span className="text-sm font-semibold text-foreground sm:text-lg">{clockLabel}</span>
         </div>
-        <div className="hidden items-center gap-1 sm:flex">
+        {/* Time-advance controls: previously `hidden sm:flex`, which left
+           phones with no way to advance the game clock at all — the
+           single most important control in the top bar. Always visible
+           now, just shrunk further below `sm`. */}
+        <div className="flex items-center gap-0.5 sm:gap-1">
           <form action={advanceTimeAction.bind(null, 30)}>
-            <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px]">
-              +30min
+            <button type="submit" className="btn btn-ghost !px-1.5 !py-1 !text-[9px] sm:!px-2 sm:!text-[10px]" title="Avancer de 30 minutes">
+              +30
             </button>
           </form>
           <form action={advanceTimeAction.bind(null, 60)}>
-            <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px]">
+            <button type="submit" className="btn btn-ghost !px-1.5 !py-1 !text-[9px] sm:!px-2 sm:!text-[10px]" title="Avancer d'une heure">
               +1h
             </button>
           </form>
           <form action={advanceTimeAction.bind(null, 240)}>
-            <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px]">
+            <button type="submit" className="btn btn-ghost !px-1.5 !py-1 !text-[9px] sm:!px-2 sm:!text-[10px]" title="Avancer de 4 heures">
               +4h
             </button>
           </form>
@@ -80,7 +91,7 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
           initialReduceMotion={settings.reduceMotion}
           initialHintsDisabled={settings.hintsDisabled}
         />
-        <form action={endCurrentCase}>
+        <form action={endCurrentCase} className="hidden sm:block">
           <button type="submit" className="btn btn-ghost !px-2 !py-1 !text-[10px] hover:!text-danger">
             Quitter
           </button>

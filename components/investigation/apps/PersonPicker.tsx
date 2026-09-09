@@ -32,7 +32,7 @@ export function PersonPicker({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full border border-border-strong bg-surface-sunken px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+        className="mt-2 w-full border border-border-strong bg-surface-sunken px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none sm:text-sm"
       />
       {query.trim().length >= 2 && (
         <div className="mt-2 flex flex-col gap-1">
@@ -43,7 +43,7 @@ export function PersonPicker({
               <button
                 key={p.id}
                 onClick={() => onSelect(p.id)}
-                className="border border-border-strong px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:border-accent hover:bg-surface-raised"
+                className="min-h-11 border border-border-strong px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:border-accent hover:bg-surface-raised"
               >
                 {p.name} <span className="text-xs text-muted">— {p.detail}</span>
               </button>

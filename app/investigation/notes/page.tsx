@@ -17,7 +17,7 @@ export default async function NotesPage() {
           defaultValue={game.session.notes}
           rows={16}
           placeholder="Écrivez vos hypothèses, questions en suspens, éléments à vérifier..."
-          className="font-document w-full border border-border-strong bg-surface p-4 text-sm text-foreground focus:border-accent focus:outline-none"
+          className="font-document w-full border border-border-strong bg-surface p-4 text-base text-foreground focus:border-accent focus:outline-none sm:text-sm"
         />
         <button type="submit" className="btn btn-primary self-start">
           Enregistrer

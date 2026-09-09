@@ -76,7 +76,8 @@ export function CaseIntroOverlay({
       <button
         type="button"
         onClick={finish}
-        className="absolute right-6 top-6 z-10 font-data text-[11px] uppercase tracking-widest text-muted hover:text-foreground"
+        className="absolute z-10 font-data text-[11px] uppercase tracking-widest text-muted hover:text-foreground"
+        style={{ top: "max(1.5rem, calc(var(--safe-top) + 0.5rem))", right: "max(1.5rem, calc(var(--safe-right) + 0.5rem))" }}
       >
         Passer [échap]
       </button>
@@ -100,7 +101,7 @@ export function CaseIntroOverlay({
           <div className="fade-up flex flex-col items-center gap-3 border border-border bg-surface px-6 py-5">
             <CharacterPortrait seed={victimAvatarSeed} name={victimName} size={64} generatedSrc={victimGeneratedPortraitUrl} />
             <p className="text-lg font-semibold text-foreground">{victimName}</p>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-left">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-left sm:gap-x-8">
               <div>
                 <p className="field-label">Lieu</p>
                 <p className="text-sm text-foreground">{locationName}</p>

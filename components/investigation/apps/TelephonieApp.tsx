@@ -47,7 +47,7 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="079 XXX XX XX"
-            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-sm text-foreground focus:border-link focus:outline-none"
+            className="flex-1 border border-border-strong bg-surface-sunken px-3 py-2 font-data text-base text-foreground focus:border-link focus:outline-none sm:text-sm"
           />
           <button onClick={handleSearch} disabled={isPending || query.trim().length < 6} className="btn btn-primary">
             {isPending ? "Recherche…" : "Rechercher"}

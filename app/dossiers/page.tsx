@@ -22,7 +22,7 @@ export default async function DossiersPage() {
   const entries = identity.authenticated ? await getStore().listCaseHistory(identity.userId) : [];
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-6 py-10">
+    <div className="min-h-dvh-screen mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
       <div className="flex items-center justify-between">
         <div>
           <p className="field-label">Archives</p>
@@ -38,7 +38,11 @@ export default async function DossiersPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {entries.map((entry) => (
-            <Link key={entry.id} href={`/dossiers/${entry.id}`} className="panel flex items-center justify-between p-4 hover:border-accent">
+            <Link
+              key={entry.id}
+              href={`/dossiers/${entry.id}`}
+              className="panel flex flex-wrap items-center justify-between gap-2 p-4 hover:border-accent"
+            >
               <div>
                 <p className="data-id">{formatCaseNumber(entry.seed)}</p>
                 <p className="text-xs text-muted">{formatDate(entry.completedAt)} — {entry.difficulty}</p>
