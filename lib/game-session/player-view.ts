@@ -258,8 +258,10 @@ export function getMandateOverview(truth: CaseTruth, session: GameSession): Mand
 
 /** Where clicking an investigation-inbox row should navigate — `null`
  * when there's no dedicated destination (shouldn't happen for this
- * milestone's event types, but kept total rather than assuming). */
-function eventHref(event: InvestigationEvent): string | null {
+ * milestone's event types, but kept total rather than assuming).
+ * `truth` is only needed to resolve a `phone_records` event's personId
+ * back to the phone number the Téléphonie app's deep-link expects. */
+function eventHref(truth: CaseTruth, event: InvestigationEvent): string | null {
   switch (event.type) {
     case "lab_result":
       return "/investigation/laboratoire";
@@ -268,6 +270,12 @@ function eventHref(event: InvestigationEvent): string | null {
       return `/investigation/applications/banque?person=${event.source.id.split(":")[1] ?? ""}`;
     case "search_warrant":
       return `/investigation/applications/mandats?person=${event.source.id.split(":")[1] ?? ""}`;
+    case "cctv_footage":
+      return `/investigation/applications/cameras?location=${event.source.id}`;
+    case "phone_records": {
+      const person = truth.people.find((p) => p.id === event.source.id);
+      return person ? `/investigation/applications/telephonie?tel=${encodeURIComponent(person.phoneNumber)}` : "/investigation/applications/telephonie";
+    }
     default:
       return null;
   }
@@ -288,7 +296,7 @@ export interface InvestigationEventView {
  * inbox's data source. A `scheduled` event never appears here: the
  * player must never learn something is coming before it's actually
  * arrived (see `events.ts#visibleEvents`). */
-export function getInvestigationEventsView(session: GameSession): InvestigationEventView[] {
+export function getInvestigationEventsView(truth: CaseTruth, session: GameSession): InvestigationEventView[] {
   return visibleEvents(session).map((event) => ({
     id: event.id,
     type: event.type,
@@ -297,7 +305,7 @@ export function getInvestigationEventsView(session: GameSession): InvestigationE
     scheduledAt: event.scheduledAt,
     scheduledAtLabel: formatGameTime(event.scheduledAt),
     status: event.status as "ready" | "seen",
-    href: eventHref(event),
+    href: eventHref(truth, event),
   }));
 }
 

@@ -5,7 +5,7 @@ import { EventInboxRow } from "@/components/investigation/EventInboxRow";
 export default async function ActivitePage() {
   const game = await getCurrentGame();
   if (!game) return null;
-  const events = getInvestigationEventsView(game.session);
+  const events = getInvestigationEventsView(game.truth, game.session);
   const unseen = events.filter((e) => e.status === "ready").length;
 
   return (

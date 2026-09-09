@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { withSession, type SessionContext } from "./with-session";
 import * as discovery from "./discovery";
 import { describeMandateEvent, evaluateBankRecordsRequest, requestMandateWithDelay, type MandateRequestOutcome } from "./mandates";
+import { requestCctvFootage } from "./cctv";
+import { requestPhoneRecords } from "./phone-records";
 import { displayLocationName, getVisibleEvidenceForPerson } from "./player-view";
 import { getCriminalRecord, type CriminalRecordEntry } from "./criminal-record";
 import { formatGameTime } from "@/lib/game-engine/types/time";
@@ -32,6 +34,12 @@ function normalizePhone(value: string): string {
 export interface PhoneSearchResult {
   query: string;
   found: boolean;
+  /** `"not_found"` when no subscriber matches; otherwise reflects the
+   * phone_records event — `"pending"` while the operator's log is still
+   * in transit, `"ready"` once `lines` is actually populated. Identity
+   * (`found`/`ownerName`/`personId`) is resolved instantly regardless —
+   * only the detailed record content is gated. */
+  status: "not_found" | "pending" | "ready";
   personId?: string;
   ownerName?: string;
   lines: RecordLine[];
@@ -40,12 +48,21 @@ export interface PhoneSearchResult {
 export async function searchPhoneAction(query: string): Promise<PhoneSearchResult> {
   const result = await withSession(({ session, truth }) => {
     const normalizedQuery = normalizePhone(query);
+    // Real dispatcher/operator work: identifying who a number belongs
+    // to. Unchanged from before this milestone — this step was always
+    // instant and stays instant; only the deeper record retrieval below
+    // is now asynchronous.
     payTime(session, 5);
 
-    if (normalizedQuery.length < 6) return { query, found: false, lines: [] };
+    if (normalizedQuery.length < 6) return { query, found: false, status: "not_found" as const, lines: [] };
 
     const owner = truth.people.find((p) => normalizePhone(p.phoneNumber) === normalizedQuery);
-    if (!owner) return { query, found: false, lines: [] };
+    if (!owner) return { query, found: false, status: "not_found" as const, lines: [] };
+
+    const outcome = requestPhoneRecords(session, owner.id);
+    if (outcome.status !== "ready") {
+      return { query, found: true, personId: owner.id, ownerName: `${owner.firstName} ${owner.lastName}`, status: outcome.status, lines: [] };
+    }
 
     discovery.checkDigitalRecords(truth, session, owner.id);
     const lines: RecordLine[] = getVisibleEvidenceForPerson(truth, session, owner.id)
@@ -53,7 +70,7 @@ export async function searchPhoneAction(query: string): Promise<PhoneSearchResul
       .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
       .sort((a, b) => a.time - b.time);
 
-    return { query, found: true, personId: owner.id, ownerName: `${owner.firstName} ${owner.lastName}`, lines };
+    return { query, found: true, personId: owner.id, ownerName: `${owner.firstName} ${owner.lastName}`, status: "ready" as const, lines };
   });
   revalidatePath("/investigation", "layout");
   return result;
@@ -120,6 +137,11 @@ export interface CameraRecordLine extends RecordLine {
 export interface CameraSearchResult {
   locationName: string;
   available: boolean;
+  /** `"unavailable"` when the location has no cameras at all (a public,
+   * instantly-knowable fact — no reason to delay it); otherwise reflects
+   * the cctv_footage event — `"pending"` while the tape is still being
+   * retrieved, `"ready"` once `lines` is actually populated. */
+  status: "unavailable" | "pending" | "ready";
   windowStart: number;
   windowEnd: number;
   lines: CameraRecordLine[];
@@ -128,10 +150,22 @@ export interface CameraSearchResult {
 
 export async function searchCameraAction(locationId: string, windowStart: number, windowEnd: number): Promise<CameraSearchResult> {
   const result = await withSession(({ session, truth }) => {
-    payTime(session, 8);
     const location = truth.locations.find((l) => l.id === locationId);
     if (!location || !location.hasCameras) {
-      return { locationName: location ? displayLocationName(location) : "Lieu inconnu", available: false, windowStart, windowEnd, lines: [], moreOutsideWindow: false };
+      return {
+        locationName: location ? displayLocationName(location) : "Lieu inconnu",
+        available: false,
+        status: "unavailable" as const,
+        windowStart,
+        windowEnd,
+        lines: [],
+        moreOutsideWindow: false,
+      };
+    }
+
+    const outcome = requestCctvFootage(session, locationId);
+    if (outcome.status !== "ready") {
+      return { locationName: displayLocationName(location), available: true, status: outcome.status, windowStart, windowEnd, lines: [], moreOutsideWindow: false };
     }
 
     discovery.checkCameraFootage(truth, session, locationId);
@@ -152,7 +186,7 @@ export async function searchCameraAction(locationId: string, windowStart: number
       }))
       .sort((a, b) => a.time - b.time);
 
-    return { locationName: displayLocationName(location), available: true, windowStart, windowEnd, lines, moreOutsideWindow: outsideWindow };
+    return { locationName: displayLocationName(location), available: true, status: "ready" as const, windowStart, windowEnd, lines, moreOutsideWindow: outsideWindow };
   });
   revalidatePath("/investigation", "layout");
   return result;

@@ -18,7 +18,10 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
     startTransition(async () => {
       const res = await searchPhoneAction(value.trim());
       setResult(res);
-      playSound(res.found ? "success" : "denied");
+      // Only a real, ready result (or a confirmed no-subscriber) is worth
+      // a success/denied tone — "pending" isn't a conclusion of any kind.
+      if (res.status === "ready") playSound("success");
+      else if (res.status === "not_found") playSound("denied");
     });
   };
 
@@ -67,8 +70,14 @@ export function TelephonieApp({ initialQuery }: { initialQuery?: string }) {
               <p className="font-data text-xs text-muted">N° {result.query}</p>
 
               <div className="mt-4 border-t border-border pt-3">
-                <p className="field-label mb-2">Relevé opérateur ({result.lines.length})</p>
-                <RecordTable lines={result.lines} emptyLabel="Aucune activité enregistrée pour ce numéro." />
+                {result.status === "pending" ? (
+                  <p className="text-sm text-muted">Relevé demandé auprès de l&apos;opérateur — en attente de transmission.</p>
+                ) : (
+                  <>
+                    <p className="field-label mb-2">Relevé opérateur ({result.lines.length})</p>
+                    <RecordTable lines={result.lines} emptyLabel="Aucune activité enregistrée pour ce numéro." />
+                  </>
+                )}
               </div>
             </div>
           ) : (

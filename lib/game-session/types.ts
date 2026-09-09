@@ -96,18 +96,26 @@ export interface MandateRecord {
   requestedAt: GameMinutes;
 }
 
-/** This milestone's event types only (Living Investigation System, Phase
- * 1) — deliberately not exhaustive of every future source (witness
- * callbacks, CCTV, phone/vehicle requests are NOT built yet, see
- * `lib/game-session/events.ts`). */
-export type InvestigationEventType = "lab_result" | "bank_warrant" | "bank_records" | "search_warrant";
+/** Phase 1 + Phase 2 event types only — deliberately not exhaustive of
+ * every future source (witness callbacks and a deeper vehicle-records
+ * workflow are NOT built yet, see `lib/game-session/events.ts`). */
+export type InvestigationEventType =
+  | "lab_result"
+  | "bank_warrant"
+  | "bank_records"
+  | "search_warrant"
+  | "cctv_footage"
+  | "phone_records";
 
 export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
 
 /** What this event is about — enough to route a click and to derive a
- * deterministic event id, never a hidden CaseTruth fact id. */
+ * deterministic event id, never a hidden CaseTruth fact id. `"location"`/
+ * `"person"` (Phase 2) key CCTV/phone requests by the location or person
+ * they're about — never by an evidence id, so the id itself never names
+ * the thing being investigated. */
 export interface InvestigationEventSource {
-  kind: "evidence" | "mandate";
+  kind: "evidence" | "mandate" | "location" | "person";
   id: string;
 }
 

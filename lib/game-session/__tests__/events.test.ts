@@ -112,6 +112,18 @@ describe("resolveEvents", () => {
     expect(session.events.every((e) => e.status === "ready")).toBe(true);
   });
 
+  it("resolves Phase 2 event types (cctv_footage, phone_records) alongside Phase 1 ones in the same jump, deterministically", () => {
+    const session = makeSession({ currentTime: 0 });
+    scheduleEvent(session, "cctv_footage", { kind: "location", id: "loc1" }, 45, PAYLOAD);
+    scheduleEvent(session, "phone_records", { kind: "person", id: "p1" }, 90, PAYLOAD);
+    scheduleEvent(session, "lab_result", { kind: "evidence", id: "ev1" }, 30, PAYLOAD);
+
+    session.currentTime = 240; // +4H
+    const justReady = resolveEvents(session);
+    expect(justReady.map((e) => e.type)).toEqual(["lab_result", "cctv_footage", "phone_records"]);
+    expect(session.events.every((e) => e.status === "ready")).toBe(true);
+  });
+
   it("keeps deterministic id tie-break ordering for two events scheduled at the exact same minute", () => {
     const session = makeSession({ currentTime: 0 });
     scheduleEvent(session, "search_warrant", { kind: "mandate", id: "search:zz" }, 30, PAYLOAD);

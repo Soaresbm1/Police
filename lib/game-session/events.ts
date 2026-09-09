@@ -17,11 +17,20 @@ import type { GameSession, InvestigationEvent, InvestigationEventSource, Investi
  * - `bank_records` (90 min): the bank actually retrieving and
  *   transmitting statements, once authorized — deliberately a second,
  *   separate wait from the warrant decision itself.
+ * - `cctv_footage` (45 min, within the brief's 30-60 min range): a site
+ *   operator/archive pulling an already-recorded tape — no judicial step
+ *   involved, shorter than a warrant decision.
+ * - `phone_records` (90 min, within the brief's 60-120 min range): the
+ *   telecom operator producing a detailed log, reusing the same
+ *   already-vetted duration as `bank_records` for a comparable
+ *   "external party retrieves records" wait.
  */
 export const EVENT_DELAY_MINUTES = {
   bank_warrant: 60,
   bank_records: 90,
   search_warrant: 90,
+  cctv_footage: 45,
+  phone_records: 90,
 } as const;
 
 /** Deterministic id from `type`+`source` only — no random UUIDs. The same

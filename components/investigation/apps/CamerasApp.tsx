@@ -38,7 +38,11 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
     startTransition(async () => {
       const res = await searchCameraAction(locationId, start, end);
       setResult(res);
-      playSound(res.available && res.lines.length > 0 ? "success" : "notify");
+      // "pending" is not a conclusion of any kind — only a resolved,
+      // ready result (with or without footage) or a genuinely
+      // camera-less location get any sound at all.
+      if (res.status === "ready") playSound(res.lines.length > 0 ? "success" : "notify");
+      else if (res.status === "unavailable") playSound("notify");
     });
   };
 
@@ -102,8 +106,10 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
             )}
           </div>
           <div className="p-4">
-            {!result.available ? (
+            {result.status === "unavailable" ? (
               <p className="text-sm text-danger">Ce lieu n&apos;est pas équipé de caméras.</p>
+            ) : result.status === "pending" ? (
+              <p className="text-sm text-muted">Bande réquisitionnée auprès de l&apos;exploitant — en attente de transmission.</p>
             ) : (
               <>
                 {result.lines.length === 0 && <p className="text-sm text-muted">Aucune image exploitable sur ce créneau.</p>}
