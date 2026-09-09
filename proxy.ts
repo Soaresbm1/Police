@@ -55,7 +55,13 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  try {
+    await supabase.auth.getUser();
+  } catch {
+    // Best-effort session refresh — a transient network failure reaching
+    // Supabase here must never take down the whole request (or, worse,
+    // the dev server process), since Proxy runs ahead of every route.
+  }
   return response;
 }
 

@@ -28,9 +28,20 @@ export interface CurrentIdentity {
 export async function getCurrentIdentity(): Promise<CurrentIdentity> {
   if (isSupabaseConfigured()) {
     const supabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // `auth.getUser()` normally reports an invalid/expired session via
+    // `error` (handled below as "no user"), but a transient network
+    // failure reaching Supabase can reject the promise outright — that
+    // must degrade to "not authenticated" like any other auth failure,
+    // never propagate as an uncaught exception out of every Server
+    // Component/Action that calls this.
+    let user;
+    try {
+      ({
+        data: { user },
+      } = await supabase.auth.getUser());
+    } catch {
+      return { userId: "", authenticated: false, displayEmail: null };
+    }
     if (!user) return { userId: "", authenticated: false, displayEmail: null };
     return { userId: user.id, authenticated: true, displayEmail: user.email ?? null };
   }
