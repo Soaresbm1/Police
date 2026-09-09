@@ -37,6 +37,7 @@ export interface Database {
           current_time_minutes: number;
           evidence_status: Json;
           lab_queue: Json;
+          investigation_events: Json;
           notes: string;
           player_timeline: Json;
           interrogated: Json;

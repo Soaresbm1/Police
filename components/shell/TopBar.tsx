@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { CITY, formatCaseNumber } from "@/lib/game-engine/world/city";
 import { advanceTimeAction, endCurrentCase } from "@/lib/game-session/actions";
 import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
+import { getReadyUnseenEventCount } from "@/lib/game-session/player-view";
 import { SoundToggle } from "@/components/investigation/SoundToggle";
 import { SettingsOverlay } from "./SettingsOverlay";
 import { PoliceEmblem } from "@/components/shared/PoliceEmblem";
@@ -16,6 +18,7 @@ const DIFFICULTY_LABEL: Record<GameSession["difficulty"], string> = {
 
 export function TopBar({ session, settings }: { session: GameSession; settings: PlayerSettings }) {
   const pendingLabJobs = session.labQueue.filter((job) => session.evidenceStatus[job.evidenceId] === "sent_to_lab");
+  const readyUnseenEvents = getReadyUnseenEventCount(session);
   const [dayLabel, clockLabel] = formatGameTime(session.currentTime).split(", ");
 
   return (
@@ -36,6 +39,15 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
             <span className="h-1.5 w-1.5 animate-pulse bg-warning" />
             {pendingLabJobs.length} analyse(s) en cours
           </span>
+        )}
+        {readyUnseenEvents > 0 && (
+          <Link
+            href="/investigation/activite"
+            className="hidden items-center gap-1 border border-accent-dim bg-accent-dim/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-accent-strong transition-colors hover:bg-accent-dim/20 lg:flex"
+          >
+            <span className="h-1.5 w-1.5 animate-pulse bg-accent-strong" />
+            {readyUnseenEvents} nouvelle(s) entrée(s)
+          </Link>
         )}
       </div>
 

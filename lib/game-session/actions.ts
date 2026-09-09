@@ -8,6 +8,7 @@ import { generateCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
 import { isAutoPortraitGenerationEnabled, runAutoPortraitGeneration } from "@/lib/art/generation/auto-portrait-trigger";
 import { isAutoCrimeSceneGenerationEnabled, runAutoCrimeSceneGeneration } from "@/lib/art/generation/auto-scene-trigger";
+import { markEventSeen } from "./events";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { getStore } from "./persistence";
@@ -66,6 +67,13 @@ export async function startNewCase(formData: FormData) {
   }
 
   redirect("/investigation/affaire");
+}
+
+export async function markEventSeenAction(eventId: string) {
+  await withSession(({ session }) => {
+    markEventSeen(session, eventId);
+  });
+  refreshInvestigation();
 }
 
 export async function clearMessageAction() {

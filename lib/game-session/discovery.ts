@@ -4,6 +4,7 @@ import type { PersonId } from "@/lib/game-engine/types/person";
 import type { LocationId } from "@/lib/game-engine/types/location";
 import { LAB_ANALYSIS_DURATION_MINUTES } from "@/lib/game-engine/types/evidence";
 import type { GameSession } from "./types";
+import { resolveEvents, scheduleEvent } from "./events";
 
 const DIGITAL_RECORD_TYPES: EvidenceType[] = [
   "sms_log",
@@ -16,6 +17,17 @@ const DIGITAL_RECORD_TYPES: EvidenceType[] = [
 ];
 
 const BANK_RECORD_TYPES: EvidenceType[] = ["card_payment", "cash_withdrawal", "bank_transfer", "debt_record"];
+
+/** Publicly known the instant the player submits the request — the
+ * analysis category itself is never a hidden result, only its outcome
+ * is. Safe to name in a notification payload. */
+const LAB_ANALYSIS_LABEL: Record<string, string> = {
+  dna: "ADN",
+  fingerprint: "empreintes",
+  toxicology: "toxicologique",
+  ballistics: "balistique",
+  digital_forensics: "numérique",
+};
 
 function statusOf(session: GameSession, evidenceId: string): string {
   return session.evidenceStatus[evidenceId] ?? "undiscovered";
@@ -158,10 +170,23 @@ export function sendToLab(truth: CaseTruth, session: GameSession, evidenceId: st
     submittedAt: session.currentTime,
     readyAt: session.currentTime + duration,
   });
+  // The event is purely the notification/inbox representation — LabJob
+  // above remains the sole authoritative record of the actual result
+  // (see advanceTime below); scheduledAt is set to match LabJob.readyAt
+  // exactly so the two never drift apart. The payload never mentions the
+  // result itself, only that an analysis was requested/will complete.
+  scheduleEvent(session, "lab_result", { kind: "evidence", id: evidenceId }, duration, {
+    title: "LABORATOIRE — Analyse terminée",
+    detail: `Résultat d'analyse ${LAB_ANALYSIS_LABEL[evidence.requiresLabAnalysis] ?? evidence.requiresLabAnalysis} disponible.`,
+  });
   return { ok: true, message: `Envoyé au laboratoire (${evidence.requiresLabAnalysis}), résultat dans ${duration} min de jeu.` };
 }
 
-/** Advances the game clock and completes any lab jobs whose time has come. */
+/** Advances the game clock, completes any lab jobs whose time has come
+ * (unchanged, existing logic — LabJob stays authoritative for the actual
+ * result), then resolves the central investigation-event schedule. Both
+ * steps key off the same `currentTime`, so a lab result and its mirror
+ * notification event always become available in the same clock tick. */
 export function advanceTime(session: GameSession, minutes: number): { completedEvidenceIds: string[] } {
   session.currentTime += minutes;
   const completed: string[] = [];
@@ -172,5 +197,6 @@ export function advanceTime(session: GameSession, minutes: number): { completedE
       completed.push(job.evidenceId);
     }
   }
+  resolveEvents(session);
   return { completedEvidenceIds: completed };
 }

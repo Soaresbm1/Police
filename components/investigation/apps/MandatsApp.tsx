@@ -6,6 +6,7 @@ import {
   requestSearchMandateAppAction,
   type SearchWarrantResult,
 } from "@/lib/game-session/app-actions";
+import type { MandateRequestOutcome } from "@/lib/game-session/mandates";
 import { AppFrame } from "./AppFrame";
 import { RecordTable } from "./RecordTable";
 import { PersonPicker, type PersonOption } from "./PersonPicker";
@@ -13,6 +14,8 @@ import type { MandateOverviewItem } from "@/lib/game-session/player-view";
 import { playSound } from "@/lib/sound/sound-manager";
 
 const KIND_LABEL: Record<string, string> = { search: "Perquisition", bank: "Bancaire" };
+const STATUS_LABEL: Record<MandateOverviewItem["status"], string> = { pending: "En attente", granted: "Accordé", denied: "Refusé" };
+const STATUS_STAMP: Record<MandateOverviewItem["status"], string> = { pending: "stamp-amber", granted: "stamp-blue", denied: "stamp-red" };
 
 export function MandatsApp({
   people,
@@ -24,14 +27,25 @@ export function MandatsApp({
   initialPersonId?: string;
 }) {
   const [selected, setSelected] = useState<PersonOption | null>(null);
-  const [requestState, setRequestState] = useState<{ granted: boolean; reason: string } | null>(null);
+  const [requestState, setRequestState] = useState<MandateRequestOutcome | null>(null);
   const [warrantResult, setWarrantResult] = useState<SearchWarrantResult | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const handleSelect = (personId: string) => {
     setSelected(people.find((p) => p.id === personId) ?? null);
-    setRequestState(null);
     setWarrantResult(null);
+    // Re-selecting someone who already has a request on file re-checks its
+    // current status (idempotent — never re-schedules or resets the
+    // delay) so the player sees an up-to-date "pending"/"granted"/"denied"
+    // without having to click "Déposer" again.
+    const alreadyRequested = mandates.some((m) => m.kind === "search" && m.personId === personId);
+    if (alreadyRequested) {
+      startTransition(async () => {
+        setRequestState(await requestSearchMandateAppAction(personId));
+      });
+    } else {
+      setRequestState(null);
+    }
   };
 
   useEffect(() => {
@@ -45,9 +59,11 @@ export function MandatsApp({
   const requestMandate = () => {
     if (!selected) return;
     startTransition(async () => {
+      // Always resolves to "pending" here — the decision itself only
+      // becomes knowable once its administrative delay has elapsed, so
+      // there's nothing to play a granted/denied sound about yet.
       const res = await requestSearchMandateAppAction(selected.id);
       setRequestState(res);
-      playSound(res.granted ? "success" : "denied");
     });
   };
 
@@ -56,7 +72,7 @@ export function MandatsApp({
     startTransition(async () => {
       const res = await executeSearchWarrantAction(selected.id);
       setWarrantResult(res);
-      playSound("success");
+      if (res.status === "ready") playSound("success");
     });
   };
 
@@ -73,9 +89,7 @@ export function MandatsApp({
                 <span className="text-foreground">
                   {KIND_LABEL[m.kind]} — {m.personName}
                 </span>
-                <span className={`stamp !py-0.5 !text-[9px] ${m.granted ? "stamp-blue" : "stamp-red"}`}>
-                  {m.granted ? "Accordé" : "Refusé"}
-                </span>
+                <span className={`stamp !py-0.5 !text-[9px] ${STATUS_STAMP[m.status]}`}>{STATUS_LABEL[m.status]}</span>
               </div>
             ))}
           </div>
@@ -96,12 +110,20 @@ export function MandatsApp({
             </button>
 
             {requestState && (
-              <div className={`mt-3 border p-2 text-xs ${requestState.granted ? "border-success/40 text-success" : "border-danger/40 text-danger"}`}>
+              <div
+                className={`mt-3 border p-2 text-xs ${
+                  requestState.status === "granted"
+                    ? "border-success/40 text-success"
+                    : requestState.status === "denied"
+                      ? "border-danger/40 text-danger"
+                      : "border-border-strong text-muted"
+                }`}
+              >
                 {requestState.reason}
               </div>
             )}
 
-            {requestState?.granted && (
+            {requestState?.status === "granted" && (
               <button onClick={executeSearch} disabled={isPending} className="btn btn-primary mt-3">
                 Exécuter la perquisition
               </button>
@@ -110,7 +132,7 @@ export function MandatsApp({
         )}
       </div>
 
-      {warrantResult && (
+      {warrantResult && warrantResult.status === "ready" && (
         <div className="panel p-4">
           <p className="field-label">
             Perquisition — {warrantResult.ownerName} ({warrantResult.locationName})

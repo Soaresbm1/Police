@@ -3,9 +3,11 @@ import { TopBar } from "./TopBar";
 import { AppRail } from "./AppRail";
 import { ActionMessage } from "@/components/investigation/ActionMessage";
 import { AmbiencePlayer } from "@/components/investigation/AmbiencePlayer";
+import { EventNotificationSound } from "@/components/investigation/EventNotificationSound";
 import { ScreenTransition } from "./ScreenTransition";
 import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
+import { getReadyUnseenEventCount } from "@/lib/game-session/player-view";
 
 export function GameShell({
   session,
@@ -19,6 +21,7 @@ export function GameShell({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background-deep">
       <AmbiencePlayer />
+      <EventNotificationSound readyUnseenCount={getReadyUnseenEventCount(session)} />
       <TopBar session={session} settings={settings} />
       <ActionMessage message={session.lastActionMessage} />
       <div className="flex flex-1 overflow-hidden">

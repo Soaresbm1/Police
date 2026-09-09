@@ -2,9 +2,11 @@ import type { CaseTruth } from "@/lib/game-engine/types/case";
 import { toCaseBriefing } from "@/lib/game-engine/types/case";
 import type { Person, PersonId } from "@/lib/game-engine/types/person";
 import type { Evidence } from "@/lib/game-engine/types/evidence";
-import type { GameSession, EvidencePlayerStatus } from "./types";
-import { formatGameTime } from "@/lib/game-engine/types/time";
+import type { GameSession, EvidencePlayerStatus, InvestigationEvent, InvestigationEventType } from "./types";
+import { formatGameTime, type GameMinutes } from "@/lib/game-engine/types/time";
 import { travelMinutes } from "@/lib/game-engine/types/location";
+import { describeMandateEvent } from "./mandates";
+import { readyUnseenCount, visibleEvents } from "./events";
 
 /** Public-safe view of a Person — deliberately omits `roles` (which
  * encodes who the culprit is) and any other ground-truth-only fields. */
@@ -227,7 +229,11 @@ export interface MandateOverviewItem {
   kind: "search" | "bank";
   personId: PersonId;
   personName: string;
-  granted: boolean;
+  /** Reflects the decision EVENT's status, never the raw stored
+   * MandateRecord directly — `"pending"` for as long as the decision
+   * hasn't actually become available in-world, even though the record
+   * underneath may already hold the (not-yet-revealed) outcome. */
+  status: "pending" | "granted" | "denied";
   reason: string;
 }
 
@@ -238,15 +244,67 @@ export function getMandateOverview(truth: CaseTruth, session: GameSession): Mand
   return Object.values(session.mandates).map((m) => {
     const [kind, personId] = m.key.split(":") as ["search" | "bank", PersonId];
     const person = truth.people.find((p) => p.id === personId);
+    const decision = describeMandateEvent(session, kind, personId);
     return {
       key: m.key,
       kind,
       personId,
       personName: person ? `${person.firstName} ${person.lastName}` : "Inconnu",
-      granted: m.granted,
-      reason: m.reason,
+      status: decision.status,
+      reason: decision.reason,
     };
   });
+}
+
+/** Where clicking an investigation-inbox row should navigate — `null`
+ * when there's no dedicated destination (shouldn't happen for this
+ * milestone's event types, but kept total rather than assuming). */
+function eventHref(event: InvestigationEvent): string | null {
+  switch (event.type) {
+    case "lab_result":
+      return "/investigation/laboratoire";
+    case "bank_warrant":
+    case "bank_records":
+      return `/investigation/applications/banque?person=${event.source.id.split(":")[1] ?? ""}`;
+    case "search_warrant":
+      return `/investigation/applications/mandats?person=${event.source.id.split(":")[1] ?? ""}`;
+    default:
+      return null;
+  }
+}
+
+export interface InvestigationEventView {
+  id: string;
+  type: InvestigationEventType;
+  title: string;
+  detail: string;
+  scheduledAt: GameMinutes;
+  scheduledAtLabel: string;
+  status: "ready" | "seen";
+  href: string | null;
+}
+
+/** `ready`/`seen` events only, in display order — the investigation
+ * inbox's data source. A `scheduled` event never appears here: the
+ * player must never learn something is coming before it's actually
+ * arrived (see `events.ts#visibleEvents`). */
+export function getInvestigationEventsView(session: GameSession): InvestigationEventView[] {
+  return visibleEvents(session).map((event) => ({
+    id: event.id,
+    type: event.type,
+    title: event.payload.title,
+    detail: event.payload.detail,
+    scheduledAt: event.scheduledAt,
+    scheduledAtLabel: formatGameTime(event.scheduledAt),
+    status: event.status as "ready" | "seen",
+    href: eventHref(event),
+  }));
+}
+
+/** What the TopBar badge counts and what the notification-sound
+ * component watches for increases — `ready`, not-yet-`seen` events only. */
+export function getReadyUnseenEventCount(session: GameSession): number {
+  return readyUnseenCount(session);
 }
 
 export interface BoardPaletteItem {

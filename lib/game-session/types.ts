@@ -79,9 +79,57 @@ export interface BoardState {
 
 export interface MandateRecord {
   key: string;
+  /**
+   * @internal The real, deterministic decision — computed and stored the
+   * instant the mandate is requested (it only depends on evidence already
+   * discovered), but it is NOT player-visible until the matching
+   * `bank_warrant`/`search_warrant` InvestigationEvent resolves to
+   * `"ready"`. Never read this field directly outside
+   * `lib/game-session/mandates.ts`/`persistence/*` — every player-facing
+   * caller must go through `mandates.ts#describeMandateEvent` (or
+   * `player-view.ts#getMandateOverview`, which already does). Enforced by
+   * an eslint `no-restricted-syntax` rule in `eslint.config.mjs` — reading
+   * `.granted` anywhere else is a lint error, not just a convention.
+   */
   granted: boolean;
   reason: string;
   requestedAt: GameMinutes;
+}
+
+/** This milestone's event types only (Living Investigation System, Phase
+ * 1) — deliberately not exhaustive of every future source (witness
+ * callbacks, CCTV, phone/vehicle requests are NOT built yet, see
+ * `lib/game-session/events.ts`). */
+export type InvestigationEventType = "lab_result" | "bank_warrant" | "bank_records" | "search_warrant";
+
+export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
+
+/** What this event is about — enough to route a click and to derive a
+ * deterministic event id, never a hidden CaseTruth fact id. */
+export interface InvestigationEventSource {
+  kind: "evidence" | "mandate";
+  id: string;
+}
+
+/**
+ * A deterministically-scheduled piece of investigation news. `id` is
+ * derived purely from `type`+`source` (see `events.ts#makeEventId`) — no
+ * random UUIDs — so the same case+actions always produce the same event
+ * ids, and re-requesting the same thing never schedules a duplicate.
+ *
+ * `payload` is player-safe, pre-rendered text ONLY (see `events.ts`'s
+ * callers) — never a raw Evidence/Testimony/MandateRecord object, and
+ * never wording that reveals the eventual outcome before `status` reaches
+ * `"ready"`.
+ */
+export interface InvestigationEvent {
+  id: string;
+  type: InvestigationEventType;
+  source: InvestigationEventSource;
+  createdAt: GameMinutes;
+  scheduledAt: GameMinutes;
+  status: InvestigationEventStatus;
+  payload: { title: string; detail: string };
 }
 
 export interface GameSession {
@@ -94,6 +142,11 @@ export interface GameSession {
    * absent is implicitly "undiscovered". */
   evidenceStatus: Record<string, EvidencePlayerStatus>;
   labQueue: LabJob[];
+  /** Deterministic investigation-event schedule (Living Investigation
+   * System, Phase 1) — see `events.ts`. Absent/null on any session
+   * persisted before this field existed; every reader must treat that as
+   * `[]` (see `persistence/supabase-store.ts#rowToSession`). */
+  events: InvestigationEvent[];
   notes: string;
   playerTimeline: PlayerTimelineEntry[];
   /** personId -> set of KnowledgeFact ids the player has asked about. */

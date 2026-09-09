@@ -56,6 +56,13 @@ export function scoreAccusation(truth: CaseTruth, session: GameSession, accusati
     visible.some((v) => v.id === ev.id),
   ).length;
 
+  // Audited exception (Living Investigation System hardening pass): this
+  // reads MandateRecord.granted directly, which is normally forbidden
+  // (see types.ts#MandateRecord, enforced by eslint.config.mjs). Safe
+  // here specifically because scoreAccusation only ever runs once the
+  // player has already submitted their final accusation — the case is
+  // over and the truth-reveal screen is about to show CaseTruth itself,
+  // so there is nothing left to leak. Never call this mid-investigation.
   const mandateRecords = Object.values(session.mandates);
   const mandatesGranted = mandateRecords.filter((m) => m.granted).length;
   const mandatesWasted = mandateRecords.filter((m) => {

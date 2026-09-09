@@ -24,6 +24,7 @@ const SECTIONS: RailSection[] = [
       { href: "/investigation/temoins", tag: "TEM", label: "Témoins" },
       { href: "/investigation/preuves", tag: "PRV", label: "Preuves" },
       { href: "/investigation/laboratoire", tag: "LAB", label: "Laboratoire" },
+      { href: "/investigation/activite", tag: "ACT", label: "Activité" },
     ],
   },
   {

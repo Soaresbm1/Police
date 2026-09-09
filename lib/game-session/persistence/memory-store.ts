@@ -16,6 +16,7 @@ function freshSession(userId: string, seed: string, difficulty: Difficulty, crim
     currentTime: crimeTimestamp,
     evidenceStatus: {},
     labQueue: [],
+    events: [],
     notes: "",
     playerTimeline: [],
     interrogated: {},

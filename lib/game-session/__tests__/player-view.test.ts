@@ -12,6 +12,7 @@ function makeSession(seed: string, evidenceStatus: GameSession["evidenceStatus"]
     currentTime: 0,
     evidenceStatus,
     labQueue: [],
+    events: [],
     notes: "",
     playerTimeline: [],
     interrogated: {},

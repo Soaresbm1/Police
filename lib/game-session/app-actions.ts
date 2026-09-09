@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { withSession, type SessionContext } from "./with-session";
 import * as discovery from "./discovery";
-import { evaluateMandate, mandateKey } from "./mandates";
+import { describeMandateEvent, evaluateBankRecordsRequest, requestMandateWithDelay, type MandateRequestOutcome } from "./mandates";
 import { displayLocationName, getVisibleEvidenceForPerson } from "./player-view";
 import { getCriminalRecord, type CriminalRecordEntry } from "./criminal-record";
 import { formatGameTime } from "@/lib/game-engine/types/time";
@@ -161,16 +161,13 @@ export async function searchCameraAction(locationId: string, windowStart: number
 export interface BankSearchResult {
   personId: string;
   ownerName: string;
-  mandateGranted: boolean;
+  status: "no_mandate" | "pending" | "denied" | "pending_records" | "ready";
   mandateReason: string;
   lines: RecordLine[];
 }
 
-export async function requestBankMandateAppAction(personId: string): Promise<{ granted: boolean; reason: string }> {
-  const result = await withSession(({ session, truth }) => {
-    const record = evaluateMandate(truth, session, "bank", personId);
-    return { granted: record.granted, reason: record.reason };
-  });
+export async function requestBankMandateAppAction(personId: string): Promise<MandateRequestOutcome> {
+  const result = await withSession(({ session, truth }) => requestMandateWithDelay(truth, session, "bank", personId));
   revalidatePath("/investigation", "layout");
   return result;
 }
@@ -180,30 +177,26 @@ export async function searchBankAction(personId: string): Promise<BankSearchResu
     const person = truth.people.find((p) => p.id === personId);
     if (!person) throw new Error("Personne introuvable.");
     const ownerName = `${person.firstName} ${person.lastName}`;
-    const mandate = session.mandates[mandateKey("bank", personId)];
 
-    if (!mandate?.granted) {
-      return { personId, ownerName, mandateGranted: false, mandateReason: mandate?.reason ?? "Aucun mandat demandé.", lines: [] };
+    const outcome = evaluateBankRecordsRequest(session, personId);
+    if (outcome.status !== "ready") {
+      return { personId, ownerName, status: outcome.status, mandateReason: outcome.reason, lines: [] };
     }
 
-    payTime(session, 6);
     discovery.checkBankRecords(truth, session, personId);
     const lines: RecordLine[] = getVisibleEvidenceForPerson(truth, session, personId)
       .filter((ev) => ev.family === "financial")
       .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
       .sort((a, b) => a.time - b.time);
 
-    return { personId, ownerName, mandateGranted: true, mandateReason: mandate.reason, lines };
+    return { personId, ownerName, status: "ready" as const, mandateReason: outcome.reason, lines };
   });
   revalidatePath("/investigation", "layout");
   return result;
 }
 
-export async function requestSearchMandateAppAction(personId: string): Promise<{ granted: boolean; reason: string }> {
-  const result = await withSession(({ session, truth }) => {
-    const record = evaluateMandate(truth, session, "search", personId);
-    return { granted: record.granted, reason: record.reason };
-  });
+export async function requestSearchMandateAppAction(personId: string): Promise<MandateRequestOutcome> {
+  const result = await withSession(({ session, truth }) => requestMandateWithDelay(truth, session, "search", personId));
   revalidatePath("/investigation", "layout");
   return result;
 }
@@ -212,7 +205,7 @@ export interface SearchWarrantResult {
   personId: string;
   ownerName: string;
   locationName: string;
-  mandateGranted: boolean;
+  status: "pending" | "denied" | "ready";
   mandateReason: string;
   lines: RecordLine[];
 }
@@ -224,12 +217,20 @@ export async function executeSearchWarrantAction(personId: string): Promise<Sear
     const ownerName = `${person.firstName} ${person.lastName}`;
     const location = truth.locations.find((l) => l.id === person.homeLocationId);
     const locationName = location?.name ?? "domicile inconnu";
-    const mandate = session.mandates[mandateKey("search", personId)];
 
-    if (!mandate?.granted) {
-      return { personId, ownerName, locationName, mandateGranted: false, mandateReason: mandate?.reason ?? "Aucun mandat demandé.", lines: [] };
+    // Gate on the decision EVENT's status, never the raw stored
+    // MandateRecord — the record is computed (and stored) the instant
+    // the warrant is requested, but must stay unusable by the player
+    // until its own delay has actually elapsed.
+    const decision = describeMandateEvent(session, "search", personId);
+    if (decision.status !== "granted") {
+      const status: "pending" | "denied" = decision.status === "pending" ? "pending" : "denied";
+      return { personId, ownerName, locationName, status, mandateReason: decision.reason, lines: [] };
     }
 
+    // Physical execution time — distinct from the administrative
+    // decision delay above; this is the cost of actually going and
+    // searching, paid once the player explicitly chooses to execute.
     payTime(session, 20);
     discovery.searchLocation(truth, session, person.homeLocationId);
     const lines: RecordLine[] = truth.evidence
@@ -237,7 +238,7 @@ export async function executeSearchWarrantAction(personId: string): Promise<Sear
       .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
       .sort((a, b) => a.time - b.time);
 
-    return { personId, ownerName, locationName, mandateGranted: true, mandateReason: mandate.reason, lines };
+    return { personId, ownerName, locationName, status: "ready" as const, mandateReason: decision.reason, lines };
   });
   revalidatePath("/investigation", "layout");
   return result;

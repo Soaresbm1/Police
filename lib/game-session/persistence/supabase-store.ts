@@ -12,11 +12,11 @@ function fromJson<T>(value: Json): T {
   return value as unknown as T;
 }
 
-type SessionRow = Database["public"]["Tables"]["investigation_sessions"]["Row"];
+export type SessionRow = Database["public"]["Tables"]["investigation_sessions"]["Row"];
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type HistoryRow = Database["public"]["Tables"]["case_history"]["Row"];
 
-function rowToSession(row: SessionRow): GameSession {
+export function rowToSession(row: SessionRow): GameSession {
   return {
     id: row.user_id,
     seed: row.seed,
@@ -25,6 +25,11 @@ function rowToSession(row: SessionRow): GameSession {
     currentTime: row.current_time_minutes,
     evidenceStatus: fromJson<GameSession["evidenceStatus"]>(row.evidence_status),
     labQueue: fromJson<LabJob[]>(row.lab_queue),
+    // Absent/null on any row persisted before this column existed (the
+    // migration backfills it to '[]' for every pre-existing row, but this
+    // stays defensive in case that's ever bypassed) — never fails to
+    // deserialize an older investigation, just starts it with no events.
+    events: row.investigation_events ? fromJson<GameSession["events"]>(row.investigation_events) : [],
     notes: row.notes,
     playerTimeline: fromJson<PlayerTimelineEntry[]>(row.player_timeline),
     interrogated: fromJson<GameSession["interrogated"]>(row.interrogated),
@@ -46,6 +51,7 @@ function sessionToRow(userId: string, session: GameSession): Database["public"][
     current_time_minutes: session.currentTime,
     evidence_status: session.evidenceStatus as unknown as Json,
     lab_queue: session.labQueue as unknown as Json,
+    investigation_events: session.events as unknown as Json,
     notes: session.notes,
     player_timeline: session.playerTimeline as unknown as Json,
     interrogated: session.interrogated as unknown as Json,
@@ -117,6 +123,7 @@ export class SupabaseSessionStore implements SessionStore {
       currentTime: crimeTimestamp,
       evidenceStatus: {},
       labQueue: [],
+      events: [],
       notes: "",
       playerTimeline: [],
       interrogated: {},
