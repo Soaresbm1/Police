@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildCharacterVisualDescriptor, buildLocationVisualDescriptor } from "../visual-manifest";
+import { buildCharacterVisualDescriptor, buildCrimeSceneVisualDescriptor, buildLocationVisualDescriptor } from "../visual-manifest";
+import { hashDescriptor } from "../asset-cache";
 import type { Person } from "@/lib/game-engine/types/person";
 import type { Location } from "@/lib/game-engine/types/location";
 
@@ -83,6 +84,64 @@ describe("buildCharacterVisualDescriptor", () => {
     }
     // ~75% front by design — assert the clear majority without pinning an exact count.
     expect(counts.front).toBeGreaterThan(counts.slight_turn * 2);
+  });
+});
+
+describe("buildCrimeSceneVisualDescriptor", () => {
+  it("is deterministic for the same location id/type and timestamp", () => {
+    const location = makeLocation();
+    expect(buildCrimeSceneVisualDescriptor(location, 500)).toEqual(buildCrimeSceneVisualDescriptor(location, 500));
+  });
+
+  it("only reads id/type — passing a location with different guilt-irrelevant fields (address, district, coordinates) never changes the output", () => {
+    const a = buildCrimeSceneVisualDescriptor(makeLocation({ address: "1 rue A", district: "Nord" }), 500);
+    const b = buildCrimeSceneVisualDescriptor(makeLocation({ address: "99 avenue B", district: "Sud" }), 500);
+    expect(a).toEqual(b);
+  });
+
+  it("varies with location type", () => {
+    const apartment = buildCrimeSceneVisualDescriptor(makeLocation({ id: "loc1", type: "apartment" }), 500);
+    const warehouse = buildCrimeSceneVisualDescriptor(makeLocation({ id: "loc1", type: "warehouse" }), 500);
+    expect(apartment).not.toEqual(warehouse);
+    expect(apartment.architectureStyle).toBe("residential_modern");
+    expect(warehouse.architectureStyle).toBe("industrial");
+  });
+
+  it("varies time-of-day-derived fields with the crime timestamp, holding location fixed", () => {
+    const location = makeLocation();
+    const day = buildCrimeSceneVisualDescriptor(location, 12 * 60); // noon
+    const night = buildCrimeSceneVisualDescriptor(location, 2 * 60); // 2am
+    expect(day.timeOfDay).toBe("day");
+    expect(night.timeOfDay).toBe("night");
+  });
+
+  it("is guilt-safe by construction: the function signature accepts only id/type, so it cannot depend on culprit, staging, or any other CaseTruth field", () => {
+    // Two "cases" that would differ wildly in their hidden CaseTruth
+    // (different culprit, different staging, different undiscovered
+    // evidence) but share the same public crime-scene location and
+    // timestamp must resolve to the exact same descriptor — there is no
+    // parameter this function could even read to tell them apart.
+    const sharedLocation = makeLocation({ id: "loc-crime", type: "hotel" });
+    const descriptorForCaseWithCulpritA = buildCrimeSceneVisualDescriptor(sharedLocation, 700);
+    const descriptorForCaseWithCulpritB = buildCrimeSceneVisualDescriptor(sharedLocation, 700);
+    expect(descriptorForCaseWithCulpritA).toEqual(descriptorForCaseWithCulpritB);
+  });
+
+  it("hashes stably — the same location/timestamp always produces the same descriptor hash", () => {
+    const location = makeLocation({ id: "loc1", type: "hotel" });
+    const hashA = hashDescriptor(buildCrimeSceneVisualDescriptor(location, 900));
+    const hashB = hashDescriptor(buildCrimeSceneVisualDescriptor(location, 900));
+    expect(hashA).toBe(hashB);
+    expect(hashA).toMatch(/^[0-9a-f]{64}$/); // real SHA-256 hex digest, not raw JSON
+  });
+
+  it("only computes weather variation meaningfully for the open-air alley layout", () => {
+    // park/train_station both map to the "alley" layout template (see
+    // crime-scene-layouts.ts's CANDIDATES_BY_LOCATION_TYPE) — weather is
+    // still computed for every location type, but the prompt builder
+    // (crime-scene-prompt.ts) only ever reads it for that layout.
+    const descriptor = buildCrimeSceneVisualDescriptor(makeLocation({ id: "loc1", type: "park" }), 500);
+    expect(["clear", "overcast", "light_rain"]).toContain(descriptor.weather);
   });
 });
 

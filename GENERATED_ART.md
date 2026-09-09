@@ -180,6 +180,65 @@ low-quality; generated art can never reveal more than the descriptor's
 Typically 5–10: 1 victim portrait + 3–5 primary suspects + 1–3 important
 witnesses + 1 crime-scene environment, capped hard at `MAX_ASSETS_PER_CASE`.
 
+## Crime-scene environments — hybrid system (pilot, no real generation yet)
+
+Status as of this pass: implementation + tests complete, gates green,
+**zero real Cloudflare calls made for crime scenes so far** — awaiting
+approval for the first real generation (see the chat summary/report
+delivered alongside this change).
+
+Architecture, matching the character-portrait pattern exactly:
+
+```
+CrimeSceneVisualDescriptor (locationId, seed, layoutTemplate, timeOfDay,
+                             architectureStyle, weather)
+  → buildCrimeSceneEnvironmentPrompt() (crime-scene-prompt.ts, v2)
+  → hashDescriptor() → generated_assets cache lookup
+  → getOrGenerateAsset() (same pipeline.ts, same Cloudflare provider)
+  → Supabase Storage / signed URL (lib/art/generation/scene-lookup.ts)
+  → full-screen scene background in CrimeSceneScreen.tsx
+     (procedural SVG first, generated photo cross-fades in if ready)
+
+  — completely separate from —
+  → deterministic hotspot layer (lib/game-session/crime-scene.ts, unchanged)
+  → deterministic evidence discovery (lib/game-session/discovery.ts, unchanged)
+```
+
+**The generated image is purely visual dressing, never authoritative.**
+`buildCrimeSceneVisualDescriptor` takes only `GuiltSafeLocationFields`
+(`Pick<Location, "id" | "type">`) + the crime timestamp — it structurally
+cannot see `CaseTruth` (no culprit, staging, tampering, or undiscovered
+evidence can reach the prompt). The prompt itself carries an explicit
+no-decisive-evidence clause telling the model never to render weapons,
+blood, bodies, evidence markers, or any visually decisive clue — real
+evidence stays a separate, deterministic overlay CASELINE already owned
+before this pass and did not change.
+
+`CRIME_SCENE_PROMPT_VERSION`/`CRIME_SCENE_GENERATION_VERSION` (both now 2)
+are independent of `CHARACTER_PROMPT_VERSION`/`CHARACTER_PORTRAIT_GENERATION_VERSION`
+— bumping one never invalidates the other's cached assets (verified live:
+the 6 already-`ready` portraits from the earlier pilot stayed `ready` and
+untouched after this crime-scene version bump).
+
+**Model output-size constraint**: `@cf/black-forest-labs/flux-1-schnell`
+(current provider) exposes only `prompt` and `steps` as input parameters
+per Cloudflare's own current documentation — no width/height/aspect-ratio
+control, square output only (confirmed empirically at 1024×1024 for
+portraits). A newer model family on the same platform, FLUX.2
+(`flux-2-klein-9b`/`flux-2-dev`), does support width/height (256-1920px)
+and flexible aspect ratios — but switching providers/models needs explicit
+approval and has not been done. The renderer adapts around the square
+output safely via CSS (`object-cover` inside the existing `aspect-[16/9]`
+scene container, already how the procedural background renders) rather
+than any server-side cropping.
+
+Dev-only manual trigger: `/case-lab/art` (already had a crime-scene row
+from the earlier milestone) shows descriptor hash/prompt version/
+generation version/provider/model/status/attempts/real dimensions/signed
+preview/fallback-active for the crime scene, with a single manual
+"Générer" button — same gating as the portrait pilot, no production
+control, no automatic generation anywhere.
+
 ## Next decision (not made by this milestone)
 
 Wiring `getOrGenerateAsset()` into real gameplay screens (dossier,

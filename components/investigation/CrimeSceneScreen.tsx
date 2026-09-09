@@ -8,6 +8,7 @@ import type { EvidenceReliability, EvidenceType, LabAnalysisType } from "@/lib/g
 import type { EvidencePlayerStatus } from "@/lib/game-session/types";
 import { playSound } from "@/lib/sound/sound-manager";
 import { Soundscape } from "./Soundscape";
+import { GeneratedImageWithFallback } from "./GeneratedImageWithFallback";
 
 interface EvidenceDetail {
   evidenceId: string;
@@ -32,6 +33,7 @@ export function CrimeSceneScreen({
   victimName,
   autopsy,
   sceneBackground,
+  generatedSceneBackground,
 }: {
   hotspots: CrimeSceneHotspot[];
   evidenceDetails: EvidenceDetail[];
@@ -40,6 +42,11 @@ export function CrimeSceneScreen({
   victimName: string;
   autopsy: AutopsySummary;
   sceneBackground: string | null;
+  /** Signed URL of the generated crime-scene environment, if `ready` —
+   * resolved server-side by the parent page, never fetched from this
+   * client component. Purely visual: hotspot coordinates and evidence
+   * discovery below never read this value. */
+  generatedSceneBackground?: string | null;
 }) {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selected = hotspots.find((h) => h.zoneId === selectedZoneId) ?? null;
@@ -66,9 +73,19 @@ export function CrimeSceneScreen({
          an overlay, never a large panel competing with the scene. */}
       <div className="panel relative aspect-[16/9] w-full overflow-hidden">
         {sceneBackground && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={sceneBackground} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <GeneratedImageWithFallback
+            proceduralSrc={sceneBackground}
+            generatedSrc={generatedSceneBackground}
+            className="absolute inset-0 h-full w-full"
+            imgClassName="object-cover"
+          />
         )}
+        {/* Subtle scrim so hotspot markers stay readable regardless of a
+           generated photo's own brightness/contrast — the procedural SVG
+           background already darkens itself for evening/night internally,
+           but a real photograph has no such guarantee. Static, no
+           animation, so reduced-motion settings are irrelevant here. */}
+        {sceneBackground && <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />}
 
         {hotspots.map((h) => {
           const isSelected = h.zoneId === selectedZoneId;
@@ -83,7 +100,7 @@ export function CrimeSceneScreen({
               title={h.label}
             >
               <span
-                className={`relative flex h-3 w-3 items-center justify-center rounded-full ${dotColor} transition-transform group-hover:scale-150 ${
+                className={`relative flex h-3 w-3 items-center justify-center rounded-full ${dotColor} shadow-[0_0_0_1.5px_rgba(0,0,0,0.55),0_0_6px_1px_rgba(0,0,0,0.5)] transition-transform group-hover:scale-150 ${
                   isSelected ? "ring-2 ring-accent-strong ring-offset-2 ring-offset-background-deep" : ""
                 }`}
               >

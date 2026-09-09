@@ -25,6 +25,8 @@ function makeSceneDescriptor(overrides: Partial<CrimeSceneVisualDescriptor> = {}
     seed: "loc-seed:apartment",
     layoutTemplate: "apartment_living_room",
     timeOfDay: "night",
+    architectureStyle: "residential_modern",
+    weather: "clear",
     ...overrides,
   };
 }
@@ -101,13 +103,62 @@ describe("buildCrimeSceneEnvironmentPrompt", () => {
 
   it("never describes evidence, staging, or the victim's body as present — environment only", () => {
     const prompt = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor()).toLowerCase();
-    // "no evidence markers" etc. are deliberate negative instructions to
-    // the image model — what must never appear is any of these described
-    // as *present* in the scene.
-    for (const forbidden of ["weapon", "fingerprint", "staged", "culprit", "corpse", "victim"]) {
+    // "weapon"/"fingerprint"/etc. legitimately appear inside the negative
+    // safety clause ("do not depict weapons... fingerprints...") — that's
+    // required, not a leak. What must never appear at all is any
+    // guilt/identity vocabulary, since nothing in the prompt builder has
+    // access to it in the first place.
+    for (const forbidden of ["staged", "culprit", "accomplice", "corpse", "victim", "motive"]) {
       expect(prompt).not.toContain(forbidden);
     }
-    expect(prompt).toContain("no people, no bodies");
-    expect(prompt).toContain("no evidence markers");
+    expect(prompt).toContain("no people visible anywhere");
+  });
+
+  it("includes the exact no-decisive-evidence safety clause verbatim", () => {
+    const prompt = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor());
+    expect(prompt).toContain(
+      "The room must contain only ordinary environmental details and generic clutter. Do not depict weapons, blood, " +
+        "bodies, police evidence markers, readable documents, fingerprints, footprints, broken objects, suspicious " +
+        "objects, or any visually decisive clue. Investigative evidence is rendered separately by the game engine.",
+    );
+  });
+
+  it("never invents a stylized/cinematic/AI-surreal look", () => {
+    const prompt = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor()).toLowerCase();
+    expect(prompt).toContain("no stylized concept-art look");
+    expect(prompt).toContain("no extreme noir");
+    expect(prompt).toContain("no dramatic horror aesthetic");
+    expect(prompt).toContain("no obvious ai surrealism");
+  });
+
+  it("varies with architecture style and layout, never with locationId/seed", () => {
+    const a = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor({ architectureStyle: "residential_modern" }));
+    const b = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor({ architectureStyle: "industrial" }));
+    expect(a).not.toBe(b);
+  });
+
+  it("only mentions weather for the open-air alley layout, never for an interior layout", () => {
+    const interior = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor({ layoutTemplate: "apartment_living_room", weather: "light_rain" }));
+    expect(interior.toLowerCase()).not.toContain("wet pavement");
+    expect(interior.toLowerCase()).not.toContain("overcast");
+
+    const dryAlley = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor({ layoutTemplate: "alley", weather: "clear" }));
+    const rainyAlley = buildCrimeSceneEnvironmentPrompt(makeSceneDescriptor({ layoutTemplate: "alley", weather: "light_rain" }));
+    expect(dryAlley).not.toBe(rainyAlley);
+    expect(rainyAlley.toLowerCase()).toContain("wet pavement");
+  });
+
+  it("is unaffected by anything CaseTruth-shaped — the descriptor type structurally cannot carry it", () => {
+    // buildCrimeSceneEnvironmentPrompt only ever accepts a
+    // CrimeSceneVisualDescriptor (locationId/seed/layoutTemplate/timeOfDay/
+    // architectureStyle/weather) — there is no culpritId, accompliceIds,
+    // staging, tamperingEvents, or evidence field anywhere on that type for
+    // this test to even attempt to vary. Two descriptors built from the
+    // exact same public-safe location/time, standing in for two cases that
+    // differ only in their hidden CaseTruth, must produce an identical
+    // prompt.
+    const fromCaseA = makeSceneDescriptor();
+    const fromCaseB = makeSceneDescriptor(); // simulates a different CaseTruth, same public location/time
+    expect(buildCrimeSceneEnvironmentPrompt(fromCaseA)).toBe(buildCrimeSceneEnvironmentPrompt(fromCaseB));
   });
 });

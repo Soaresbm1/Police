@@ -138,12 +138,30 @@ export function buildLocationVisualDescriptor(location: Location): LocationVisua
 // Crime scene visual identity
 // ---------------------------------------------------------------------
 
+/** The exact `Location` fields `buildCrimeSceneVisualDescriptor` reads, and
+ * no more — mirrors `GuiltSafePersonFields` above. `Location` itself never
+ * carries staging/tampering/hidden-timeline data (that lives only on
+ * `CaseTruth`), but narrowing the parameter type to just `id`/`type` still
+ * makes "this function cannot depend on anything CaseTruth-shaped"
+ * compiler-checked rather than merely true-by-convention. */
+export type GuiltSafeLocationFields = Pick<Location, "id" | "type">;
+
+export type Weather = "clear" | "overcast" | "light_rain";
+
 export interface CrimeSceneVisualDescriptor {
   locationId: LocationId;
   seed: string;
   layoutTemplate: LayoutTemplateId;
   timeOfDay: TimeOfDay;
+  architectureStyle: ArchitectureStyle;
+  /** Only meaningful for a genuinely open-air layout (currently just
+   * `"alley"`) — `buildCrimeSceneEnvironmentPrompt` ignores it for every
+   * interior layout. Still computed unconditionally so the descriptor
+   * (and its hash) stay simple or reason about independent of layout. */
+  weather: Weather;
 }
+
+const WEATHER_OPTIONS: Weather[] = ["clear", "overcast", "light_rain"];
 
 /** Minute-of-day (0-1439) bucketed into a lighting period. */
 function timeOfDayFor(minuteOfDay: number): TimeOfDay {
@@ -152,13 +170,24 @@ function timeOfDayFor(minuteOfDay: number): TimeOfDay {
   return "night";
 }
 
-export function buildCrimeSceneVisualDescriptor(location: Location, crimeTimestamp: number): CrimeSceneVisualDescriptor {
+/**
+ * Deterministic, server-only, guilt-safe crime-scene environment
+ * descriptor. Takes only `GuiltSafeLocationFields` (id/type) plus the
+ * crime's timestamp (already player-visible via the autopsy report before
+ * the scene is ever explored) — structurally never sees `CaseTruth` at
+ * all, so staging, tampering, hidden entrances, secret occupants, the
+ * culprit, or any undiscovered evidence cannot influence the generated
+ * environment even by accident.
+ */
+export function buildCrimeSceneVisualDescriptor(location: GuiltSafeLocationFields, crimeTimestamp: number): CrimeSceneVisualDescriptor {
   const seed = `${location.id}:${location.type}`;
   return {
     locationId: location.id,
     seed,
     layoutTemplate: chooseLayoutTemplate(location.type, seed),
     timeOfDay: timeOfDayFor(timeOfDayMinutes(crimeTimestamp)),
+    architectureStyle: ARCHITECTURE_BY_TYPE[location.type],
+    weather: pick(`${seed}:weather`, WEATHER_OPTIONS),
   };
 }
 
@@ -200,7 +229,14 @@ export function buildCaseVisualManifest(truth: CaseTruth): CaseVisualManifest {
     locations: truth.locations.map(buildLocationVisualDescriptor),
     crimeScene: crimeLocation
       ? buildCrimeSceneVisualDescriptor(crimeLocation, truth.crimeTimestamp)
-      : { locationId: truth.crimeLocationId, seed: truth.crimeLocationId, layoutTemplate: "apartment_living_room", timeOfDay: "night" },
+      : {
+          locationId: truth.crimeLocationId,
+          seed: truth.crimeLocationId,
+          layoutTemplate: "apartment_living_room",
+          timeOfDay: "night",
+          architectureStyle: "residential_modern",
+          weather: "clear",
+        },
     evidence: truth.evidence.map((ev) => ({ evidenceId: ev.id, seed: ev.id, rendererKind: rendererKindForEvidence(ev.type) })),
     cctvFrames: cctvEvidence.map((ev) => buildCCTVFrameDescriptor(ev, truth)),
   };

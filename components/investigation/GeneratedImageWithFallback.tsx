@@ -17,11 +17,18 @@ export function GeneratedImageWithFallback({
   generatedSrc,
   alt = "",
   className,
+  imgClassName = "",
 }: {
   proceduralSrc: string;
   generatedSrc?: string | null;
   alt?: string;
   className?: string;
+  /** Extra classes applied to BOTH the procedural and generated `<img>`
+   * elements — e.g. `"object-cover"` for a full-bleed background usage
+   * (the crime scene) vs. the default fixed-size avatar usage, which
+   * needs none. Purely presentational, never affects the fallback logic
+   * above. */
+  imgClassName?: string;
 }) {
   const [generatedLoaded, setGeneratedLoaded] = useState(false);
   const [generatedFailed, setGeneratedFailed] = useState(false);
@@ -31,7 +38,7 @@ export function GeneratedImageWithFallback({
   return (
     <div className={`relative overflow-hidden ${className ?? ""}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={proceduralSrc} alt={alt} className="block h-full w-full" />
+      <img src={proceduralSrc} alt={alt} className={`block h-full w-full ${imgClassName}`} />
       {showGenerated && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -39,7 +46,7 @@ export function GeneratedImageWithFallback({
           alt={alt}
           onLoad={() => setGeneratedLoaded(true)}
           onError={() => setGeneratedFailed(true)}
-          className={`absolute inset-0 h-full w-full transition-opacity duration-500 ${generatedLoaded ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-0 h-full w-full transition-opacity duration-500 ${imgClassName} ${generatedLoaded ? "opacity-100" : "opacity-0"}`}
         />
       )}
     </div>

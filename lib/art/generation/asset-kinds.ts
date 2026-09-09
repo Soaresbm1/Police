@@ -15,7 +15,15 @@
 // Charrière's v1 portrait, Delphine Berger's v2 portrait) is deliberately
 // NOT reused under a newer version — it would silently mix visual styles.
 export const CHARACTER_PORTRAIT_GENERATION_VERSION = 3;
-export const CRIME_SCENE_GENERATION_VERSION = 1;
+// Bumped 1 -> 2 alongside CRIME_SCENE_PROMPT_VERSION: the crime-scene
+// hybrid-system pilot extended CrimeSceneVisualDescriptor with
+// architectureStyle/weather (changing the descriptor hash) and rewrote the
+// prompt for documentary realism + explicit no-decisive-evidence wording.
+// No v1 row exists yet, so this bump has zero real invalidation cost — the
+// right moment to do it cleanly rather than let a v1 "ready" row linger
+// under a since-changed style, exactly the discipline already applied to
+// CHARACTER_PORTRAIT_GENERATION_VERSION above.
+export const CRIME_SCENE_GENERATION_VERSION = 2;
 
 /** The provider name recorded on every `generated_assets` row — the
  * pilot's only real provider. A row only ever reaches `status: "ready"`
