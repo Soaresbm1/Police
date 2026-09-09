@@ -2,9 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { generateCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
+import { isAutoPortraitGenerationEnabled, runAutoPortraitGeneration } from "@/lib/art/generation/auto-portrait-trigger";
+import * as generatedAssetStore from "@/lib/art/generation/asset-store";
+import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { getStore } from "./persistence";
 import { getCurrentIdentity } from "./identity";
 import { withSession } from "./with-session";
@@ -28,6 +32,24 @@ export async function startNewCase(formData: FormData) {
   const seed = generateCaseSeed();
   const truth = generateCase(seed, { difficulty });
   await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
+
+  // Pilot-gated (see `.env.example`): queues portrait generation for this
+  // brand-new case's important characters to run after this response is
+  // sent, so the redirect below — and the procedural avatars it lands
+  // on — are never delayed by it. `userId`/`truth` are read above and
+  // captured by closure, per `after()`'s own request-data rule.
+  if (isAutoPortraitGenerationEnabled()) {
+    after(async () => {
+      try {
+        await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+      } catch (err) {
+        console.error(
+          `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    });
+  }
+
   redirect("/investigation/affaire");
 }
 
