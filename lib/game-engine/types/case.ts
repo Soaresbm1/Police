@@ -174,6 +174,25 @@ export interface CaseTruth {
   autopsy: AutopsyReport;
 
   redHerringPersonIds: PersonId[];
+
+  /**
+   * Living Investigation System Phase 5A — a small, separate, immutable
+   * layer of ordinary post-crime routine activity (wake/work/sleep only),
+   * generated once at case-generation time for every non-victim person,
+   * covering exactly the 48 hours starting at the moment the case opens
+   * (`[caseOpenedAt, caseOpenedAt + 48h)`, never the following midnight).
+   * It exists solely so a future surveillance mechanic (Phase 5B, not yet
+   * built) has real, pre-existing activity to observe once investigation
+   * is underway.
+   *
+   * Deliberately isolated from everything else in this interface: never
+   * read by evidence derivation, the knowledge graph, testimony, alibis,
+   * red herrings, the validator, or `computeSolvability` — see
+   * `simulation/post-crime-observation.ts`. Uses its own domain-separated
+   * RNG stream, so its mere existence changes nothing else generated from
+   * the same seed.
+   */
+  postCrimeMovements: TimelineEvent[];
 }
 
 /** What the player is allowed to see before starting the investigation.

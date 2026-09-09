@@ -69,6 +69,7 @@ function makeTruth(evidence: Evidence[]): CaseTruth {
       notableFeatures: [],
     },
     redHerringPersonIds: [],
+    postCrimeMovements: [],
   };
 }
 

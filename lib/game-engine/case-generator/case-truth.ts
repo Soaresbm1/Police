@@ -21,6 +21,7 @@ import { decideTamperingActions, applyTampering } from "./tampering";
 import { generateSharedResources, applySharedResourceAmbiguity } from "./shared-resources";
 import { decideFalseConfession, buildFalseConfession } from "./false-confession";
 import { applyCoordinatedFalseAlibi } from "./coordinated-alibi";
+import { generatePostCrimeMovements, type PostCrimeSubject } from "../simulation/post-crime-observation";
 
 function dedupeCandidatesByHolder(candidates: MotiveCandidate[]): MotiveCandidate[] {
   const seen = new Set<PersonId>();
@@ -275,6 +276,26 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
     }
   }
 
+  // --- Post-crime observation layer (Living Investigation System, Phase 5A) --
+  // A domain-separated stream (`rootRng.derive("post-crime-observation")` is
+  // exactly `createRootRng(seed).derive(...)`, since `rootRng` already IS
+  // `createRootRng(seed)`) — `RNG.derive` forks an entirely independent,
+  // order-insensitive sub-stream (see rng.ts), so adding this call here
+  // changes nothing about any other derive() call's output, for any seed,
+  // regardless of where in this function it happens to run. Deliberately
+  // excludes only the victim (dead, so cannot have a post-crime routine —
+  // a narrative fact the player already knows from the case briefing, not
+  // hidden information) and passes every other person through the exact
+  // same `PostCrimeSubject` projection, with no `roles`/personality/motive
+  // field for the generator to even theoretically branch on.
+  const postCrimeSubjects: PostCrimeSubject[] = people
+    .filter((p) => p.id !== victim.id)
+    .map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, homeLocationId: p.homeLocationId, workLocationId: p.workLocationId }));
+  const postCrimeMovements = generatePostCrimeMovements(rootRng.derive("post-crime-observation"), {
+    people: postCrimeSubjects,
+    caseOpenedAt: simulation.caseOpenedAt,
+  });
+
   const caseTruth: CaseTruth = {
     seed,
     difficulty,
@@ -311,6 +332,7 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
       notableFeatures: [...simulation.autopsy.notableFeatures, ...stagingApplication.autopsyNotableFeatureAdditions],
     },
     redHerringPersonIds: redHerringPeople.map((p) => p.id),
+    postCrimeMovements,
   };
 
   return caseTruth;

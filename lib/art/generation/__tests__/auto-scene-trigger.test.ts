@@ -99,6 +99,7 @@ function makeTruth(overrides: Partial<CaseTruth> = {}): CaseTruth {
       notableFeatures: [],
     },
     redHerringPersonIds: [],
+    postCrimeMovements: [],
     ...overrides,
   };
 }

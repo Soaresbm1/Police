@@ -82,6 +82,7 @@ function makeTruth(people: Person[], overrides: Partial<CaseTruth> = {}): CaseTr
       notableFeatures: [],
     },
     redHerringPersonIds: [],
+    postCrimeMovements: [],
     ...overrides,
   };
 }
