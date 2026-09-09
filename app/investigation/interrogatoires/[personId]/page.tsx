@@ -8,6 +8,7 @@ import { CharacterPortrait } from "@/components/investigation/CharacterPortrait"
 import { InterrogationAmbienceDuck } from "@/components/investigation/InterrogationAmbienceDuck";
 import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
 import { getWitnessCallbackContent } from "@/lib/game-session/witness-callbacks";
+import { WitnessCallbackViewTracker } from "@/components/investigation/WitnessCallbackViewTracker";
 
 const CALLBACK_KIND_LABEL: Record<string, string> = {
   voluntary_disclosure: "Élément volontairement rapporté",
@@ -51,6 +52,7 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
 
       {callback && (
         <section className="panel panel-bracketed border border-l-4 border-l-accent p-4">
+          <WitnessCallbackViewTracker personId={personId} status={callback.status} />
           <p className="field-label mb-2 text-accent">TÉMOIN — {CALLBACK_KIND_LABEL[callback.kind] ?? "Nouveau témoignage"}</p>
           <p className="font-document text-sm text-foreground">
             {person.firstName} : « {callback.content} »

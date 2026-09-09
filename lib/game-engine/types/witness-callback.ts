@@ -23,9 +23,10 @@ export interface WitnessCallback {
   factId: string;
   /** The originally-recorded TestimonyLine being revisited. */
   testimonyLineId: string;
-  /** Exactly `KnowledgeFact.trueStatement` (correction) or
-   * `.believedStatement` (disclosure/clarification) — always copied from
-   * the immutable generated fact, never freshly composed text. */
+  /** Always exactly `KnowledgeFact.believedStatement` — the witness's own
+   * current belief, corrupted or not — copied verbatim from the immutable
+   * generated fact. Never `KnowledgeFact.trueStatement`: a callback must
+   * never use CaseTruth's omniscience to repair a witness's memory. */
   content: string;
   /** Fixed at derivation time, independent of when in gameplay the first
    * interview actually happens — see `EVENT_DELAY_MINUTES` sibling logic

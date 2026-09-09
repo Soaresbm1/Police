@@ -17,7 +17,7 @@ import { withSession } from "./with-session";
 import * as discovery from "./discovery";
 import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
-import { scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
+import { markWitnessCallbackSeen, scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -160,6 +160,21 @@ export async function askQuestionAction(personId: string, factId: string) {
     session.lastActionMessage = topic ? `Réponse obtenue à propos de : ${topic.topicLabel}.` : null;
     session.lastRevealedEvidenceIds = revealed;
     discovery.advanceTime(session, 5);
+  });
+  refreshInvestigation();
+}
+
+/**
+ * Called once the interrogation page has actually rendered a ready
+ * callback's content (see `WitnessCallbackViewTracker` — fired client-side
+ * on mount, i.e. strictly after the browser has painted it). Marking seen
+ * only here, never earlier, is what keeps "the player must have actually
+ * viewed it" true: nothing before this point (scheduling, the Activity
+ * notification, the badge count) ever calls this.
+ */
+export async function viewWitnessCallbackAction(personId: string) {
+  await withSession(({ session }) => {
+    markWitnessCallbackSeen(session, personId);
   });
   refreshInvestigation();
 }

@@ -8,7 +8,7 @@ import {
   markWitnessCallbackSeen,
   scheduleWitnessCallbackIfEligible,
 } from "../witness-callbacks";
-import { resolveEvents } from "../events";
+import { readyUnseenCount, resolveEvents, visibleEvents } from "../events";
 import type { GameSession } from "../types";
 
 function makeSession(overrides: Partial<GameSession> = {}): GameSession {
@@ -198,5 +198,79 @@ describe("markWitnessCallbackSeen", () => {
   it("does nothing for a witness with no scheduled event (no crash)", () => {
     const session = makeSession();
     expect(() => markWitnessCallbackSeen(session, "nobody")).not.toThrow();
+  });
+});
+
+describe("consumption lifecycle: ready -> viewed -> seen -> persisted", () => {
+  it("a ready callback counts as unread (Activity badge) and its content is already readable before it's marked seen", () => {
+    const { truth, personId } = findCaseWithCallback();
+    const candidate = deriveWitnessCallbacks(truth).find((c) => c.personId === personId)!;
+    const session = makeSession({ currentTime: 0 });
+    scheduleWitnessCallbackIfEligible(truth, session, personId);
+    session.currentTime = candidate.delayMinutes;
+    resolveEvents(session);
+
+    // Mirrors the desired flow: "event ready -> Activity notification
+    // appears" (readyUnseenCount/visibleEvents are exactly what the
+    // TopBar badge and inbox read) "-> player opens the interrogation
+    // page -> callback content is displayed" (already readable here,
+    // strictly before any mark-seen call).
+    expect(readyUnseenCount(session)).toBe(1);
+    expect(visibleEvents(session).some((e) => e.type === "witness_callback")).toBe(true);
+    expect(getWitnessCallbackContent(truth, session, personId)!.content).toBe(candidate.content);
+  });
+
+  it("opening the interrogation page (simulated by the same call the page's view-tracker makes) marks the callback seen and clears the unread badge, without touching its content", () => {
+    const { truth, personId } = findCaseWithCallback();
+    const candidate = deriveWitnessCallbacks(truth).find((c) => c.personId === personId)!;
+    const session = makeSession({ currentTime: 0 });
+    scheduleWitnessCallbackIfEligible(truth, session, personId);
+    session.currentTime = candidate.delayMinutes;
+    resolveEvents(session);
+    expect(readyUnseenCount(session)).toBe(1);
+
+    markWitnessCallbackSeen(session, personId);
+
+    expect(describeWitnessCallback(session, personId).status).toBe("seen");
+    expect(readyUnseenCount(session)).toBe(0); // no longer treated as "new"
+    expect(visibleEvents(session).some((e) => e.type === "witness_callback")).toBe(true); // still in the record
+    expect(getWitnessCallbackContent(truth, session, personId)!.content).toBe(candidate.content); // content unchanged
+  });
+
+  it("a reload (re-reading the same persisted session state) keeps the callback seen and its content intact — it never reverts to unread", () => {
+    const { truth, personId } = findCaseWithCallback();
+    const candidate = deriveWitnessCallbacks(truth).find((c) => c.personId === personId)!;
+    const session = makeSession({ currentTime: 0 });
+    scheduleWitnessCallbackIfEligible(truth, session, personId);
+    session.currentTime = candidate.delayMinutes;
+    resolveEvents(session);
+    markWitnessCallbackSeen(session, personId);
+
+    // "Reload" = nothing more than reading the same GameSession again —
+    // there is no separate consumed-ids list to also persist; the event's
+    // own `status` field, already part of the existing persisted
+    // `events` array, is the sole source of truth.
+    for (let i = 0; i < 3; i++) {
+      expect(describeWitnessCallback(session, personId).status).toBe("seen");
+      expect(getWitnessCallbackContent(truth, session, personId)!.content).toBe(candidate.content);
+      expect(readyUnseenCount(session)).toBe(0);
+    }
+  });
+
+  it("a seen callback cannot become unread again, even if resolveEvents or another schedule attempt runs afterward", () => {
+    const { truth, personId } = findCaseWithCallback();
+    const candidate = deriveWitnessCallbacks(truth).find((c) => c.personId === personId)!;
+    const session = makeSession({ currentTime: 0 });
+    scheduleWitnessCallbackIfEligible(truth, session, personId);
+    session.currentTime = candidate.delayMinutes;
+    resolveEvents(session);
+    markWitnessCallbackSeen(session, personId);
+
+    session.currentTime += 10_000;
+    resolveEvents(session);
+    scheduleWitnessCallbackIfEligible(truth, session, personId); // re-interview attempt, still idempotent
+
+    expect(describeWitnessCallback(session, personId).status).toBe("seen");
+    expect(readyUnseenCount(session)).toBe(0);
   });
 });
