@@ -18,6 +18,7 @@ import * as discovery from "./discovery";
 import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
 import { markWitnessCallbackSeen, scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
+import { performConfrontation } from "./confrontations";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -159,6 +160,24 @@ export async function askQuestionAction(personId: string, factId: string) {
     const topic = topics.find((t) => t.factId === factId);
     session.lastActionMessage = topic ? `Réponse obtenue à propos de : ${topic.topicLabel}.` : null;
     session.lastRevealedEvidenceIds = revealed;
+    discovery.advanceTime(session, 5);
+  });
+  refreshInvestigation();
+}
+
+/**
+ * The player-facing "confront this person with this evidence" entry
+ * point (Phase 4). Re-validates eligibility itself (asked + evidence
+ * confrontable + not already performed) rather than trusting the client,
+ * exactly like every other Living Investigation System action — a
+ * tampered request for a non-existent or currently-ineligible
+ * opportunity simply does nothing (`performConfrontation` returns
+ * `null`). Same interrogation-time economy as asking a question.
+ */
+export async function confrontAction(personId: string, opportunityId: string) {
+  await withSession(({ session, truth }) => {
+    const result = performConfrontation(truth, session, personId, opportunityId);
+    session.lastActionMessage = result ? `Confrontation : ${result.evidenceLabel}.` : null;
     discovery.advanceTime(session, 5);
   });
   refreshInvestigation();

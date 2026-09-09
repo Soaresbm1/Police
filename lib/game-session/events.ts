@@ -116,15 +116,24 @@ export function markEventSeen(session: GameSession, eventId: string): void {
 /** `ready` (not yet `seen`) events — what the TopBar badge counts and
  * what triggers the notification sound. Deliberately excludes
  * `scheduled` events: the player must never learn something is coming
- * before it actually arrives. */
+ * before it actually arrives. Also excludes `"confrontation"` — see
+ * `visibleEvents`'s doc comment; kept here too defensively, though in
+ * practice a confrontation is marked `seen` in the same call that
+ * schedules it, so it should never actually be observed at `"ready"`. */
 export function readyUnseenCount(session: GameSession): number {
-  return session.events.filter((e) => e.status === "ready").length;
+  return session.events.filter((e) => e.status === "ready" && e.type !== "confrontation").length;
 }
 
 /** `ready`/`seen` events only, in display order — the investigation
- * inbox's data source. `scheduled` events are never surfaced. */
+ * inbox's data source. `scheduled` events are never surfaced. Also
+ * excludes `"confrontation"` events: those are a synchronous, player-
+ * initiated record (see `types.ts`'s doc comment on
+ * `InvestigationEventType`), never a delayed notification the player is
+ * waiting on — they belong on the interrogation transcript, not this
+ * generic inbox. This exclusion is the only Phase 4 change to this
+ * function and is a no-op for every Phase 1-3 event type. */
 export function visibleEvents(session: GameSession): InvestigationEvent[] {
-  return sortedEvents(session).filter((e) => e.status !== "scheduled");
+  return sortedEvents(session).filter((e) => e.status !== "scheduled" && e.type !== "confrontation");
 }
 
 export type { InvestigationEvent, InvestigationEventSource, InvestigationEventStatus, InvestigationEventType, GameMinutes };

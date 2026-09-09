@@ -96,9 +96,14 @@ export interface MandateRecord {
   requestedAt: GameMinutes;
 }
 
-/** Phase 1 + Phase 2 + Phase 3 event types — deliberately not exhaustive of
- * every future source (a deeper vehicle-records workflow is NOT built yet,
- * see `lib/game-session/events.ts`). */
+/** Phase 1 + Phase 2 + Phase 3 + Phase 4 event types — deliberately not
+ * exhaustive of every future source (a deeper vehicle-records workflow is
+ * NOT built yet, see `lib/game-session/events.ts`). `"confrontation"` is
+ * different in kind from every other entry: it is never a delayed
+ * notification (see `events.ts#visibleEvents`'s explicit exclusion) — it
+ * exists purely so a performed confrontation is idempotent and durable
+ * across reload, reusing this same persisted array rather than adding a
+ * new session field/migration. */
 export type InvestigationEventType =
   | "lab_result"
   | "bank_warrant"
@@ -106,7 +111,8 @@ export type InvestigationEventType =
   | "search_warrant"
   | "cctv_footage"
   | "phone_records"
-  | "witness_callback";
+  | "witness_callback"
+  | "confrontation";
 
 export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
 
@@ -114,9 +120,11 @@ export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
  * deterministic event id, never a hidden CaseTruth fact id. `"location"`/
  * `"person"` (Phase 2) key CCTV/phone requests by the location or person
  * they're about — never by an evidence id, so the id itself never names
- * the thing being investigated. */
+ * the thing being investigated. `"confrontation"` (Phase 4) keys by a
+ * `ConfrontationOpportunity.id`, which is itself already a non-secret,
+ * deterministic string — never a raw evidence or fact id used alone. */
 export interface InvestigationEventSource {
-  kind: "evidence" | "mandate" | "location" | "person";
+  kind: "evidence" | "mandate" | "location" | "person" | "confrontation";
   id: string;
 }
 
