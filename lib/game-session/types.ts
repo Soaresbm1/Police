@@ -96,16 +96,17 @@ export interface MandateRecord {
   requestedAt: GameMinutes;
 }
 
-/** Phase 1 + Phase 2 event types only — deliberately not exhaustive of
- * every future source (witness callbacks and a deeper vehicle-records
- * workflow are NOT built yet, see `lib/game-session/events.ts`). */
+/** Phase 1 + Phase 2 + Phase 3 event types — deliberately not exhaustive of
+ * every future source (a deeper vehicle-records workflow is NOT built yet,
+ * see `lib/game-session/events.ts`). */
 export type InvestigationEventType =
   | "lab_result"
   | "bank_warrant"
   | "bank_records"
   | "search_warrant"
   | "cctv_footage"
-  | "phone_records";
+  | "phone_records"
+  | "witness_callback";
 
 export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
 

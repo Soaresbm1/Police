@@ -17,6 +17,7 @@ import { withSession } from "./with-session";
 import * as discovery from "./discovery";
 import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
+import { scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -145,7 +146,14 @@ export async function advanceTimeAction(minutes: number) {
 
 export async function askQuestionAction(personId: string, factId: string) {
   await withSession(({ session, truth }) => {
+    // A witness's callback (if any) is scheduled the moment the player
+    // first engages them at all — the interview only decides WHEN it
+    // becomes relevant, never WHAT it contains (Phase 3, req. 9).
+    const isFirstInterview = (session.interrogated[personId]?.length ?? 0) === 0;
     markAsked(session, personId, factId);
+    if (isFirstInterview) {
+      scheduleWitnessCallbackIfEligible(truth, session, personId);
+    }
     const revealed = discovery.revealFromInterrogation(truth, session, personId);
     const topics = getInterrogationTopics(truth, session, personId);
     const topic = topics.find((t) => t.factId === factId);

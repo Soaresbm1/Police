@@ -276,6 +276,8 @@ function eventHref(truth: CaseTruth, event: InvestigationEvent): string | null {
       const person = truth.people.find((p) => p.id === event.source.id);
       return person ? `/investigation/applications/telephonie?tel=${encodeURIComponent(person.phoneNumber)}` : "/investigation/applications/telephonie";
     }
+    case "witness_callback":
+      return `/investigation/interrogatoires/${event.source.id}`;
     default:
       return null;
   }

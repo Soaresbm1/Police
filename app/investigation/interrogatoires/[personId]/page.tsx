@@ -7,6 +7,12 @@ import { formatGameTime } from "@/lib/game-engine/types/time";
 import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { InterrogationAmbienceDuck } from "@/components/investigation/InterrogationAmbienceDuck";
 import { getReadyPortraitUrls } from "@/lib/art/generation/portrait-lookup";
+import { getWitnessCallbackContent } from "@/lib/game-session/witness-callbacks";
+
+const CALLBACK_KIND_LABEL: Record<string, string> = {
+  voluntary_disclosure: "Élément volontairement rapporté",
+  clarification: "Précision apportée",
+};
 
 export default async function InterrogationPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
@@ -20,6 +26,7 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
   const topics = getInterrogationTopics(game.truth, game.session, personId);
   const asked = topics.filter((t) => t.asked).sort((a, b) => a.time - b.time);
   const unasked = topics.filter((t) => !t.asked);
+  const callback = getWitnessCallbackContent(game.truth, game.session, personId);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -41,6 +48,15 @@ export default async function InterrogationPage({ params }: { params: Promise<{ 
           </p>
         </div>
       </div>
+
+      {callback && (
+        <section className="panel panel-bracketed border border-l-4 border-l-accent p-4">
+          <p className="field-label mb-2 text-accent">TÉMOIN — {CALLBACK_KIND_LABEL[callback.kind] ?? "Nouveau témoignage"}</p>
+          <p className="font-document text-sm text-foreground">
+            {person.firstName} : « {callback.content} »
+          </p>
+        </section>
+      )}
 
       <section className="panel-sunken border border-border p-4">
         <p className="field-label mb-3">Transcript ({asked.length})</p>
