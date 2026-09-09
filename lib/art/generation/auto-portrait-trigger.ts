@@ -10,6 +10,7 @@ import { ACTIVE_PROVIDER_NAME, CHARACTER_PORTRAIT_GENERATION_VERSION } from "./a
 import { importantPeopleForPortraits } from "./pilot-scope";
 import { mapWithConcurrency } from "./concurrency";
 import { MAX_ASSETS_PER_CASE } from "./limits";
+import { reusePortraitKey } from "./reusable-descriptor";
 
 /** Pilot-scoped hard cap — deliberately tighter than the generic
  * `MAX_ASSETS_PER_CASE` (10) in `limits.ts`, which also covers manual
@@ -24,6 +25,14 @@ export const MAX_AUTO_PORTRAITS_PER_CASE = 6;
  * evenly (two batches of 3) and keeps the combined burst (this + the one
  * concurrent crime-scene call, see `actions.ts`) at a small, bounded 4. */
 export const PORTRAIT_GENERATION_CONCURRENCY = 3;
+
+/** Generated Art V2B — how many same-user reuse candidates to fetch per
+ * lookup. A little larger than `MAX_AUTO_PORTRAITS_PER_CASE` so that, in
+ * the unlikely event several candidates in one batch share the same
+ * coarse reuse bucket, there's enough headroom for each one to fall
+ * through to the next-best still-unclaimed candidate instead of
+ * immediately generating for real. Small and fixed — never unbounded. */
+const REUSE_CANDIDATE_LIMIT = 8;
 
 /** Server-only gate — never `NEXT_PUBLIC_`, checked only from Server
  * Actions/Components. Defaults to disabled (see `.env.example`); automatic
@@ -70,6 +79,10 @@ export interface AutoPortraitDiagnostics {
   ready: number;
   failed: number;
   skippedDueToCap: number;
+  /** Generated Art V2B — of `ready`, how many were served by reusing a
+   * same-user asset from a different case instead of a real Cloudflare
+   * call. Diagnostics/measurement only. */
+  reuseHits: number;
 }
 
 /**
@@ -133,6 +146,7 @@ export async function runAutoPortraitGeneration(
     ready: 0,
     failed: 0,
     skippedDueToCap: Math.max(0, allImportant.length - candidates.length),
+    reuseHits: 0,
   };
 
   let remainingBudget: number;
@@ -145,6 +159,15 @@ export async function runAutoPortraitGeneration(
     // exactly as if this budget guard didn't exist.
     remainingBudget = candidates.length;
   }
+
+  // Generated Art V2B — shared across every concurrent worker in this
+  // batch (see pipeline.ts#ReuseLookupOptions): a same-user reuse source
+  // claimed by one worker can never be claimed by a sibling, even though
+  // several run "concurrently" under PORTRAIT_GENERATION_CONCURRENCY.
+  // Guarantees no two people in THIS case ever display the same reused
+  // photo. Plain local Set, scoped to this one batch/process — never
+  // persisted or assumed to survive across invocations.
+  const claimedSourceIds = new Set<string>();
 
   await mapWithConcurrency(candidates, PORTRAIT_GENERATION_CONCURRENCY, async (person) => {
     const descriptor = buildCharacterVisualDescriptor(person);
@@ -172,25 +195,34 @@ export async function runAutoPortraitGeneration(
     remainingBudget--;
 
     diagnostics.attempted++;
-    const result = await getOrGenerateAsset(deps, {
-      userId,
-      caseSeed: truth.seed,
-      assetKind: "character_portrait",
-      descriptorHash,
-      generationVersion: CHARACTER_PORTRAIT_GENERATION_VERSION,
-      providerName: ACTIVE_PROVIDER_NAME,
-      promptVersion: CHARACTER_PROMPT_VERSION,
-      prompt: buildCharacterPortraitPrompt(descriptor),
-      seed: descriptor.seed,
-    });
-    if (result.status === "ready") diagnostics.ready++;
-    else diagnostics.failed++;
+    const result = await getOrGenerateAsset(
+      deps,
+      {
+        userId,
+        caseSeed: truth.seed,
+        assetKind: "character_portrait",
+        descriptorHash,
+        generationVersion: CHARACTER_PORTRAIT_GENERATION_VERSION,
+        providerName: ACTIVE_PROVIDER_NAME,
+        promptVersion: CHARACTER_PROMPT_VERSION,
+        prompt: buildCharacterPortraitPrompt(descriptor),
+        seed: descriptor.seed,
+        reuseKey: reusePortraitKey(descriptor),
+      },
+      { excludeCaseSeed: truth.seed, claimedSourceIds, candidateLimit: REUSE_CANDIDATE_LIMIT },
+    );
+    if (result.status === "ready") {
+      diagnostics.ready++;
+      if (result.origin === "reuse") diagnostics.reuseHits++;
+    } else {
+      diagnostics.failed++;
+    }
   });
 
   console.log(
     `[CASELINE] [auto-portrait] case ${truth.seed}: ` +
       `attempted=${diagnostics.attempted}, cacheHits=${diagnostics.cacheHits}, ready=${diagnostics.ready}, ` +
-      `failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}.`,
+      `reuseHits=${diagnostics.reuseHits}, failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}.`,
   );
   return diagnostics;
 }

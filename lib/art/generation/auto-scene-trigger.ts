@@ -5,11 +5,20 @@ import { hashDescriptor } from "../asset-cache";
 import { buildCrimeSceneEnvironmentPrompt, CRIME_SCENE_PROMPT_VERSION } from "./crime-scene-prompt";
 import { getOrGenerateAsset, type AssetStoreLike } from "./pipeline";
 import { ACTIVE_PROVIDER_NAME, CRIME_SCENE_GENERATION_VERSION } from "./asset-kinds";
+import { reuseSceneKey } from "./reusable-descriptor";
 
 /** Hard cap for this trigger — always exactly one crime-scene environment
  * (the case's own crime location) per case, never secondary locations,
  * evidence images, CCTV, documents, maps, or additional scene angles. */
 export const MAX_AUTO_CRIME_SCENES_PER_CASE = 1;
+
+/** Generated Art V2B — how many same-user reuse candidates to fetch for
+ * the one scene lookup. Only one entity is ever involved per case, so
+ * same-batch collision (the concern `PORTRAIT_GENERATION_CONCURRENCY`
+ * guards against) cannot happen here — this just gives a small amount of
+ * headroom if the single best candidate's row somehow fails to
+ * materialize (see `getOrGenerateAsset`'s per-candidate fallback). */
+const REUSE_CANDIDATE_LIMIT = 3;
 
 /** Server-only gate — never `NEXT_PUBLIC_`, checked only from Server
  * Actions/Components. A dedicated flag, deliberately independent from
@@ -29,6 +38,9 @@ export interface AutoCrimeSceneDiagnostics {
    * can't be found in `truth.locations` — should not happen in practice,
    * but this trigger must never throw regardless. */
   skipped: number;
+  /** Generated Art V2B — 1 if the scene was served by reusing a same-user
+   * asset from a different case instead of a real Cloudflare call. */
+  reuseHits: number;
 }
 
 /**
@@ -62,7 +74,7 @@ export async function runAutoCrimeSceneGeneration(
   userId: string,
   truth: CaseTruth,
 ): Promise<AutoCrimeSceneDiagnostics> {
-  const diagnostics: AutoCrimeSceneDiagnostics = { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0 };
+  const diagnostics: AutoCrimeSceneDiagnostics = { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0, reuseHits: 0 };
 
   const location = truth.locations.find((l) => l.id === truth.crimeLocationId);
   if (!location) {
@@ -88,19 +100,28 @@ export async function runAutoCrimeSceneGeneration(
   }
 
   diagnostics.attempted++;
-  const result = await getOrGenerateAsset(deps, {
-    userId,
-    caseSeed: truth.seed,
-    assetKind: "crime_scene_environment",
-    descriptorHash,
-    generationVersion: CRIME_SCENE_GENERATION_VERSION,
-    providerName: ACTIVE_PROVIDER_NAME,
-    promptVersion: CRIME_SCENE_PROMPT_VERSION,
-    prompt: buildCrimeSceneEnvironmentPrompt(descriptor),
-    seed: descriptor.seed,
-  });
-  if (result.status === "ready") diagnostics.ready++;
-  else diagnostics.failed++;
+  const result = await getOrGenerateAsset(
+    deps,
+    {
+      userId,
+      caseSeed: truth.seed,
+      assetKind: "crime_scene_environment",
+      descriptorHash,
+      generationVersion: CRIME_SCENE_GENERATION_VERSION,
+      providerName: ACTIVE_PROVIDER_NAME,
+      promptVersion: CRIME_SCENE_PROMPT_VERSION,
+      prompt: buildCrimeSceneEnvironmentPrompt(descriptor),
+      seed: descriptor.seed,
+      reuseKey: reuseSceneKey(descriptor),
+    },
+    { excludeCaseSeed: truth.seed, claimedSourceIds: new Set(), candidateLimit: REUSE_CANDIDATE_LIMIT },
+  );
+  if (result.status === "ready") {
+    diagnostics.ready++;
+    if (result.origin === "reuse") diagnostics.reuseHits++;
+  } else {
+    diagnostics.failed++;
+  }
 
   logSummary(truth.seed, diagnostics);
   return diagnostics;
@@ -112,6 +133,6 @@ function logSummary(seed: string, d: AutoCrimeSceneDiagnostics): void {
   // same discipline as auto-portrait-trigger.ts's own summary line.
   console.log(
     `[CASELINE] [auto-crime-scene] case ${seed}: ` +
-      `attempted=${d.attempted}, cacheHits=${d.cacheHits}, ready=${d.ready}, failed=${d.failed}, skipped=${d.skipped}.`,
+      `attempted=${d.attempted}, cacheHits=${d.cacheHits}, ready=${d.ready}, reuseHits=${d.reuseHits}, failed=${d.failed}, skipped=${d.skipped}.`,
   );
 }

@@ -117,7 +117,15 @@ class FakeAssetStore implements AssetStoreLike {
     );
   }
 
-  async createQueuedRecord(userId: string, caseSeed: string, assetKind: GeneratedAssetKind, descriptorHash: string, generationVersion: number, provider: string) {
+  async createQueuedRecord(
+    userId: string,
+    caseSeed: string,
+    assetKind: GeneratedAssetKind,
+    descriptorHash: string,
+    generationVersion: number,
+    provider: string,
+    reuseKey: string | null,
+  ) {
     const record: GeneratedAssetRecord = {
       id: String(this.nextId++),
       userId,
@@ -135,6 +143,9 @@ class FakeAssetStore implements AssetStoreLike {
       errorMessage: null,
       attemptCount: 0,
       failedAt: null,
+      reuseKey,
+      reuseCount: 0,
+      sourceAssetId: null,
     };
     this.rows.push(record);
     return record;
@@ -165,6 +176,72 @@ class FakeAssetStore implements AssetStoreLike {
 
   async getSignedAssetUrl(path: string) {
     return `https://example.test/signed/${path}`;
+  }
+
+  async findReusableAssetCandidates(
+    userId: string,
+    assetKind: GeneratedAssetKind,
+    generationVersion: number,
+    provider: string,
+    reuseKey: string,
+    excludeCaseSeed: string,
+    limit: number,
+  ) {
+    return this.rows
+      .filter(
+        (r) =>
+          r.userId === userId &&
+          r.assetKind === assetKind &&
+          r.generationVersion === generationVersion &&
+          r.provider === provider &&
+          r.reuseKey === reuseKey &&
+          r.status === "ready" &&
+          r.sourceAssetId === null &&
+          r.caseSeed !== excludeCaseSeed,
+      )
+      .sort((a, b) => a.reuseCount - b.reuseCount || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async createReusedRecord(
+    userId: string,
+    caseSeed: string,
+    assetKind: GeneratedAssetKind,
+    descriptorHash: string,
+    generationVersion: number,
+    provider: string,
+    source: GeneratedAssetRecord,
+    reuseKey: string,
+    canonicalSourceId: string,
+  ) {
+    const record: GeneratedAssetRecord = {
+      id: String(this.nextId++),
+      userId,
+      caseSeed,
+      assetKind,
+      descriptorHash,
+      generationVersion,
+      provider,
+      providerModel: source.providerModel,
+      status: "ready",
+      storagePath: source.storagePath,
+      width: source.width,
+      height: source.height,
+      promptVersion: source.promptVersion,
+      errorMessage: null,
+      attemptCount: 0,
+      failedAt: null,
+      reuseKey,
+      reuseCount: 0,
+      sourceAssetId: canonicalSourceId,
+    };
+    this.rows.push(record);
+    return record;
+  }
+
+  async incrementReuseCount(userId: string, assetId: string) {
+    const r = this.rows.find((x) => x.id === assetId && x.userId === userId);
+    if (r) r.reuseCount++;
   }
 }
 
@@ -276,5 +353,46 @@ describe("runAutoCrimeSceneGeneration", () => {
     expect(second.cacheHits).toBe(1);
     expect(second.attempted).toBe(0);
     expect(provider.calls).toHaveLength(1); // still just the one real call
+  });
+
+  describe("same-user reusable scenes (Generated Art V2B)", () => {
+    it("[E] a compatible scene from a DIFFERENT case (same layout/time-of-day/architecture) is reused with zero provider calls", async () => {
+      // "office" has exactly one layout candidate (see crime-scene-layouts.ts),
+      // so two different locations of this type always resolve to the same
+      // layoutTemplate/architectureStyle regardless of their own id/seed —
+      // the two cases below are genuinely reuse-compatible.
+      const locationA = makeLocation({ id: "loc-office-a", type: "office" });
+      const locationB = makeLocation({ id: "loc-office-b", type: "office" });
+      const store = new FakeAssetStore();
+      const provider = new MockGeneratedAssetProvider();
+
+      const truthA = makeTruth({ seed: "CASE-A", locations: [locationA], crimeLocationId: locationA.id, crimeTimestamp: 700 });
+      const first = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthA);
+      expect(first.attempted).toBe(1);
+      expect(first.reuseHits).toBe(0);
+
+      const truthB = makeTruth({ seed: "CASE-B", locations: [locationB], crimeLocationId: locationB.id, crimeTimestamp: 700 });
+      const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthB);
+      expect(second.ready).toBe(1);
+      expect(second.reuseHits).toBe(1);
+      expect(provider.calls).toHaveLength(1); // no new Cloudflare call for the second case's scene
+    });
+
+    it("[F] an incompatible scene (different layout template) still generates for real", async () => {
+      const officeLocation = makeLocation({ id: "loc-office", type: "office" });
+      const warehouseLocation = makeLocation({ id: "loc-warehouse", type: "warehouse" });
+      const store = new FakeAssetStore();
+      const provider = new MockGeneratedAssetProvider();
+
+      const truthOffice = makeTruth({ seed: "CASE-OFFICE", locations: [officeLocation], crimeLocationId: officeLocation.id, crimeTimestamp: 700 });
+      await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthOffice);
+
+      const truthWarehouse = makeTruth({ seed: "CASE-WAREHOUSE", locations: [warehouseLocation], crimeLocationId: warehouseLocation.id, crimeTimestamp: 700 });
+      const result = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthWarehouse);
+
+      expect(result.reuseHits).toBe(0);
+      expect(result.ready).toBe(1);
+      expect(provider.calls).toHaveLength(2); // a genuinely new real generation
+    });
   });
 });

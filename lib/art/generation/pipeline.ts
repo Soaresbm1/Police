@@ -17,6 +17,7 @@ export interface AssetStoreLike {
     descriptorHash: string,
     generationVersion: number,
     provider: string,
+    reuseKey: string | null,
   ): Promise<GeneratedAssetRecord>;
   markGenerating(userId: string, id: string): Promise<void>;
   markReady(
@@ -28,6 +29,28 @@ export interface AssetStoreLike {
   countAssetsForCase(userId: string, caseSeed: string): Promise<number>;
   uploadAssetBytes(userId: string, caseSeed: string, descriptorHash: string, bytes: Uint8Array, contentType: string): Promise<{ path: string }>;
   getSignedAssetUrl(path: string, expiresInSeconds?: number): Promise<string | null>;
+  /** Generated Art V2B */
+  findReusableAssetCandidates(
+    userId: string,
+    assetKind: GeneratedAssetKind,
+    generationVersion: number,
+    provider: string,
+    reuseKey: string,
+    excludeCaseSeed: string,
+    limit: number,
+  ): Promise<GeneratedAssetRecord[]>;
+  createReusedRecord(
+    userId: string,
+    caseSeed: string,
+    assetKind: GeneratedAssetKind,
+    descriptorHash: string,
+    generationVersion: number,
+    provider: string,
+    source: GeneratedAssetRecord,
+    reuseKey: string,
+    canonicalSourceId: string,
+  ): Promise<GeneratedAssetRecord>;
+  incrementReuseCount(userId: string, assetId: string): Promise<void>;
 }
 
 export interface GetOrGenerateAssetArgs {
@@ -45,11 +68,49 @@ export interface GetOrGenerateAssetArgs {
   /** Passed through to `provider.generate()` as its own seed — usually
    * the same seed the visual descriptor itself was built from. */
   seed: string;
+  /** Generated Art V2B — tags this asset's own row with its coarse reuse
+   * bucket (see `reusable-descriptor.ts`) once it becomes `ready` (via a
+   * real generation OR a reuse hit), so a FUTURE case can find and reuse
+   * it. `null`/omitted means this asset is never itself a reuse source —
+   * used by callers that don't want to participate in the pool at all
+   * (e.g. the manual `/case-lab/art` dev inspector). Independent from
+   * whether THIS call also attempts to CONSUME an existing reusable asset
+   * — that's controlled separately by the `reuseLookup` parameter below. */
+  reuseKey?: string | null;
 }
 
 export interface GetOrGenerateAssetResult {
   status: AssetStatus;
   url: string | null;
+  /** Generated Art V2B — only meaningful when `status === "ready"`: how
+   * this result was actually produced. Diagnostics/measurement only
+   * (see `runAutoPortraitGeneration`'s `reuseHits` counter) — never read
+   * by anything correctness-affecting. */
+  origin?: "exact_cache" | "reuse" | "fresh_generation";
+}
+
+/** Generated Art V2B — opt-in reuse consumption. Only meaningful together
+ * with `args.reuseKey` (the bucket to search for a compatible existing
+ * asset in); omitting this parameter entirely (e.g. the dev inspector)
+ * means this call always either hits the exact cache or generates for
+ * real — it never looks for a same-user reusable asset. */
+export interface ReuseLookupOptions {
+  /** Never match a candidate belonging to the case currently being
+   * generated for — the hard guarantee against two entities in the SAME
+   * case resolving to each other's asset. */
+  excludeCaseSeed: string;
+  /** Shared across every concurrent worker in one auto-generation batch
+   * (see `auto-portrait-trigger.ts`) — a source asset id claimed by one
+   * worker can never be claimed by a sibling, even though several workers
+   * run "concurrently" under V2A's bounded concurrency. A plain
+   * in-process `Set`, mutated in place; scoped to one batch/one process,
+   * never persisted or assumed to survive across invocations. */
+  claimedSourceIds: Set<string>;
+  /** How many candidates to fetch per lookup — small and bounded (never
+   * unbounded), just enough headroom that a same-batch collision can fall
+   * through to the next-best candidate instead of immediately generating
+   * for real. */
+  candidateLimit: number;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -84,6 +145,7 @@ const FAILED: GetOrGenerateAssetResult = { status: "failed", url: null };
 export async function getOrGenerateAsset(
   deps: { store: AssetStoreLike; provider: GeneratedAssetProvider },
   args: GetOrGenerateAssetArgs,
+  reuseLookup?: ReuseLookupOptions,
 ): Promise<GetOrGenerateAssetResult> {
   const { store, provider } = deps;
   // Tracked outside the inner try so the outer catch can still mark this
@@ -97,8 +159,11 @@ export async function getOrGenerateAsset(
     const existing = await store.findAssetRecord(args.userId, args.descriptorHash, args.generationVersion, args.providerName);
 
     if (existing?.status === "ready" && existing.storagePath) {
+      // Exact cache always wins — even if a reuse lookup would also
+      // match, this entity already has its own real/reused asset ready,
+      // so there is nothing left to look up.
       const url = await store.getSignedAssetUrl(existing.storagePath);
-      return { status: "ready", url };
+      return { status: "ready", url, origin: "exact_cache" };
     }
     if (existing?.status === "queued" || existing?.status === "generating") {
       // Another request is already handling this exact asset — never pile
@@ -111,11 +176,88 @@ export async function getOrGenerateAsset(
       if (!cooledDown || !attemptsLeft) return FAILED;
     }
 
+    // --- Generated Art V2B: reuse lookup, only after a genuine exact-cache
+    // miss, and only when the caller opted in. A hit here returns
+    // immediately — zero Cloudflare call, zero upload. ---
+    if (reuseLookup && args.reuseKey) {
+      try {
+        const candidates = await store.findReusableAssetCandidates(
+          args.userId,
+          args.assetKind,
+          args.generationVersion,
+          args.providerName,
+          args.reuseKey,
+          reuseLookup.excludeCaseSeed,
+          reuseLookup.candidateLimit,
+        );
+        for (const candidate of candidates) {
+          // Canonicalization (Generated Art V2B hardening): resolve the
+          // TRUE canonical source id before doing anything else with this
+          // candidate. `findReusableAssetCandidates` already filters to
+          // `source_asset_id IS NULL` (candidate.sourceAssetId should
+          // always be null here), but this resolves defensively anyway —
+          // even a hypothetical non-canonical row slipping through can
+          // never create a chain, because every write below (the claim,
+          // the new row's own source_asset_id, the reuse_count increment)
+          // uses `canonicalId`, never `candidate.id` directly.
+          const canonicalId = candidate.sourceAssetId ?? candidate.id;
+
+          // Synchronous check-and-claim, no `await` between them — this is
+          // what makes it safe under V2A's concurrent portrait workers
+          // without a lock: JS never interleaves two synchronous
+          // statements across "concurrent" async calls within one event-
+          // loop turn. A canonical source claimed by one worker can never
+          // be picked by a sibling processing a different entity in the
+          // same batch — even if they'd otherwise resolve through
+          // different (but chained) candidate rows, they always claim the
+          // same canonical id.
+          if (reuseLookup.claimedSourceIds.has(canonicalId)) continue;
+          reuseLookup.claimedSourceIds.add(canonicalId);
+          if (!candidate.storagePath) continue;
+          try {
+            const reused = await store.createReusedRecord(
+              args.userId,
+              args.caseSeed,
+              args.assetKind,
+              args.descriptorHash,
+              args.generationVersion,
+              args.providerName,
+              candidate,
+              args.reuseKey,
+              canonicalId,
+            );
+            store.incrementReuseCount(args.userId, canonicalId).catch((err) => {
+              console.warn(`[CASELINE] incrementReuseCount failed for asset ${canonicalId}: ${err instanceof Error ? err.message : String(err)}`);
+            });
+            const url = await store.getSignedAssetUrl(reused.storagePath!);
+            return { status: "ready", url, origin: "reuse" };
+          } catch {
+            // This specific candidate failed to materialize as a reuse —
+            // try the next one rather than falling straight through to a
+            // real generation.
+            continue;
+          }
+        }
+      } catch {
+        // The reuse lookup itself failed (e.g. a transient Supabase
+        // outage) — degrade to the normal generate-or-fail path below,
+        // exactly as if reuse didn't exist for this call.
+      }
+    }
+
     record = existing ?? undefined;
     if (!record) {
       const currentCount = await store.countAssetsForCase(args.userId, args.caseSeed);
       if (currentCount >= MAX_ASSETS_PER_CASE) return MISSING; // pilot cap reached — stay procedural
-      record = await store.createQueuedRecord(args.userId, args.caseSeed, args.assetKind, args.descriptorHash, args.generationVersion, args.providerName);
+      record = await store.createQueuedRecord(
+        args.userId,
+        args.caseSeed,
+        args.assetKind,
+        args.descriptorHash,
+        args.generationVersion,
+        args.providerName,
+        args.reuseKey ?? null,
+      );
     }
 
     await store.markGenerating(args.userId, record.id);
@@ -142,7 +284,7 @@ export async function getOrGenerateAsset(
       promptVersion: args.promptVersion,
     });
     const url = await store.getSignedAssetUrl(path);
-    return { status: "ready", url };
+    return { status: "ready", url, origin: "fresh_generation" };
   } catch (err) {
     // A store-layer failure (network, RLS misconfiguration, a bad upload,
     // etc.) is exactly as recoverable as a provider failure from the

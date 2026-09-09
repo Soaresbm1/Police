@@ -24,6 +24,9 @@ function rowToRecord(row: AssetRow): GeneratedAssetRecord {
     errorMessage: row.error_message,
     attemptCount: row.attempt_count,
     failedAt: row.failed_at,
+    reuseKey: row.reuse_key,
+    reuseCount: row.reuse_count,
+    sourceAssetId: row.source_asset_id,
   };
 }
 
@@ -69,6 +72,12 @@ export async function createQueuedRecord(
   descriptorHash: string,
   generationVersion: number,
   provider: string,
+  /** Generated Art V2B — tags this row with its coarse reuse bucket so a
+   * FUTURE case's own lookup can find and reuse it once it's `ready`.
+   * `null` for a caller that doesn't want this asset to ever become a
+   * reuse source (e.g. the manual `/case-lab/art` dev inspector, which
+   * deliberately never passes one). */
+  reuseKey: string | null,
 ): Promise<GeneratedAssetRecord> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
@@ -81,11 +90,126 @@ export async function createQueuedRecord(
       generation_version: generationVersion,
       provider,
       status: "queued",
+      reuse_key: reuseKey,
+      // A freshly-generated row is always canonical — see the
+      // source_asset_id doc comment on GeneratedAssetRecord.
+      source_asset_id: null,
     })
     .select("*")
     .single();
   if (error) throw new Error(`Supabase createQueuedRecord failed: ${error.message}`);
   return rowToRecord(data);
+}
+
+/**
+ * Generated Art V2B — read-only lookup for same-user reuse candidates.
+ * Only ever returns `ready`, CANONICAL rows (`source_asset_id IS NULL` —
+ * a reused row can never itself become a future reuse source, which is
+ * what makes reuse chains structurally impossible: every reused row is
+ * always exactly one hop from a canonical row) whose `reuse_key` matches,
+ * explicitly excluding the case currently being generated for
+ * (`excludeCaseSeed`) — the hard guarantee that two entities in the SAME
+ * case can never resolve to each other's asset. Ordered so the caller's
+ * own same-batch claiming (see `auto-portrait-trigger.ts`) can walk down
+ * the list deterministically if an earlier candidate is already claimed
+ * by a concurrent sibling. `user_id` is filtered explicitly here — same
+ * defense-in-depth discipline as every other function in this file — on
+ * top of the unchanged RLS select policy.
+ */
+export async function findReusableAssetCandidates(
+  userId: string,
+  assetKind: GeneratedAssetKind,
+  generationVersion: number,
+  provider: string,
+  reuseKey: string,
+  excludeCaseSeed: string,
+  limit: number,
+): Promise<GeneratedAssetRecord[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("generated_assets")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("asset_kind", assetKind)
+    .eq("generation_version", generationVersion)
+    .eq("provider", provider)
+    .eq("reuse_key", reuseKey)
+    .eq("status", "ready")
+    .is("source_asset_id", null)
+    .neq("case_seed", excludeCaseSeed)
+    .order("reuse_count", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(`Supabase findReusableAssetCandidates failed: ${error.message}`);
+  return (data ?? []).map(rowToRecord);
+}
+
+/**
+ * Generated Art V2B — materializes a reuse hit as a brand-new row for the
+ * CURRENT entity's own exact `descriptorHash`/`caseSeed`, `ready`
+ * immediately, pointing at the SAME `storage_path` (and provider/model/
+ * dimensions/prompt-version metadata) as `source` — no upload, no
+ * Cloudflare call. This is what lets the existing exact-cache read path
+ * (`findAssetRecord`/`findReadyAssetsByHashes`) keep working completely
+ * unmodified: every entity, reused or freshly generated, always has its
+ * own row keyed by its own exact descriptor hash.
+ *
+ * `canonicalSourceId` is set as this new row's `source_asset_id` — passed
+ * explicitly by the caller (`pipeline.ts`) rather than derived from
+ * `source.id` here, because the caller defensively resolves it as
+ * `source.sourceAssetId ?? source.id` first. That resolution is what
+ * guarantees no reuse chain can form even in the hypothetical case a
+ * non-canonical row somehow reached this function despite
+ * `findReusableAssetCandidates`'s own filter — this function trusts
+ * whatever id it's given and never re-derives one from `source` itself.
+ */
+export async function createReusedRecord(
+  userId: string,
+  caseSeed: string,
+  assetKind: GeneratedAssetKind,
+  descriptorHash: string,
+  generationVersion: number,
+  provider: string,
+  source: GeneratedAssetRecord,
+  reuseKey: string,
+  canonicalSourceId: string,
+): Promise<GeneratedAssetRecord> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("generated_assets")
+    .insert({
+      user_id: userId,
+      case_seed: caseSeed,
+      asset_kind: assetKind,
+      descriptor_hash: descriptorHash,
+      generation_version: generationVersion,
+      provider,
+      provider_model: source.providerModel,
+      status: "ready",
+      storage_path: source.storagePath,
+      width: source.width,
+      height: source.height,
+      prompt_version: source.promptVersion,
+      reuse_key: reuseKey,
+      source_asset_id: canonicalSourceId,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(`Supabase createReusedRecord failed: ${error.message}`);
+  return rowToRecord(data);
+}
+
+/** Generated Art V2B — atomic (DB-side, single UPDATE statement) increment
+ * of a reuse source's `reuse_count`, via the `increment_reuse_count` SQL
+ * function (migration 0004) — never a JS-side read-then-write, which
+ * would lose updates under V2A's concurrent portrait generation or two
+ * cases being created around the same time. Runs as the calling user
+ * (`security invoker`), so the existing RLS update policy still applies;
+ * `userId` is passed through as defense in depth on top of that. */
+export async function incrementReuseCount(userId: string, assetId: string): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.rpc("increment_reuse_count", { asset_id: assetId, owner_id: userId });
+  if (error) throw new Error(`Supabase incrementReuseCount failed: ${error.message}`);
 }
 
 export async function markGenerating(userId: string, id: string): Promise<void> {

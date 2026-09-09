@@ -100,6 +100,9 @@ export interface Database {
           failed_at: string | null;
           created_at: string;
           updated_at: string;
+          reuse_key: string | null;
+          reuse_count: number;
+          source_asset_id: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["generated_assets"]["Row"]> & {
           user_id: string;
@@ -114,7 +117,12 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      increment_reuse_count: {
+        Args: { asset_id: string; owner_id: string };
+        Returns: undefined;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

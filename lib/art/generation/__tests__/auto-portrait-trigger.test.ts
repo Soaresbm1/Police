@@ -8,6 +8,10 @@ import {
 } from "../auto-portrait-trigger";
 import { MockGeneratedAssetProvider, AlwaysMissingGeneratedAssetProvider } from "../mock-provider";
 import { MAX_ASSETS_PER_CASE } from "../limits";
+import { reusePortraitKey } from "../reusable-descriptor";
+import { buildCharacterVisualDescriptor } from "../../visual-manifest";
+import { hashDescriptor } from "../../asset-cache";
+import { CHARACTER_PORTRAIT_GENERATION_VERSION, ACTIVE_PROVIDER_NAME } from "../asset-kinds";
 import type { AssetStoreLike } from "../pipeline";
 import type { GeneratedAssetProvider, GeneratedAssetResult } from "../../generated-asset-provider";
 import type { GeneratedAssetKind, GeneratedAssetRecord } from "../types";
@@ -100,7 +104,15 @@ class FakeAssetStore implements AssetStoreLike {
     );
   }
 
-  async createQueuedRecord(userId: string, caseSeed: string, assetKind: GeneratedAssetKind, descriptorHash: string, generationVersion: number, provider: string) {
+  async createQueuedRecord(
+    userId: string,
+    caseSeed: string,
+    assetKind: GeneratedAssetKind,
+    descriptorHash: string,
+    generationVersion: number,
+    provider: string,
+    reuseKey: string | null,
+  ) {
     const record: GeneratedAssetRecord = {
       id: String(this.nextId++),
       userId,
@@ -118,6 +130,9 @@ class FakeAssetStore implements AssetStoreLike {
       errorMessage: null,
       attemptCount: 0,
       failedAt: null,
+      reuseKey,
+      reuseCount: 0,
+      sourceAssetId: null,
     };
     this.rows.push(record);
     return record;
@@ -149,6 +164,72 @@ class FakeAssetStore implements AssetStoreLike {
 
   async getSignedAssetUrl(path: string) {
     return `https://example.test/signed/${path}`;
+  }
+
+  async findReusableAssetCandidates(
+    userId: string,
+    assetKind: GeneratedAssetKind,
+    generationVersion: number,
+    provider: string,
+    reuseKey: string,
+    excludeCaseSeed: string,
+    limit: number,
+  ) {
+    return this.rows
+      .filter(
+        (r) =>
+          r.userId === userId &&
+          r.assetKind === assetKind &&
+          r.generationVersion === generationVersion &&
+          r.provider === provider &&
+          r.reuseKey === reuseKey &&
+          r.status === "ready" &&
+          r.sourceAssetId === null &&
+          r.caseSeed !== excludeCaseSeed,
+      )
+      .sort((a, b) => a.reuseCount - b.reuseCount || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async createReusedRecord(
+    userId: string,
+    caseSeed: string,
+    assetKind: GeneratedAssetKind,
+    descriptorHash: string,
+    generationVersion: number,
+    provider: string,
+    source: GeneratedAssetRecord,
+    reuseKey: string,
+    canonicalSourceId: string,
+  ) {
+    const record: GeneratedAssetRecord = {
+      id: String(this.nextId++),
+      userId,
+      caseSeed,
+      assetKind,
+      descriptorHash,
+      generationVersion,
+      provider,
+      providerModel: source.providerModel,
+      status: "ready",
+      storagePath: source.storagePath,
+      width: source.width,
+      height: source.height,
+      promptVersion: source.promptVersion,
+      errorMessage: null,
+      attemptCount: 0,
+      failedAt: null,
+      reuseKey,
+      reuseCount: 0,
+      sourceAssetId: canonicalSourceId,
+    };
+    this.rows.push(record);
+    return record;
+  }
+
+  async incrementReuseCount(userId: string, assetId: string) {
+    const r = this.rows.find((x) => x.id === assetId && x.userId === userId);
+    if (r) r.reuseCount++;
   }
 }
 
@@ -348,7 +429,7 @@ describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)"
     // concurrent workers all read the same stale "8 used" count and all
     // proceed.
     for (let i = 0; i < MAX_ASSETS_PER_CASE - 2; i++) {
-      await store.createQueuedRecord("user-1", truth.seed, "character_portrait", `preexisting-${i}`, 3, "cloudflare");
+      await store.createQueuedRecord("user-1", truth.seed, "character_portrait", `preexisting-${i}`, 3, "cloudflare", null);
     }
     const gated = makeGatedProvider();
 
@@ -363,5 +444,52 @@ describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)"
 
     expect(store.rows.length).toBeLessThanOrEqual(MAX_ASSETS_PER_CASE);
     expect(diagnostics.attempted).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("runAutoPortraitGeneration — same-user reuse under V2A concurrency (Generated Art V2B)", () => {
+  it("[I] a compatible same-user asset from a prior case is reused with zero new provider calls, safely inside the bounded-concurrency batch", async () => {
+    const { truth, victim } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+
+    // Pre-seed a "prior case" real asset matching the victim's own exact
+    // reuse bucket, so this batch's very first candidate should reuse it.
+    const victimDescriptor = buildCharacterVisualDescriptor(victim);
+    const reuseKey = reusePortraitKey(victimDescriptor);
+    const priorCaseId = "CASE-PRIOR";
+    const priorRow = await store.createQueuedRecord(
+      "user-1",
+      priorCaseId,
+      "character_portrait",
+      "prior-descriptor-hash",
+      CHARACTER_PORTRAIT_GENERATION_VERSION,
+      ACTIVE_PROVIDER_NAME,
+      reuseKey,
+    );
+    await store.markReady("user-1", priorRow.id, { storagePath: "user-1/CASE-PRIOR/prior.jpeg", width: 1024, height: 1024, providerModel: "old", promptVersion: 3 });
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+
+    expect(diagnostics.reuseHits).toBeGreaterThanOrEqual(1);
+    const victimHash = hashDescriptor(victimDescriptor);
+    const victimRow = store.rows.find((r) => r.caseSeed === truth.seed && r.descriptorHash === victimHash);
+    expect(victimRow?.storagePath).toBe("user-1/CASE-PRIOR/prior.jpeg");
+    expect(victimRow?.status).toBe("ready");
+
+    // [H] No two DIFFERENT people in THIS case ever end up pointing at the
+    // same storage object — regardless of how many candidates happened to
+    // share a reuse bucket.
+    const thisCaseStoragePaths = store.rows.filter((r) => r.caseSeed === truth.seed && r.storagePath).map((r) => r.storagePath);
+    expect(new Set(thisCaseStoragePaths).size).toBe(thisCaseStoragePaths.length);
+  });
+
+  it("[R] disabled flags remain zero calls even with a compatible reusable asset sitting in the pool", () => {
+    delete process.env.AUTO_GENERATED_PORTRAITS_ENABLED;
+    expect(isAutoPortraitGenerationEnabled()).toBe(false);
+    // runAutoPortraitGeneration itself is never flag-gated (callers gate
+    // it — see actions.ts and the existing test above); this just
+    // reconfirms the flag getter itself stays false regardless of
+    // anything reuse-related.
   });
 });

@@ -34,6 +34,9 @@ function makeRecord(overrides: Partial<GeneratedAssetRecord> = {}): GeneratedAss
     errorMessage: null,
     attemptCount: 0,
     failedAt: null,
+    reuseKey: null,
+    reuseCount: 0,
+    sourceAssetId: null,
     ...overrides,
   };
 }
