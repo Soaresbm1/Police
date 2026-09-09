@@ -254,18 +254,22 @@ export function EvidenceBoard({
       </div>
 
       {mobilePanelOpen && (
-        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-background-deep/80 lg:hidden" onClick={() => setMobilePanelOpen(false)}>
-          <div
-            className="pb-sheet-safe-sm panel panel-bracketed max-h-[75dvh] overflow-y-auto p-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-2 flex items-center justify-between">
+        // Same fix as `MobileNav`'s drawer: `touch-none` on the backdrop
+        // so it can never act as a pan surface, and the sheet shell below
+        // is sized-only (not itself the scroll container) — only the
+        // inner region scrolls.
+        <div
+          className="fixed inset-0 z-40 flex touch-none flex-col justify-end bg-background-deep/80 lg:hidden"
+          onClick={() => setMobilePanelOpen(false)}
+        >
+          <div className="pb-sheet-safe-sm panel panel-bracketed flex max-h-[75dvh] flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 items-center justify-between px-3 pt-3 pb-2">
               <p className="field-label">Tableau des preuves</p>
               <button type="button" onClick={() => setMobilePanelOpen(false)} className="btn btn-ghost !px-2 !py-1 !text-xs" aria-label="Fermer">
                 ✕
               </button>
             </div>
-            {panelContent}
+            <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-3 pb-3">{panelContent}</div>
           </div>
         </div>
       )}
