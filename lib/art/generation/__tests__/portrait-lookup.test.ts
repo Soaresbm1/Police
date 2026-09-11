@@ -14,6 +14,7 @@ function makePerson(overrides: Partial<Person> = {}): Person {
     lastName: "Person",
     age: 40,
     sex: "female",
+    lifeStatus: "employed",
     profession: "comptable",
     homeLocationId: "loc1",
     workLocationId: null,

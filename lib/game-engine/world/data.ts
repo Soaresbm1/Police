@@ -76,28 +76,10 @@ export const LAST_NAMES = [
   "Brunner",
 ];
 
-export const PROFESSIONS = [
-  "comptable",
-  "infirmier·ère",
-  "enseignant·e",
-  "mécanicien·ne",
-  "avocat·e",
-  "serveur·se",
-  "policier",
-  "architecte",
-  "gérant·e de commerce",
-  "chauffeur·se de taxi",
-  "informaticien·ne",
-  "médecin",
-  "employé·e de banque",
-  "artisan·e",
-  "chômeur·se",
-  "étudiant·e",
-  "retraité·e",
-  "agent immobilier",
-  "journaliste",
-  "barman/barmaid",
-];
+// Occupation list (and the age/life-status rules governing who can hold
+// which one) now lives in `case-generator/occupations.ts` — this used to be
+// a flat list here, but occupation selection needs per-occupation metadata
+// (minAge, allowedStatuses, ...), not just names.
 
 export const STREET_NAMES = [
   "rue du Lac",

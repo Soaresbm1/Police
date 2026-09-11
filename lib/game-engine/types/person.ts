@@ -4,6 +4,13 @@ export type PersonId = string;
 
 export type Sex = "male" | "female";
 
+/** A person's age-consistent life/professional status. `employed` and
+ * `self_employed` carry an occupation (`Person.profession` names it);
+ * `student`, `unemployed`, and `retired` do not — those three plus
+ * `apprentice` never receive an ordinary workplace (see
+ * `case-generator/occupations.ts`). */
+export type LifeStatus = "student" | "apprentice" | "employed" | "self_employed" | "unemployed" | "retired";
+
 /** Big-Five-adjacent traits, each normalized to [0, 1]. These drive both
  * generation decisions (who lies, who panics, who has a plausible motive)
  * and, later, interrogation dialogue behavior. */
@@ -37,6 +44,11 @@ export interface Person {
   lastName: string;
   age: number;
   sex: Sex;
+  lifeStatus: LifeStatus;
+  /** Display label. For `employed`/`self_employed` this is the occupation
+   * name; for `apprentice` it's "apprenti·e <occupation>"; for `student`/
+   * `unemployed`/`retired` it's the fixed status label — see
+   * `case-generator/occupations.ts#professionLabel`. */
   profession: string;
   homeLocationId: LocationId;
   workLocationId: LocationId | null;

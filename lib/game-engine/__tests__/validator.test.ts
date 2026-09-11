@@ -12,6 +12,7 @@ function makePerson(id: string, homeLocationId: string): Person {
     lastName: id,
     age: 30,
     sex: "male",
+    lifeStatus: "employed",
     profession: "test",
     homeLocationId,
     workLocationId: null,

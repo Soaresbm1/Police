@@ -38,6 +38,14 @@ function pickThird(rng: RNG, people: Person[], excludeIds: PersonId[]): Person |
   return pool.length > 0 ? rng.pick(pool) : null;
 }
 
+/** student/unemployed/retired never get an ordinary workplace (see
+ * `case-generator/occupations.ts`) — the workplace_conspiracy branch below
+ * force-assigns a shared `workLocationId`, so it must only ever draw from
+ * people whose life status can plausibly carry one. */
+function canHoldOrdinaryWorkplace(person: Person): boolean {
+  return person.lifeStatus === "employed" || person.lifeStatus === "self_employed" || person.lifeStatus === "apprentice";
+}
+
 /**
  * Guarantees the relationship graph actually *supports* the chosen
  * archetype, instead of the archetype being just a label attached after the
@@ -79,7 +87,13 @@ export function applyArchetypeStoryBias(
     }
 
     case "workplace_conspiracy": {
-      const [boss, employee] = pickPair(ctx.rng, people);
+      // Only draw from people whose life status can hold an ordinary
+      // workplace at all — falls back to the full population in the
+      // (unlikely) case fewer than two people qualify, same as pickPair's
+      // own "guarantee the relationship exists" philosophy.
+      const eligible = people.filter(canHoldOrdinaryWorkplace);
+      const pairPool = eligible.length >= 2 ? eligible : people;
+      const [boss, employee] = pickPair(ctx.rng, pairPool);
       const workplace =
         ctx.locations.find((l) => l.type === "office") ?? ctx.locations.find((l) => l.type === "shop") ?? ctx.locations[0];
       if (workplace) {
@@ -87,7 +101,8 @@ export function applyArchetypeStoryBias(
         employee.workLocationId = workplace.id;
       }
       inject(ctx, boss, employee, "boss", fullAttributes({ trust: 0.15, hatred: 0.3, fear: 0.3 }), null);
-      const colleague = pickThird(ctx.rng, people, [boss.id, employee.id]);
+      const colleaguePool = eligible.length > 0 ? eligible : people;
+      const colleague = pickThird(ctx.rng, colleaguePool, [boss.id, employee.id]);
       if (colleague && workplace) {
         colleague.workLocationId = workplace.id;
         inject(ctx, employee, colleague, "colleague", fullAttributes({ trust: 0.5, affection: 0.3 }), null);

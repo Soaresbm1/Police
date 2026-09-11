@@ -2,15 +2,9 @@ import type { RNG } from "../random/rng";
 import type { Person, Sex, Vehicle } from "../types/person";
 import type { Location, LocationId } from "../types/location";
 import { createHomeLocation } from "../world/world-generator";
-import {
-  ADDICTIONS_POOL,
-  CAR_COLORS,
-  CAR_MAKES,
-  FEMALE_FIRST_NAMES,
-  LAST_NAMES,
-  MALE_FIRST_NAMES,
-  PROFESSIONS,
-} from "../world/data";
+import { ADDICTIONS_POOL, CAR_COLORS, CAR_MAKES, FEMALE_FIRST_NAMES, LAST_NAMES, MALE_FIRST_NAMES } from "../world/data";
+import { selectLifeStatus } from "./life-status";
+import { occupationLocationType, professionLabel, resolveOccupation } from "./occupations";
 
 export interface PopulationConfig {
   suspectCount: number;
@@ -22,16 +16,12 @@ export interface PopulationResult {
   homeLocations: Location[];
 }
 
-const PROFESSION_TO_LOCATION_TYPE: Record<string, Location["type"] | undefined> = {
-  "employé·e de banque": "bank",
-  "barman/barmaid": "bar",
-  "serveur·se": "restaurant",
-  policier: "police_station",
-  médecin: "hospital",
-  "infirmier·ère": "hospital",
-};
-
-const NO_WORKPLACE_PROFESSIONS = new Set(["chômeur·se", "retraité·e", "étudiant·e"]);
+/** Youngest and oldest a generated adult can be. 16 is the floor because the
+ * age/status model's youngest bracket (student/apprentice-dominated) starts
+ * there; there's no hard ceiling in the design brief (a very old person is
+ * just overwhelmingly likely to land on `retired` via the weights). */
+const MIN_AGE = 16;
+const MAX_AGE = 85;
 
 function randomPersonality(rng: RNG) {
   return {
@@ -62,9 +52,11 @@ function randomVehicle(rng: RNG): Vehicle | null {
   };
 }
 
-function pickWorkplace(rng: RNG, profession: string, infrastructure: Location[]): LocationId | null {
-  if (NO_WORKPLACE_PROFESSIONS.has(profession)) return null;
-  const preferredType = PROFESSION_TO_LOCATION_TYPE[profession];
+/** An occupation (from `resolveOccupation`) never gets a workplace for
+ * student/unemployed/retired (they have none) — this only runs when
+ * `occupationId` is non-null, i.e. for apprentice/employed/self_employed. */
+function pickWorkplace(rng: RNG, occupationId: string, infrastructure: Location[]): LocationId | null {
+  const preferredType = occupationLocationType(occupationId);
   if (preferredType) {
     const matches = infrastructure.filter((l) => l.type === preferredType);
     if (matches.length > 0) return rng.pick(matches).id;
@@ -78,11 +70,15 @@ function generateOnePerson(rng: RNG, index: number, infrastructure: Location[]):
   const sex: Sex = rng.bool(0.5) ? "male" : "female";
   const firstName = rng.pick(sex === "male" ? MALE_FIRST_NAMES : FEMALE_FIRST_NAMES);
   const lastName = rng.pick(LAST_NAMES);
-  const age = rng.int(19, 78);
-  const profession = rng.pick(PROFESSIONS);
+  const age = rng.int(MIN_AGE, MAX_AGE);
+
+  const candidateStatus = selectLifeStatus(rng.derive("life-status"), age);
+  const resolved = resolveOccupation(rng.derive("occupation"), age, candidateStatus);
+  const profession = professionLabel(resolved);
+
   const wealthChf = Math.round(rng.range(5_000, 900_000));
   const home = createHomeLocation(rng.derive("home"), wealthChf);
-  const workLocationId = pickWorkplace(rng.derive("workplace"), profession, infrastructure);
+  const workLocationId = resolved.occupation ? pickWorkplace(rng.derive("workplace"), resolved.occupation, infrastructure) : null;
 
   const addictionCount = rng.bool(0.75) ? 0 : rng.int(1, 2);
   const addictions = addictionCount > 0 ? rng.sample(ADDICTIONS_POOL, addictionCount) : [];
@@ -93,6 +89,7 @@ function generateOnePerson(rng: RNG, index: number, infrastructure: Location[]):
     lastName,
     age,
     sex,
+    lifeStatus: resolved.status,
     profession,
     homeLocationId: home.id,
     workLocationId,
