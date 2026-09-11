@@ -51,6 +51,9 @@ export type EvidenceType =
   | "tire_track"
   | "weapon"
   | "wound_pattern"
+  // digital device recovered at the scene (the physical object itself —
+  // distinct from the log types below, which are records ABOUT a device)
+  | "victim_phone"
   // digital
   | "sms_log"
   | "call_log"
@@ -82,6 +85,7 @@ export const EVIDENCE_FAMILY_BY_TYPE: Record<EvidenceType, EvidenceFamily> = {
   tire_track: "physical",
   weapon: "physical",
   wound_pattern: "physical",
+  victim_phone: "physical",
   sms_log: "digital",
   call_log: "digital",
   browser_history: "digital",

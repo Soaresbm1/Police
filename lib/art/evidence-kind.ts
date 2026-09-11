@@ -25,6 +25,7 @@ const KIND_BY_TYPE: Record<EvidenceType, EvidenceRendererKind> = {
   shoeprint: "forensic_physical",
   tire_track: "forensic_physical",
   wound_pattern: "forensic_physical",
+  victim_phone: "digital_technical",
   sms_log: "digital_communication",
   call_log: "digital_communication",
   browser_history: "digital_technical",

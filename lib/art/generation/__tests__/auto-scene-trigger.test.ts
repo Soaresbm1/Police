@@ -102,6 +102,7 @@ function makeTruth(overrides: Partial<CaseTruth> = {}): CaseTruth {
     redHerringPersonIds: [],
     caseOpenedAt: 0,
     postCrimeMovements: [],
+    victimPhone: { ownerPersonId: victim.id, contacts: [], conversations: [], calls: [] },
     ...overrides,
   };
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { sendToLabAction, collectEvidenceAction } from "@/lib/game-session/actions";
 import type { VisibleEvidence } from "@/lib/game-session/player-view";
@@ -61,7 +62,14 @@ export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
           </form>
         )}
         {evidence.playerStatus === "sent_to_lab" && <span className="text-xs text-warning">Analyse en cours…</span>}
-        {evidence.playerStatus === "analyzed" && evidence.requiresLabAnalysis && <LabReportTrigger evidenceId={evidence.id} />}
+        {evidence.playerStatus === "analyzed" && evidence.type === "victim_phone" && (
+          <Link href="/investigation/applications/telephone-victime" className="btn btn-primary !px-3 !py-1 !text-[10px]">
+            Consulter le téléphone
+          </Link>
+        )}
+        {evidence.playerStatus === "analyzed" && evidence.type !== "victim_phone" && evidence.requiresLabAnalysis && (
+          <LabReportTrigger evidenceId={evidence.id} />
+        )}
       </div>
     </div>
   );

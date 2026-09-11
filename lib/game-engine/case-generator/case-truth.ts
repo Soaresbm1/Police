@@ -8,6 +8,7 @@ import { generateRelationships } from "./relationships";
 import { deriveMotiveCandidates, pickCulprit, selectVictim, toMotive, type MotiveCandidate } from "./motive";
 import { simulateCaseDay } from "../simulation/timeline-engine";
 import { deriveEvidenceFromTimeline, generateAmbientFinancialActivity, generateRedHerrings } from "../evidence/evidence-generator";
+import { generateVictimPhoneData, generateVictimPhoneDeviceEvidence } from "./victim-phone";
 import { buildKnowledgeGraph, propagateSecondHandKnowledge } from "../witness/knowledge-graph";
 import { generateTestimony } from "../witness/testimony-generator";
 import { buildAlibis } from "./alibis";
@@ -188,7 +189,19 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
     crimeTimestamp: simulation.crimeTimestamp,
   });
 
-  let evidence = [...evidenceFromTimeline, ...redHerrings, ...stagingApplication.evidence, ...ambientFinancialActivity];
+  // Motive & Digital Evidence Phase 1 — the recovered phone device itself
+  // (req. 5). Own isolated derive stream, appended (never inserted into)
+  // the evidence array, exactly like `ambientFinancialActivity` above —
+  // this is purely additive and can never shift any other evidence id.
+  const victimPhoneDeviceEvidence = generateVictimPhoneDeviceEvidence(
+    rootRng.derive("victim-phone-device"),
+    victim,
+    simulation.crimeLocationId,
+    simulation.crimeTimestamp,
+    simulation.caseOpenedAt,
+  );
+
+  let evidence = [...evidenceFromTimeline, ...redHerrings, ...stagingApplication.evidence, ...ambientFinancialActivity, victimPhoneDeviceEvidence];
 
   // --- Deliberate tampering -------------------------------------------------
   const disposalAccomplice = accompliceResult.accomplices.find((a) => a.role === "evidence_disposal");
@@ -218,6 +231,18 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
     const liveEventIds = new Set(workingTimeline.map((e) => e.id));
     evidence = evidence.filter((e) => e.sourceEventId === null || liveEventIds.has(e.sourceEventId));
   }
+
+  // --- Victim phone (Motive & Digital Evidence Phase 1) --------------------
+  // Uses the FINAL `workingTimeline` (post-tampering) so the one real
+  // pre-crime contact it can reuse (the "lure" event, if any survived
+  // tampering's window-clearing) is the exact same event `knowledge`/
+  // `testimony` below are about to be built from — never a stale
+  // pre-tampering snapshot. Own isolated derive stream: adding this can
+  // never perturb any other generation step, for any seed.
+  const victimPhone = generateVictimPhoneData(rootRng.derive("victim-phone"), victim, people, relationships, workingTimeline, {
+    crimeTimestamp: simulation.crimeTimestamp,
+    caseOpenedAt: simulation.caseOpenedAt,
+  });
 
   // --- Shared devices/accounts ---------------------------------------------
   const sharedResources = generateSharedResources(rootRng.derive("shared-resources"), people, relationships);
@@ -355,6 +380,7 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
     sharedResources,
     timeline: workingTimeline,
     evidence,
+    victimPhone,
     knowledge,
     testimony,
     alibis,

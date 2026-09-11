@@ -17,6 +17,7 @@ export const RECORD_TYPE_LABEL: Record<EvidenceType, string> = {
   wifi_connection_log: "Connexion Wi-Fi",
   deleted_file: "Fichier supprimé",
   photo_metadata: "Métadonnées photo",
+  victim_phone: "Téléphone portable",
   camera_footage: "Vidéosurveillance",
   dashcam_footage: "Dashcam",
   card_payment: "Paiement carte",

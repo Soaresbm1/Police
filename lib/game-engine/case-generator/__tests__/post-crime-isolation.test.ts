@@ -21,14 +21,22 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(record[k])}`).join(",")}}`;
 }
 
-/** Everything in CaseTruth except the wall-clock timestamp and the new
- * Phase 5A layer — this is the projection that must never change as a
- * side effect of adding postCrimeMovements. */
-function canonicalProjection(truth: CaseTruth): Omit<CaseTruth, "generatedAt" | "postCrimeMovements"> {
+/** Everything in CaseTruth except the wall-clock timestamp and the
+ * deliberately-isolated Phase 5A/Motive-Digital-Evidence layers — this is
+ * the projection that must never change as a side effect of adding either.
+ * `victimPhone` is excluded the same way `postCrimeMovements` is: both are
+ * their own top-level field, generated from an isolated `rootRng.derive`
+ * stream, specifically so their mere existence can never perturb anything
+ * else this hash covers (see `case-truth.ts`'s victim-phone comment). The
+ * ONE new `victim_phone` Evidence item (the recovered device) is NOT
+ * excluded — it's a real, intentional addition to `evidence[]`, the same
+ * kind of change `ambientFinancialActivity` made in the prior phase. */
+function canonicalProjection(truth: CaseTruth): Omit<CaseTruth, "generatedAt" | "postCrimeMovements" | "victimPhone"> {
   const rest: Partial<CaseTruth> = { ...truth };
   delete rest.generatedAt;
   delete rest.postCrimeMovements;
-  return rest as Omit<CaseTruth, "generatedAt" | "postCrimeMovements">;
+  delete rest.victimPhone;
+  return rest as Omit<CaseTruth, "generatedAt" | "postCrimeMovements" | "victimPhone">;
 }
 
 // Pinned baseline hashes of canonicalProjection(generateCase(seed)), captured
@@ -85,33 +93,49 @@ function canonicalProjection(truth: CaseTruth): Omit<CaseTruth, "generatedAt" | 
 // re-pin for all 20 seeds (see `lib/game-engine/evidence/__tests__/
 // evidence-id-stability.test.ts`, which now pins the corrected ids for
 // this exact path so this class of bug can't silently return). The other
-// 14 seeds' hashes are untouched by this second re-pin.
+// 14 seeds' hashes were untouched by that second re-pin.
+//
+// THIRD re-pin, for all 20 seeds — Motive & Digital Evidence Phase 1 (the
+// victim's phone). `canonicalProjection` now also excludes the new
+// `CaseTruth.victimPhone` field (same treatment as `postCrimeMovements`:
+// its own top-level field, generated from an isolated
+// `rootRng.derive("victim-phone")` stream — see `case-truth.ts` and
+// `victim-phone.ts`'s module doc comments — so its mere existence changes
+// nothing else this hash covers). What DOES legitimately change this hash
+// for every seed is `evidence[]` gaining exactly ONE new item per case: the
+// recovered phone device itself (`type: "victim_phone"`), added the same
+// additive way `ambientFinancialActivity` was in the prior phase. Verified
+// empirically (before/after git-stash diff across 20 fixed seeds,
+// including relationship/timeline id lists this time, not just evidence):
+// 0 missing ids, 0 mutated survivors, exactly 20 additions (one
+// `victim_phone` item per seed, nothing else) — culprit/suspects/victim/
+// motive/relationships/timeline are all byte-identical to the prior re-pin.
 const EXPECTED_HASHES: Record<string, string> = {
-  "CASE-P5AREG00": "4c1d1d50a2eb93745755c3a96758d9fc46e88916c0dec78a4c02787e347790ca",
-  "CASE-P5AREG01": "bea4c6e59d10940c5bdc8e91d68f39dbb8c9f39adf5e199ac290436dfa859a8c",
-  "CASE-P5AREG02": "17aa49f2967d19c7bd340385c5c3ae1930f8f5946fdf31193109228c45c8e12f",
-  "CASE-P5AREG03": "5c97f946c1dd7e2f952b404808b82984739ab295aa49d545f0f13c32cd726e33",
-  "CASE-P5AREG04": "52b991d6ee3d27ab622274859dfb684d67abd0e4b1d4656fc171a95942475ebf",
+  "CASE-P5AREG00": "bed2adb920acebb4e06267acd530202302f29e80fb5ee519ffc648a7cca27c8e",
+  "CASE-P5AREG01": "d78ba14e964eeee8edc47fe5d190d0c0b4773b8d484b8c380272c195c8509601",
+  "CASE-P5AREG02": "5202c5745a5bccc4cb9b3b3c316740f24ba578c1f2c5c8a6652e6d9760426e2e",
+  "CASE-P5AREG03": "8e79117b6ac7357a9031d9cf65835657040446e3755a8ad0754a8ccf1d22aa6e",
+  "CASE-P5AREG04": "db6b651f06d53e96661aa0ac406145d2136f060d39ecc5e49ec857b1af53f0bb",
   // Original CASE-P5AREG05 hits a rare, pre-existing, unrelated generator
   // edge case (a sub-5-minute teleportation flag in travel timing — nothing
   // to do with population/age/occupation); swapped for a nearby seed that's
   // valid, per the project's own tolerance for rare procedural dead ends
   // (see CASE_GENERATION.md and batch.test.ts).
-  "CASE-P5AREG05B": "da1a4020c46f0d23e79509f8ccea91ba90e07304252b691f3a8bc97ece4151ed",
-  "CASE-P5AREG06": "611caee22f1aeea8cef4fc809b60665f5e8f64436cc48875e10679cdfe4c59eb",
-  "CASE-P5AREG07": "4b7bac65570be0c4c054547a626f1a9812e0403a9ea51d7c5a197ad2e9779e40",
-  "CASE-P5AREG08": "f3e6b53b7bb2d8fdc81cfe48426741da6623e18058037785f5c348f589425f7a",
-  "CASE-P5AREG09": "dbf47c1e5c0f3286bf586a17abb2707c7f9fddb2ed9ed9f0dbf8a90da1d38a5a",
-  "CASE-P5AREG10": "a5f93362a0e9f1a1a6fcd94ca52e120fb90a8d0124257703dd8385bb5c2b3b02",
-  "CASE-P5AREG11": "e47316a7cbba5ae7ffaad9368904a41d6dfaeee022f25ff17ffd08538065a3cf",
-  "CASE-P5AREG12": "9ba9f979e14bdb9b2cfdf662287a5a46eceec5d80fb9e21dab1f749339209b53",
-  "CASE-P5AREG13": "472389394d5455687c148c5fa355f927cfcaf046ae8223b304a45b1e91e8ef9f",
-  "CASE-P5AREG14": "45a8f11a422503707fb4569b34756f6931ec18fc2e94a2c07ac0efde7b808116",
-  "CASE-P5AREG15": "5699637ef290dfba187e172367720adbedf69e2aa4c70648fa8f7b6f89dda347",
-  "CASE-P5AREG16": "fb85bc6b5ed90abdbdc96230aba66e2445e56df8bbb5b2909ae19cdcab01e001",
-  "CASE-P5AREG17": "6e9bc08b57fb48e1bdb0878c22e56889f9cea9461f7a4b40d8c32fd9c61f646e",
-  "CASE-P5AREG18": "7c2330c366009af74b748a064bafbc4570e1345ce2f4bb2bbf43cc9b8d47aea0",
-  "CASE-P5AREG19": "8c52f3a14f3231f1ccf11721347688746c6d2717530503cdc466d764efa3b0a5",
+  "CASE-P5AREG05B": "45ca61d50c8b76012c874335bbf84cdacf4f81aae7119b6d6e742ab426e4da17",
+  "CASE-P5AREG06": "f627cbb7b73af88e1f8d9a3443be8cf382eb7277c41445ff178585d65fc8e28f",
+  "CASE-P5AREG07": "ca085a8fe8f7fa70294ee09614858b8857d82df2a60a92f3cfa7c3a2b8c021d1",
+  "CASE-P5AREG08": "3eece759e9d82eaa04deb14d477b96341f09ae2a45b256668e3dc410dfa26f40",
+  "CASE-P5AREG09": "0de7478a1a13f85073acf1e0bdb2bcf9b1bef976cc17bf055ed12b018655f633",
+  "CASE-P5AREG10": "3dbe8ef739290b5210299b6cc73e83a23acd1ed27b9205882771b5740cb3115d",
+  "CASE-P5AREG11": "f5739c4e99c65430c1b6b852a41c75920f988f53c9291e25be071ea59f958169",
+  "CASE-P5AREG12": "e8177a22ebf2f3ea1e57c518133a354ee5e5e1e875f3b77e29f903f62bebeacb",
+  "CASE-P5AREG13": "331c9915bd0ed458a6b026c2d08261fd20c14619332abd34d2c2512cea3c14b8",
+  "CASE-P5AREG14": "6fe7b4fca3aa167ec0bd785f053672312dbf9c77fd9d28f879261072bb654c44",
+  "CASE-P5AREG15": "4393bb9f0759dd81741d57182891981602a60adb7787e34a78882ae299b8e318",
+  "CASE-P5AREG16": "0b8e866e6d7af8b69dd1fa41ae6deedd839675b41e2f3edf6396b6d5d8803e0e",
+  "CASE-P5AREG17": "fc34e3b7acfbe1e633c5a6a77f697b748ce9627bd42c0bedd4abec3e997fe8cf",
+  "CASE-P5AREG18": "e0a666a419ab331be7d7cd5741a78847613ecff9fd1f659d7ea77c213359f40a",
+  "CASE-P5AREG19": "b2118fc435e250a10041462bbb6bf9b44e91f8b0d64c8387eb7ece9fe545f172",
 };
 
 describe("Phase 5A — RNG domain isolation (the mechanism the whole feature relies on)", () => {

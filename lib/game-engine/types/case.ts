@@ -6,6 +6,7 @@ import type { Evidence, TamperingEvent } from "./evidence";
 import type { KnowledgeFact, TestimonyLine } from "./knowledge";
 import type { GameMinutes } from "./time";
 import type { SharedResource } from "./shared-resource";
+import type { VictimPhoneData } from "./phone";
 
 export type CaseSeed = string;
 
@@ -205,6 +206,16 @@ export interface CaseTruth {
    * the same seed.
    */
   postCrimeMovements: TimelineEvent[];
+
+  /**
+   * Motive & Digital Evidence Phase 1 — the victim's phone, pre-generated
+   * once at case-generation time (see `case-generator/victim-phone.ts`),
+   * never regenerated or altered by gameplay. Deliberately its own
+   * top-level field rather than `Evidence[]` entries — this is what keeps
+   * it invisible to `computeSolvability` (which only ever iterates
+   * `evidence`) unless a future phase intentionally wires it in.
+   */
+  victimPhone: VictimPhoneData;
 }
 
 /** What the player is allowed to see before starting the investigation.

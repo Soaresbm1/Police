@@ -7,6 +7,7 @@ const APPS = [
   { href: "/investigation/applications/cameras", tag: "VID", name: "Vidéosurveillance", system: "VIGIL", desc: "Réquisition de bandes par lieu et créneau.", accent: "text-[#a97fd9] border-[#a97fd9]/40" },
   { href: "/investigation/applications/banque", tag: "BAN", name: "Consultation bancaire", system: "FINMA-REQ", desc: "Relevés de compte — mandat requis.", accent: "text-warning border-warning/40" },
   { href: "/investigation/applications/mandats", tag: "MAN", name: "Mandats", system: "MP-CANTON", desc: "Suivi des réquisitions et mandats déposés.", accent: "text-danger border-danger/40" },
+  { href: "/investigation/applications/telephone-victime", tag: "MOB", name: "Extraction mobile", system: "MOBIFORENSIC", desc: "Copie forensique du téléphone de la victime.", accent: "text-link border-link/40" },
 ];
 
 export default function ApplicationsHubPage() {

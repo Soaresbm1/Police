@@ -71,6 +71,7 @@ function makeTruth(evidence: Evidence[]): CaseTruth {
     redHerringPersonIds: [],
     caseOpenedAt: 0,
     postCrimeMovements: [],
+    victimPhone: { ownerPersonId: "victim", contacts: [], conversations: [], calls: [] },
   };
 }
 
