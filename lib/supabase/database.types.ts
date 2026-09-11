@@ -42,6 +42,7 @@ export interface Database {
           player_timeline: Json;
           interrogated: Json;
           mandates: Json;
+          surveillance: Json;
           board: Json;
           accusation: Json | null;
           crime_scene_examined: boolean;

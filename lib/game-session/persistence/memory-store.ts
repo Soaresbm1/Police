@@ -21,6 +21,7 @@ function freshSession(userId: string, seed: string, difficulty: Difficulty, crim
     playerTimeline: [],
     interrogated: {},
     mandates: {},
+    surveillance: {},
     board: { nodes: [], edges: [] },
     accusation: null,
     crimeSceneExamined: false,

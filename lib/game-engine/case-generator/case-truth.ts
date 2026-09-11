@@ -332,6 +332,7 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
       notableFeatures: [...simulation.autopsy.notableFeatures, ...stagingApplication.autopsyNotableFeatureAdditions],
     },
     redHerringPersonIds: redHerringPeople.map((p) => p.id),
+    caseOpenedAt: simulation.caseOpenedAt,
     postCrimeMovements,
   };
 

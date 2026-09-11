@@ -1,5 +1,5 @@
 import type { Difficulty } from "@/lib/game-engine/types/case";
-import type { LabJob, PlayerTimelineEntry, MandateRecord, BoardState, Accusation, GameSession } from "../types";
+import type { LabJob, PlayerTimelineEntry, MandateRecord, SurveillanceRecord, BoardState, Accusation, GameSession } from "../types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { applyCaseToCareer } from "../career";
@@ -34,6 +34,9 @@ export function rowToSession(row: SessionRow): GameSession {
     playerTimeline: fromJson<PlayerTimelineEntry[]>(row.player_timeline),
     interrogated: fromJson<GameSession["interrogated"]>(row.interrogated),
     mandates: fromJson<Record<string, MandateRecord>>(row.mandates),
+    // Same defensive pattern as `events` above — absent/null on any row
+    // persisted before this column existed.
+    surveillance: row.surveillance ? fromJson<Record<string, SurveillanceRecord>>(row.surveillance) : {},
     board: fromJson<BoardState>(row.board),
     accusation: row.accusation ? fromJson<Accusation>(row.accusation) : null,
     crimeSceneExamined: row.crime_scene_examined,
@@ -56,6 +59,7 @@ function sessionToRow(userId: string, session: GameSession): Database["public"][
     player_timeline: session.playerTimeline as unknown as Json,
     interrogated: session.interrogated as unknown as Json,
     mandates: session.mandates as unknown as Json,
+    surveillance: session.surveillance as unknown as Json,
     board: session.board as unknown as Json,
     accusation: session.accusation as unknown as Json,
     crime_scene_examined: session.crimeSceneExamined,
@@ -128,6 +132,7 @@ export class SupabaseSessionStore implements SessionStore {
       playerTimeline: [],
       interrogated: {},
       mandates: {},
+      surveillance: {},
       board: { nodes: [], edges: [] },
       accusation: null,
       crimeSceneExamined: false,

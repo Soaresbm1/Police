@@ -69,6 +69,7 @@ function makeTruth(evidence: Evidence[]): CaseTruth {
       notableFeatures: [],
     },
     redHerringPersonIds: [],
+    caseOpenedAt: 0,
     postCrimeMovements: [],
   };
 }
@@ -87,6 +88,7 @@ function makeSession(overrides: Partial<GameSession> = {}): GameSession {
     playerTimeline: [],
     interrogated: {},
     mandates: {},
+    surveillance: {},
     board: { nodes: [], edges: [] },
     accusation: null,
     crimeSceneExamined: false,

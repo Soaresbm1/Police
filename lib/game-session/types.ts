@@ -77,6 +77,56 @@ export interface BoardState {
   edges: BoardEdge[];
 }
 
+/**
+ * Phase 5B-1 — police surveillance. A player-chosen observation window
+ * `[startedAt, endedAt)` (never longer than one of `SURVEILLANCE_DURATIONS_
+ * MINUTES`, see `surveillance.ts`) over the immutable, pre-generated
+ * `CaseTruth.postCrimeMovements` layer. `observationType` is intentionally
+ * narrow — it only ever claims what the window itself proves:
+ * - `"arrived"`: the movement's real start falls inside the window (the
+ *   officer witnessed the subject show up).
+ * - `"departed"`: the real start is before the window (not witnessed), but
+ *   the real end falls inside it (the officer witnessed them leave).
+ * - `"present"`: neither real endpoint falls inside the window — the
+ *   subject was simply there the whole time surveillance was active,
+ *   with neither arrival nor departure observed.
+ * Never a 4th "arrived-and-departed" case: `"arrived"` already covers a
+ * movement fully contained in the window, and that's the strongest claim
+ * this model needs to make.
+ */
+export type SurveillanceObservationType = "arrived" | "departed" | "present";
+
+export interface SurveillanceObservation {
+  locationId: LocationId;
+  /** Clipped to the surveillance window — never earlier than the record's
+   * own `startedAt`, regardless of the underlying movement's true start. */
+  observedFrom: GameMinutes;
+  /** Clipped to the surveillance window — never later than the record's
+   * own `endedAt`, regardless of the underlying movement's true end. */
+  observedUntil: GameMinutes;
+  observationType: SurveillanceObservationType;
+}
+
+/**
+ * A single surveillance request's full record. `observations` is computed
+ * and stored the instant the request is made (a pure projection of the
+ * already-immutable `postCrimeMovements` at that exact window — see
+ * `surveillance.ts#projectSurveillanceObservations`), never recomputed or
+ * touched again afterward — but it is NOT player-visible until the
+ * matching `surveillance_result` `InvestigationEvent` resolves to `"ready"`
+ * (same deferred-reveal discipline as `MandateRecord.granted`; see
+ * `surveillance.ts#describeSurveillance`, the only safe accessor).
+ */
+export interface SurveillanceRecord {
+  /** Deterministic: `${personId}:${startedAt}` — see `surveillance.ts#surveillanceKey`. */
+  key: string;
+  personId: PersonId;
+  startedAt: GameMinutes;
+  endedAt: GameMinutes;
+  durationMinutes: number;
+  observations: SurveillanceObservation[];
+}
+
 export interface MandateRecord {
   key: string;
   /**
@@ -112,7 +162,8 @@ export type InvestigationEventType =
   | "cctv_footage"
   | "phone_records"
   | "witness_callback"
-  | "confrontation";
+  | "confrontation"
+  | "surveillance_result";
 
 export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
 
@@ -122,9 +173,12 @@ export type InvestigationEventStatus = "scheduled" | "ready" | "seen";
  * they're about — never by an evidence id, so the id itself never names
  * the thing being investigated. `"confrontation"` (Phase 4) keys by a
  * `ConfrontationOpportunity.id`, which is itself already a non-secret,
- * deterministic string — never a raw evidence or fact id used alone. */
+ * deterministic string — never a raw evidence or fact id used alone.
+ * `"surveillance"` (Phase 5B-1) keys by a `SurveillanceRecord.key`
+ * (`personId:startedAt`) — a person can be surveilled more than once
+ * (sequentially), so plain `"person"` id reuse would collide. */
 export interface InvestigationEventSource {
-  kind: "evidence" | "mandate" | "location" | "person" | "confrontation";
+  kind: "evidence" | "mandate" | "location" | "person" | "confrontation" | "surveillance";
   id: string;
 }
 
@@ -169,6 +223,11 @@ export interface GameSession {
   /** personId -> set of KnowledgeFact ids the player has asked about. */
   interrogated: Record<string, string[]>;
   mandates: Record<string, MandateRecord>;
+  /** Phase 5B-1 surveillance requests, keyed by `SurveillanceRecord.key`.
+   * Absent/null on any session persisted before this field existed; every
+   * reader must treat that as `{}` (see
+   * `persistence/supabase-store.ts#rowToSession`). */
+  surveillance: Record<string, SurveillanceRecord>;
   board: BoardState;
   accusation: Accusation | null;
   crimeSceneExamined: boolean;

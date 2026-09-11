@@ -17,6 +17,7 @@ function makeSession(overrides: Partial<GameSession> = {}): GameSession {
     playerTimeline: [],
     interrogated: {},
     mandates: {},
+    surveillance: {},
     board: { nodes: [], edges: [] },
     accusation: null,
     crimeSceneExamined: false,

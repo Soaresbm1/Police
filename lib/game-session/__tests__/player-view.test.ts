@@ -17,6 +17,7 @@ function makeSession(seed: string, evidenceStatus: GameSession["evidenceStatus"]
     playerTimeline: [],
     interrogated: {},
     mandates: {},
+    surveillance: {},
     board: { nodes: [], edges: [] },
     accusation: null,
     crimeSceneExamined: false,

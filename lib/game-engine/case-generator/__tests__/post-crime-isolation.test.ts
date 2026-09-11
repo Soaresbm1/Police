@@ -37,43 +37,41 @@ function canonicalProjection(truth: CaseTruth): Omit<CaseTruth, "generatedAt" | 
 // this feature was built — see Phase 5A report). If any future change alters
 // anything other than postCrimeMovements/generatedAt for these seeds, this
 // test catches it immediately.
-// Re-pinned for the age/occupation/life-status population rework (see
-// CASELINE age-occupation-consistency task) and then again for the
-// subsequent distribution-tuning pass (retuned life-status anchor weights,
-// including splitting the 16/17 anchor pair) — population generation draws
-// age from a wider range and derives profession from an age-weighted
-// life-status model instead of a flat random pick, which legitimately
-// changes these hashes on every such tuning pass. Phase 5A isolation itself
-// (items D/H/I/J above, and the mocked-call field-shape assertion) is
-// unaffected and still passes — this table is a population-generation
-// snapshot, not a Phase 5A invariant. All 20 re-verified `validateCase(...)
-// .valid === true` when re-pinned.
+// Re-pinned for the age/occupation/life-status population rework, its
+// distribution-tuning follow-up, and now for Phase 5B-1 (surveillance),
+// which added `CaseTruth.caseOpenedAt` (a pure exposure of an already-
+// computed value, see `types/case.ts` — no RNG draw changes, so this pass's
+// hash change is shape-only, not a generation-behavior change). Phase 5A
+// isolation itself (items D/H/I/J above, and the mocked-call field-shape
+// assertion) is unaffected and still passes — this table is a population/
+// schema snapshot, not a Phase 5A invariant. All 20 re-verified
+// `validateCase(...).valid === true` when re-pinned.
 const EXPECTED_HASHES: Record<string, string> = {
-  "CASE-P5AREG00": "c829aa1bc088b01ee4a072a13d6f29c7dd00540054ad3095a33ff64487ec57cb",
-  "CASE-P5AREG01": "b51074a6da1d2e48cbbc6f55cef059070d780613ab302d2d87f7f29aa0853457",
-  "CASE-P5AREG02": "f58d0d42a733fe559fef2c526b40cce08bf3388c2de034c7cf26f25a29037c8f",
-  "CASE-P5AREG03": "0f9da67694261d1dd557d144b7beaed81575d631762ed367af1d54b32caf9142",
-  "CASE-P5AREG04": "7dc7571f4e29994102addd2315cb563c19594fc8c7378d13d470c56643d245f6",
+  "CASE-P5AREG00": "eefa613260919130f7063e096f753d6c8b200d9fbb89d5a3f63bb89c82465290",
+  "CASE-P5AREG01": "1ea9fa8ddba0b7c3bde719ecc7bcef1443cc84c345281e8d6d456730d9d63197",
+  "CASE-P5AREG02": "7b6423100bbcf56d66a1c0ef89af3b351d48e2c8b7debd18f7b5c6d736d7b754",
+  "CASE-P5AREG03": "9307d8c7d951e097602ea23a286cd6fc4e5439c356c4f3200f425a37532f79b4",
+  "CASE-P5AREG04": "88a7908b643bb5489b05cf6e80e90baa0d25c04d9c9e090326c5a6090c931790",
   // Original CASE-P5AREG05 hits a rare, pre-existing, unrelated generator
   // edge case (a sub-5-minute teleportation flag in travel timing — nothing
   // to do with population/age/occupation); swapped for a nearby seed that's
   // valid, per the project's own tolerance for rare procedural dead ends
   // (see CASE_GENERATION.md and batch.test.ts).
-  "CASE-P5AREG05B": "92f15d465c6645f99a3477307a3cadd8fba0bddc0d26f3811d242fe721c7b8cb",
-  "CASE-P5AREG06": "eccdc618e5b2abb6c77d8affac85c68a828d9965d30efdb52dbbe2d79a89c12d",
-  "CASE-P5AREG07": "d3b464a63322a7d8cde3326708df4710b6f14edb447c72b6936a2365fba14ac4",
-  "CASE-P5AREG08": "2a5dbc3ad2e0f9ba6120eb0dac1765b4693fca3ea50874dc6b13c09e36f0fbab",
-  "CASE-P5AREG09": "bb3606bbb2336ad9e2f388a8a44bd4f49420e5771a85aad60a557e3401a7aa84",
-  "CASE-P5AREG10": "af4de7aeb081b31e61e39c73e74cbf892c1a7f243a4386355995411add4e06f5",
-  "CASE-P5AREG11": "1f1f0841b9dd135155df2c2b23f0ae40ed63a027c2eedabb2cd466387ba7062c",
-  "CASE-P5AREG12": "2bbf4a5add745580e41ec0ec531ae5587a63f987f7118a2088a4d4ee94baf17b",
-  "CASE-P5AREG13": "99f6f07bdbe5b2af5079501ed4c8c353dbb5e117f540f340959fa2433a9d7e81",
-  "CASE-P5AREG14": "0aa4b804055bcc24dc718b80f02e9615f9bca583aa4390889cd8d7aa1ee1786c",
-  "CASE-P5AREG15": "66a370860643ec794932f2fd64a5498c8e6a84b105852d407309810b16d94f34",
-  "CASE-P5AREG16": "b426138103519b5db97cf2c12d4087a7a86ee60dbfc88004613617af2d642623",
-  "CASE-P5AREG17": "fa762f4ed8c439f631811fbb75a2048d635c603c2861ea406c29e4f84069aaef",
-  "CASE-P5AREG18": "ec3643956ffd07855ff32a15c95dae383061de81bf0a5d2f7ce0124a3eaef172",
-  "CASE-P5AREG19": "758943e2232b8639ab513f54b82ed3f473ed9ebcef5c0ea3e6278fb48a71606e",
+  "CASE-P5AREG05B": "f493dada04d2c8c6d9f59e6a16aa6f2fb1f503de3b1cf15bb26b07327ece05dd",
+  "CASE-P5AREG06": "418114cd5d2b086498955e0973c0ad8d667ffca599a0c3a2a241d80af9e79bde",
+  "CASE-P5AREG07": "ba94b524e437c17aa9264889d906d02b3eec3779b7f67f74d99d4e03d98916bd",
+  "CASE-P5AREG08": "ef86f5c290046769e0ab2d418f8703132023d1fc621256d8ade3cff306f11f3a",
+  "CASE-P5AREG09": "68087bc764cfbac41755495d5a1d95ba9d03ae1c9f0d147cbcaa78b67aabaf89",
+  "CASE-P5AREG10": "83e1ef9b745ff69b8c33ee99f52acd7ec5da6beace4da0352624ad0165212580",
+  "CASE-P5AREG11": "3d42c05f63d91d733bc02ba1315a98dcc904beb5c08543b26d6add08fc73d71a",
+  "CASE-P5AREG12": "10bc55df64949bded6411dfacbc87b7f5f816228482e7ad6d3e7d1b7f1a0da92",
+  "CASE-P5AREG13": "9e72c99133260ccd34d33e5244a15076ca17a1de5f306b13b105bdeb4bd17588",
+  "CASE-P5AREG14": "51e9582d3db0dec9a51c34d6f78bedff53360298789c9631f21e77772c7cb39c",
+  "CASE-P5AREG15": "c34d00f51f4d433596375d104323e07dfceb06fcc9cf710e2e51dc9ccd271895",
+  "CASE-P5AREG16": "c23dad707536f3c66abcde84fe797ada25b338d8c747b9e859a091e93d029445",
+  "CASE-P5AREG17": "cec836c435d3ec142dbe65ea2cd7326049fe0a5177c22906af9200f41077a7c8",
+  "CASE-P5AREG18": "8bc8575538ac6553c1eaff548677f80dfd7e1eb93634b4cd4c68a45aa76e7639",
+  "CASE-P5AREG19": "dae6d877c03feb830ed752a5379b36ffc8afea6b27d02081161903c0fa98fa0e",
 };
 
 describe("Phase 5A — RNG domain isolation (the mechanism the whole feature relies on)", () => {

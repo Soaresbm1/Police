@@ -7,6 +7,14 @@ import { formatGameTime, type GameMinutes } from "@/lib/game-engine/types/time";
 import { travelMinutes } from "@/lib/game-engine/types/location";
 import { describeMandateEvent } from "./mandates";
 import { readyUnseenCount, visibleEvents } from "./events";
+import type { SurveillanceObservationType } from "./types";
+import {
+  checkSurveillanceRequest,
+  describeSurveillance,
+  parseSurveillanceKey,
+  SURVEILLANCE_DURATIONS_MINUTES,
+  SURVEILLANCE_REJECTION_LABEL,
+} from "./surveillance";
 
 /** Public-safe view of a Person — deliberately omits `roles` (which
  * encodes who the culprit is) and any other ground-truth-only fields. */
@@ -278,6 +286,10 @@ function eventHref(truth: CaseTruth, event: InvestigationEvent): string | null {
     }
     case "witness_callback":
       return `/investigation/interrogatoires/${event.source.id}`;
+    case "surveillance_result": {
+      const parsed = parseSurveillanceKey(event.source.id);
+      return parsed ? `/investigation/personnes/${parsed.personId}` : null;
+    }
     default:
       return null;
   }
@@ -405,4 +417,119 @@ export function getAlibiAssessment(
     corroborating: visible.filter((ev) => alibi.corroboratingEvidenceIds.includes(ev.id)),
     contradicting: visible.filter((ev) => alibi.contradictingEvidenceIds.includes(ev.id)),
   };
+}
+
+// ---------------------------------------------------------------------
+// Phase 5B-1 — surveillance
+// ---------------------------------------------------------------------
+
+export interface SurveillanceOptionView {
+  durationMinutes: number;
+  label: string;
+  available: boolean;
+  unavailableReason: string | null;
+  expectedCompletionLabel: string;
+}
+
+/** One chronological entry in a resolved surveillance record's display —
+ * either a real, clipped observation or an honest gap ("no observation
+ * available"). Merged and sorted here so the UI never has to interleave
+ * two separate arrays or re-derive gap boundaries itself. */
+export interface SurveillanceTimelineEntryView {
+  kind: "observation" | "gap";
+  fromLabel: string;
+  toLabel: string;
+  /** `null` for a gap. */
+  locationName: string | null;
+  /** `null` for a gap. */
+  observationType: SurveillanceObservationType | null;
+}
+
+export interface SurveillanceRecordView {
+  key: string;
+  status: "pending" | "ready" | "seen";
+  startedAtLabel: string;
+  endedAtLabel: string;
+  durationMinutes: number;
+  /** Empty while `status === "pending"` — never populated early. */
+  timeline: SurveillanceTimelineEntryView[];
+}
+
+export interface SurveillanceOverview {
+  currentTimeLabel: string;
+  /** One entry per `SURVEILLANCE_DURATIONS_MINUTES` option, each
+   * independently validated (coverage/overlap/eligibility) against the
+   * current investigation clock. */
+  options: SurveillanceOptionView[];
+  /** This person's surveillance requests, newest first. */
+  history: SurveillanceRecordView[];
+}
+
+/** Merges clipped observations with the gaps between/around them into one
+ * chronological display list — never interpolates a gap's contents, only
+ * marks where surveillance simply had nothing to report. */
+function buildSurveillanceTimeline(
+  truth: CaseTruth,
+  windowStart: GameMinutes,
+  windowEnd: GameMinutes,
+  observations: { locationId: string; observedFrom: GameMinutes; observedUntil: GameMinutes; observationType: SurveillanceObservationType }[],
+): SurveillanceTimelineEntryView[] {
+  const entries: SurveillanceTimelineEntryView[] = [];
+  let cursor = windowStart;
+  for (const o of observations) {
+    if (o.observedFrom > cursor) {
+      entries.push({ kind: "gap", fromLabel: formatGameTime(cursor), toLabel: formatGameTime(o.observedFrom), locationName: null, observationType: null });
+    }
+    const location = getLocation(truth, o.locationId);
+    entries.push({
+      kind: "observation",
+      fromLabel: formatGameTime(o.observedFrom),
+      toLabel: formatGameTime(o.observedUntil),
+      locationName: location ? displayLocationName(location) : "Lieu inconnu",
+      observationType: o.observationType,
+    });
+    cursor = Math.max(cursor, o.observedUntil);
+  }
+  if (cursor < windowEnd) {
+    entries.push({ kind: "gap", fromLabel: formatGameTime(cursor), toLabel: formatGameTime(windowEnd), locationName: null, observationType: null });
+  }
+  return entries;
+}
+
+/** Everything the "Surveiller" panel on a person's detail page needs —
+ * available duration options plus this person's request history, both
+ * read straight from session state via the safe `describeSurveillance`
+ * accessor (never `session.surveillance` directly), so a pending result's
+ * observations are structurally absent here, not merely hidden by the UI. */
+export function getSurveillanceOverview(truth: CaseTruth, session: GameSession, personId: PersonId): SurveillanceOverview {
+  const options: SurveillanceOptionView[] = SURVEILLANCE_DURATIONS_MINUTES.map((durationMinutes) => {
+    const startedAt = session.currentTime;
+    const endedAt = startedAt + durationMinutes;
+    const check = checkSurveillanceRequest(truth, session, personId, startedAt, endedAt);
+    return {
+      durationMinutes,
+      label: `${durationMinutes / 60}h`,
+      available: check.eligible,
+      unavailableReason: check.reason ? SURVEILLANCE_REJECTION_LABEL[check.reason] : null,
+      expectedCompletionLabel: formatGameTime(endedAt),
+    };
+  });
+
+  const history: SurveillanceRecordView[] = Object.values(session.surveillance)
+    .filter((r) => r.personId === personId)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .map((r) => {
+      const outcome = describeSurveillance(session, r.key);
+      const observations = outcome.record?.observations ?? [];
+      return {
+        key: r.key,
+        status: outcome.status,
+        startedAtLabel: formatGameTime(r.startedAt),
+        endedAtLabel: formatGameTime(r.endedAt),
+        durationMinutes: r.durationMinutes,
+        timeline: outcome.status === "pending" ? [] : buildSurveillanceTimeline(truth, r.startedAt, r.endedAt, observations),
+      };
+    });
+
+  return { currentTimeLabel: formatGameTime(session.currentTime), options, history };
 }

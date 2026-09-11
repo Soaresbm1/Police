@@ -23,6 +23,7 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
     player_timeline: [],
     interrogated: { p1: ["fact1"] },
     mandates: { "bank:p1": { key: "bank:p1", granted: true, reason: "ok", requestedAt: 10 } },
+    surveillance: {},
     board: { nodes: [], edges: [] },
     accusation: null,
     crime_scene_examined: true,

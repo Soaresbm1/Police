@@ -6,12 +6,14 @@ import {
   getAlibiAssessment,
   getLocation,
   getPerson,
+  getSurveillanceOverview,
   getVisibleEvidenceForPerson,
 } from "@/lib/game-session/player-view";
 import { EvidenceCard } from "@/components/investigation/EvidenceCard";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
+import { SurveillancePanel } from "@/components/investigation/SurveillancePanel";
 import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 
 function AppLink({ href, label }: { href: string; label: string }) {
@@ -113,6 +115,8 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
           )}
         </section>
       )}
+
+      {!person.isVictim && <SurveillancePanel personId={person.id} overview={getSurveillanceOverview(truth, session, person.id)} />}
 
       {!person.isVictim && (
         <section className="panel p-5">

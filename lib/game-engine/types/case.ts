@@ -176,6 +176,18 @@ export interface CaseTruth {
   redHerringPersonIds: PersonId[];
 
   /**
+   * The exact moment the case opened (body discovered) — the same value
+   * threaded into `generatePostCrimeMovements` at generation time (see
+   * `case-generator/case-truth.ts`), surfaced here so callers (Phase 5B
+   * surveillance) can compute `postCrimeMovements`' true coverage window
+   * (`[caseOpenedAt, caseOpenedAt + 48h)`) without re-deriving it. Purely
+   * an exposure of already-computed data — never recomputed, never
+   * approximated (unlike `CaseBriefing.reportedAt`, a deliberately fuzzed
+   * pre-game estimate).
+   */
+  caseOpenedAt: GameMinutes;
+
+  /**
    * Living Investigation System Phase 5A — a small, separate, immutable
    * layer of ordinary post-crime routine activity (wake/work/sleep only),
    * generated once at case-generation time for every non-victim person,

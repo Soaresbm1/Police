@@ -19,6 +19,7 @@ import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
 import { markWitnessCallbackSeen, scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
 import { performConfrontation } from "./confrontations";
+import { isSurveillanceDuration, startSurveillance, SURVEILLANCE_REJECTION_LABEL } from "./surveillance";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -197,6 +198,27 @@ export async function confrontAction(personId: string, opportunityId: string) {
     const result = performConfrontation(truth, session, personId, opportunityId);
     session.lastActionMessage = result ? `Confrontation : ${result.evidenceLabel}.` : null;
     discovery.advanceTime(session, 5);
+  });
+  refreshInvestigation();
+}
+
+/**
+ * The player-facing "place this person under surveillance" entry point
+ * (Phase 5B-1). Re-validates duration/eligibility/coverage/overlap itself
+ * — never trusts the client — exactly like every other Living
+ * Investigation System action; a tampered request for an invalid duration
+ * or an ineligible/overlapping window simply does nothing.
+ */
+export async function startSurveillanceAction(personId: string, durationMinutes: number) {
+  await withSession(({ session, truth }) => {
+    if (!isSurveillanceDuration(durationMinutes)) {
+      session.lastActionMessage = "Durée de surveillance invalide.";
+      return;
+    }
+    const result = startSurveillance(truth, session, personId, durationMinutes);
+    session.lastActionMessage = result.ok
+      ? `Surveillance en cours (${durationMinutes / 60}h).`
+      : (result.reason && SURVEILLANCE_REJECTION_LABEL[result.reason]) || "Surveillance impossible.";
   });
   refreshInvestigation();
 }

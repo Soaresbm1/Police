@@ -201,6 +201,7 @@ function baseCase(): CaseTruth {
       notableFeatures: [],
     },
     redHerringPersonIds: [],
+    caseOpenedAt: 0,
     postCrimeMovements: [],
   };
 }
