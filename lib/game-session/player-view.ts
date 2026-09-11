@@ -443,6 +443,11 @@ export interface SurveillanceTimelineEntryView {
   locationName: string | null;
   /** `null` for a gap. */
   observationType: SurveillanceObservationType | null;
+  /** Other known people's display names, resolved from the same-event
+   * `observedPersonIds` (Phase 5B-2) — empty for a gap or a solo
+   * observation. Names only: no relationship type, no hint of why they
+   * were together. */
+  observedWithNames: string[];
 }
 
 export interface SurveillanceRecordView {
@@ -472,26 +477,51 @@ function buildSurveillanceTimeline(
   truth: CaseTruth,
   windowStart: GameMinutes,
   windowEnd: GameMinutes,
-  observations: { locationId: string; observedFrom: GameMinutes; observedUntil: GameMinutes; observationType: SurveillanceObservationType }[],
+  observations: {
+    locationId: string;
+    observedFrom: GameMinutes;
+    observedUntil: GameMinutes;
+    observationType: SurveillanceObservationType;
+    observedPersonIds?: PersonId[];
+  }[],
 ): SurveillanceTimelineEntryView[] {
   const entries: SurveillanceTimelineEntryView[] = [];
   let cursor = windowStart;
   for (const o of observations) {
     if (o.observedFrom > cursor) {
-      entries.push({ kind: "gap", fromLabel: formatGameTime(cursor), toLabel: formatGameTime(o.observedFrom), locationName: null, observationType: null });
+      entries.push({
+        kind: "gap",
+        fromLabel: formatGameTime(cursor),
+        toLabel: formatGameTime(o.observedFrom),
+        locationName: null,
+        observationType: null,
+        observedWithNames: [],
+      });
     }
     const location = getLocation(truth, o.locationId);
+    const observedWithNames = (o.observedPersonIds ?? []).map((id) => {
+      const p = getPerson(truth, id);
+      return p ? `${p.firstName} ${p.lastName}` : "personne inconnue";
+    });
     entries.push({
       kind: "observation",
       fromLabel: formatGameTime(o.observedFrom),
       toLabel: formatGameTime(o.observedUntil),
       locationName: location ? displayLocationName(location) : "Lieu inconnu",
       observationType: o.observationType,
+      observedWithNames,
     });
     cursor = Math.max(cursor, o.observedUntil);
   }
   if (cursor < windowEnd) {
-    entries.push({ kind: "gap", fromLabel: formatGameTime(cursor), toLabel: formatGameTime(windowEnd), locationName: null, observationType: null });
+    entries.push({
+      kind: "gap",
+      fromLabel: formatGameTime(cursor),
+      toLabel: formatGameTime(windowEnd),
+      locationName: null,
+      observationType: null,
+      observedWithNames: [],
+    });
   }
   return entries;
 }

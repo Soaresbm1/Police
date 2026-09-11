@@ -21,7 +21,7 @@ import { decideTamperingActions, applyTampering } from "./tampering";
 import { generateSharedResources, applySharedResourceAmbiguity } from "./shared-resources";
 import { decideFalseConfession, buildFalseConfession } from "./false-confession";
 import { applyCoordinatedFalseAlibi } from "./coordinated-alibi";
-import { generatePostCrimeMovements, type PostCrimeSubject } from "../simulation/post-crime-observation";
+import { generatePostCrimeMovements, type PostCrimeLocation, type PostCrimeSubject } from "../simulation/post-crime-observation";
 
 function dedupeCandidatesByHolder(candidates: MotiveCandidate[]): MotiveCandidate[] {
   const seen = new Set<PersonId>();
@@ -288,12 +288,32 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
   // hidden information) and passes every other person through the exact
   // same `PostCrimeSubject` projection, with no `roles`/personality/motive
   // field for the generator to even theoretically branch on.
+  //
+  // Phase 5B-2: `lifeStatus` and `relationshipLinks` (type + other-person-id
+  // only, never `RelationshipAttributes`/`secret`) are the only two
+  // additions — both guilt-blind, see `post-crime-observation.ts`'s module
+  // doc comment. `relationshipLinks` is pre-filtered to relationships
+  // between two people both already in this same roster (never the victim).
+  const postCrimeRosterIds = new Set(people.filter((p) => p.id !== victim.id).map((p) => p.id));
   const postCrimeSubjects: PostCrimeSubject[] = people
     .filter((p) => p.id !== victim.id)
-    .map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, homeLocationId: p.homeLocationId, workLocationId: p.workLocationId }));
+    .map((p) => ({
+      id: p.id,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      homeLocationId: p.homeLocationId,
+      workLocationId: p.workLocationId,
+      lifeStatus: p.lifeStatus,
+      relationshipLinks: relationships
+        .filter((r) => r.from === p.id || r.to === p.id)
+        .map((r) => ({ otherPersonId: r.from === p.id ? r.to : r.from, type: r.type }))
+        .filter((link) => postCrimeRosterIds.has(link.otherPersonId)),
+    }));
+  const postCrimePublicLocations: PostCrimeLocation[] = infrastructure.map((l) => ({ id: l.id, type: l.type }));
   const postCrimeMovements = generatePostCrimeMovements(rootRng.derive("post-crime-observation"), {
     people: postCrimeSubjects,
     caseOpenedAt: simulation.caseOpenedAt,
+    publicLocations: postCrimePublicLocations,
   });
 
   const caseTruth: CaseTruth = {

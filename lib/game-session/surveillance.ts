@@ -66,11 +66,18 @@ export function projectSurveillanceObservations(
     .map(({ event, realEnd }): SurveillanceObservation => {
       const arrivalWitnessed = event.timestamp >= windowStart;
       const departureWitnessed = realEnd <= windowEnd;
+      // Phase 5B-2: who else the immutable event says was actually there —
+      // raw person ids only, straight from `presentPersonIds`, never a
+      // relationship type/secret. Omitted entirely (not an empty array)
+      // when nobody else was present, so a plain solo observation's shape
+      // is unchanged from before this field existed.
+      const others = event.presentPersonIds.filter((id) => id !== personId);
       return {
         locationId: event.locationId,
         observedFrom: Math.max(event.timestamp, windowStart),
         observedUntil: Math.min(realEnd, windowEnd),
         observationType: arrivalWitnessed ? "arrived" : departureWitnessed ? "departed" : "present",
+        ...(others.length > 0 ? { observedPersonIds: others } : {}),
       };
     });
 }

@@ -105,6 +105,14 @@ export interface SurveillanceObservation {
    * own `endedAt`, regardless of the underlying movement's true end. */
   observedUntil: GameMinutes;
   observationType: SurveillanceObservationType;
+  /** Phase 5B-2: other known person ids who were part of the SAME
+   * immutable `TimelineEvent` (its `presentPersonIds`, minus the
+   * surveilled person themself) — set only when the underlying movement
+   * actually included someone else (e.g. a `post-crime-observation.ts`
+   * social activity). Absent/empty otherwise. Carries only person ids:
+   * never a relationship type, never `secret`, never any hint of guilt or
+   * motive — the player sees a name, nothing about what it means. */
+  observedPersonIds?: PersonId[];
 }
 
 /**

@@ -103,7 +103,23 @@ describe("Phase 5A — guilt isolation at the call site (item D)", () => {
     const passedIds = input.people.map((p) => p.id);
     expect(passedIds).not.toContain(truth.victimId);
     for (const person of input.people) {
-      expect(Object.keys(person).sort()).toEqual(["firstName", "homeLocationId", "id", "lastName", "workLocationId"]);
+      // Phase 5B-2 added exactly two fields, both guilt-blind (see
+      // post-crime-observation.ts's module doc comment): `lifeStatus` (a
+      // plain string, itself already guilt-blind) and `relationshipLinks`
+      // (type + other-person-id ONLY — never RelationshipAttributes/secret).
+      expect(Object.keys(person).sort()).toEqual([
+        "firstName",
+        "homeLocationId",
+        "id",
+        "lastName",
+        "lifeStatus",
+        "relationshipLinks",
+        "workLocationId",
+      ]);
+      const links = person.relationshipLinks as Record<string, unknown>[];
+      for (const link of links) {
+        expect(Object.keys(link).sort()).toEqual(["otherPersonId", "type"]);
+      }
     }
     // caseOpenedAt is threaded from the simulation, not approximated from
     // crimeTimestamp — it must be strictly after the crime itself.

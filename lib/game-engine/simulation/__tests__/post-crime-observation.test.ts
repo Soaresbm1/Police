@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { RNG } from "../../random/rng";
-import { COVERAGE_DAY_COUNT, generatePostCrimeMovements, type PostCrimeSubject } from "../post-crime-observation";
+import { COVERAGE_DAY_COUNT, generatePostCrimeMovements, type PostCrimeRelationshipLink, type PostCrimeSubject } from "../post-crime-observation";
+import type { LifeStatus } from "../../types/person";
 
-function makeSubject(id: string, homeLocationId: string, workLocationId: string | null = null): PostCrimeSubject {
-  return { id, firstName: "Test", lastName: id, homeLocationId, workLocationId };
+function makeSubject(
+  id: string,
+  homeLocationId: string,
+  workLocationId: string | null = null,
+  lifeStatus: LifeStatus = "employed",
+  relationshipLinks: PostCrimeRelationshipLink[] = [],
+): PostCrimeSubject {
+  return { id, firstName: "Test", lastName: id, homeLocationId, workLocationId, lifeStatus, relationshipLinks };
 }
 
 /** Reusable invariant assertion: for one person's events, sorted by time,
@@ -112,7 +119,7 @@ describe("generatePostCrimeMovements", () => {
     // @ts-expect-error — PostCrimeSubject has no `roles` field; this must
     // remain a compile error, so the generator can never even theoretically
     // branch on hidden role/culprit information.
-    const bad: PostCrimeSubject = { id: "p1", firstName: "A", lastName: "B", homeLocationId: "h1", workLocationId: null, roles: ["culprit"] };
+    const bad: PostCrimeSubject = { id: "p1", firstName: "A", lastName: "B", homeLocationId: "h1", workLocationId: null, lifeStatus: "employed", relationshipLinks: [], roles: ["culprit"] };
     expect(Object.keys(bad)).toContain("id");
   });
 

@@ -30,6 +30,9 @@ function TimelineEntry({ entry }: { entry: SurveillanceTimelineEntryView }) {
       <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-dim">
         ({OBSERVATION_TYPE_LABEL[entry.observationType!]})
       </span>
+      {entry.observedWithNames.length > 0 && (
+        <span className="block text-[11px] text-muted">Observé(e) avec {entry.observedWithNames.join(", ")}</span>
+      )}
     </p>
   );
 }

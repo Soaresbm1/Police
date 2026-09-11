@@ -45,9 +45,11 @@ describe("surveillance — stress/validation (project brief §20)", () => {
     let rejected = 0;
     let valid = 0;
     let observationCount = 0;
+    let companionObservationCount = 0;
     let leakedBeforeStart = 0;
     let leakedAfterEnd = 0;
     let hiddenFieldLeaks = 0;
+    let invalidCompanionIds = 0;
     let thrown = 0;
 
     const REQUESTS_PER_CASE = 5;
@@ -89,11 +91,21 @@ describe("surveillance — stress/validation (project brief §20)", () => {
           valid++;
           const record = result.record!;
           observationCount += record.observations.length;
+          const knownPersonIds = new Set(truth.people.map((p) => p.id));
           for (const o of record.observations) {
             if (o.observedFrom < record.startedAt) leakedBeforeStart++;
             if (o.observedUntil > record.endedAt) leakedAfterEnd++;
             const keys = Object.keys(o).sort();
-            if (keys.join(",") !== "locationId,observationType,observedFrom,observedUntil") hiddenFieldLeaks++;
+            const safeKeys = o.observedPersonIds
+              ? "locationId,observationType,observedFrom,observedPersonIds,observedUntil"
+              : "locationId,observationType,observedFrom,observedUntil";
+            if (keys.join(",") !== safeKeys) hiddenFieldLeaks++;
+            if (o.observedPersonIds) {
+              companionObservationCount++;
+              for (const id of o.observedPersonIds) {
+                if (id === person.id || !knownPersonIds.has(id)) invalidCompanionIds++;
+              }
+            }
           }
         } catch {
           thrown++;
@@ -106,9 +118,11 @@ describe("surveillance — stress/validation (project brief §20)", () => {
       valid,
       rejected,
       observationCount,
+      companionObservationCount,
       leakedBeforeStart,
       leakedAfterEnd,
       hiddenFieldLeaks,
+      invalidCompanionIds,
       thrown,
     });
 
@@ -116,10 +130,73 @@ describe("surveillance — stress/validation (project brief §20)", () => {
     expect(leakedBeforeStart).toBe(0);
     expect(leakedAfterEnd).toBe(0);
     expect(hiddenFieldLeaks).toBe(0);
+    expect(invalidCompanionIds).toBe(0);
     expect(thrown).toBe(0);
     // Both outcomes must actually occur across this sample — otherwise the
     // stress run isn't exercising the boundary/overlap logic at all.
     expect(valid).toBeGreaterThan(0);
     expect(rejected).toBeGreaterThan(0);
+  }, 60_000);
+
+  /**
+   * Project brief §12: "explicit paired-surveillance stress for reciprocal
+   * meetings" — searches generated cases for real companion (reciprocal)
+   * events, then runs an independent surveillance request for BOTH
+   * participants over a window covering the meeting, and checks their
+   * observations agree.
+   */
+  it("paired surveillance over reciprocal meetings: both sides agree, zero mismatches, across many found meetings", () => {
+    let casesScanned = 0;
+    let meetingsFound = 0;
+    let pairsChecked = 0;
+    let reciprocalMismatches = 0;
+    let thrown = 0;
+
+    for (let i = 0; i < 400 && meetingsFound < 60; i++) {
+      casesScanned++;
+      let truth;
+      try {
+        truth = generateCase(`CASE-5B2PAIRED-${i}`, { difficulty: DIFFICULTIES[i % DIFFICULTIES.length] });
+      } catch {
+        continue;
+      }
+      const social = truth.postCrimeMovements.filter((e) => e.presentPersonIds.length > 1);
+      if (social.length === 0) continue;
+
+      const { start: coverageStart, end: coverageEnd } = coverageWindow(truth);
+      for (const e of social) {
+        const companionId = e.presentPersonIds.find((id) => id !== e.actorId);
+        if (!companionId) continue;
+        meetingsFound++;
+
+        const windowStart = Math.max(coverageStart, e.timestamp - 30);
+        const duration = SURVEILLANCE_DURATIONS_MINUTES.find((d) => windowStart + d > e.timestamp && windowStart + d <= coverageEnd);
+        if (!duration) continue; // no fixed-menu duration fits without exceeding coverage — skip, not a failure
+
+        try {
+          pairsChecked++;
+          const sessionA = freshSession(windowStart);
+          const outcomeA = startSurveillance(truth, sessionA, e.actorId, duration);
+          const sessionB = freshSession(windowStart);
+          const outcomeB = startSurveillance(truth, sessionB, companionId, duration);
+          if (!outcomeA.ok || !outcomeB.ok) continue; // eligibility/overlap rejection unrelated to reciprocity itself
+
+          const obsA = outcomeA.record!.observations.find((o) => o.locationId === e.locationId && o.observedPersonIds?.includes(companionId));
+          const obsB = outcomeB.record!.observations.find((o) => o.locationId === e.locationId && o.observedPersonIds?.includes(e.actorId));
+          if (!obsA || !obsB || obsA.locationId !== obsB.locationId || obsA.observedFrom !== obsB.observedFrom || obsA.observedUntil !== obsB.observedUntil) {
+            reciprocalMismatches++;
+          }
+        } catch {
+          thrown++;
+        }
+      }
+    }
+
+    console.log("PAIRED SURVEILLANCE RECIPROCITY STRESS", { casesScanned, meetingsFound, pairsChecked, reciprocalMismatches, thrown });
+
+    expect(meetingsFound).toBeGreaterThan(0);
+    expect(pairsChecked).toBeGreaterThan(0);
+    expect(reciprocalMismatches).toBe(0);
+    expect(thrown).toBe(0);
   }, 60_000);
 });
