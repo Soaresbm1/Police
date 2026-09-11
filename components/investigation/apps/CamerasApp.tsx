@@ -4,8 +4,8 @@ import { useState, useTransition } from "react";
 import { searchCameraAction, type CameraSearchResult } from "@/lib/game-session/app-actions";
 import { AppFrame } from "./AppFrame";
 import { playSound } from "@/lib/sound/sound-manager";
-import { cctvFrameDataUri } from "@/lib/art/cctv-renderer";
 import { Soundscape } from "../Soundscape";
+import { CCTVViewer } from "../CCTVViewer";
 
 export interface CameraLocationOption {
   id: string;
@@ -115,12 +115,7 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
                 {result.lines.length === 0 && <p className="text-sm text-muted">Aucune image exploitable sur ce créneau.</p>}
                 <div className="grid gap-3 sm:grid-cols-2">
                   {result.lines.map((line) => (
-                    <div key={line.id} className="flex flex-col gap-1.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={cctvFrameDataUri(line.frame)} alt="" className="w-full border border-border-strong" />
-                      <p className="font-data text-[10px] uppercase tracking-wide text-muted">{line.timeLabel} — {line.typeLabel}</p>
-                      <p className="text-xs text-foreground">{line.detail}</p>
-                    </div>
+                    <CCTVViewer key={line.id} line={line} locationName={result.locationName} />
                   ))}
                 </div>
                 {result.moreOutsideWindow && (

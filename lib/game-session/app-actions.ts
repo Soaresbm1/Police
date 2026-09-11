@@ -9,8 +9,12 @@ import { requestPhoneRecords } from "./phone-records";
 import { displayLocationName, getVisibleEvidenceForPerson } from "./player-view";
 import { getCriminalRecord, type CriminalRecordEntry } from "./criminal-record";
 import { formatGameTime } from "@/lib/game-engine/types/time";
-import { RECORD_TYPE_LABEL } from "./labels";
-import { buildCCTVFrameDescriptor, type CCTVFrameDescriptor } from "@/lib/art/cctv";
+import { formatChf } from "@/lib/game-engine/evidence/evidence-generator";
+import { FINANCIAL_DIRECTION_LABEL, RECORD_TYPE_LABEL } from "./labels";
+import { buildCCTVFrameDescriptor, describeCCTVObservation, identifiedNamesForCCTV, type CCTVFrameDescriptor } from "@/lib/art/cctv";
+import { CCTV_QUALITY_LABEL } from "@/lib/art/cctv-renderer";
+import { getLabReport, labResultEventId, type LabReportView } from "./lab-report";
+import { markEventSeen } from "./events";
 
 /** Every search-type action pays a small, believable amount of in-game time
  * — real bureaucratic lookups aren't instant — advancing the clock so the
@@ -132,6 +136,14 @@ export async function searchCriminalRecordAction(personId: string): Promise<Crim
 
 export interface CameraRecordLine extends RecordLine {
   frame: CCTVFrameDescriptor;
+  cameraId: string;
+  qualityLabel: string;
+  /** Safe observation sentence — see `lib/art/cctv.ts#describeCCTVObservation`.
+   * Never names anyone `frame.identifiable` doesn't already say is
+   * identifiable. */
+  observation: string;
+  /** Empty unless `frame.identifiable` is true. */
+  identifiedNames: string[];
 }
 
 export interface CameraSearchResult {
@@ -176,14 +188,21 @@ export async function searchCameraAction(locationId: string, windowStart: number
     const outsideWindow = visibleAtLocation.length > inWindow.length;
 
     const lines: CameraRecordLine[] = inWindow
-      .map((ev) => ({
-        id: ev.id,
-        timeLabel: formatGameTime(ev.timestamp),
-        time: ev.timestamp,
-        typeLabel: RECORD_TYPE_LABEL[ev.type],
-        detail: ev.description,
-        frame: buildCCTVFrameDescriptor(ev, truth),
-      }))
+      .map((ev) => {
+        const frame = buildCCTVFrameDescriptor(ev, truth);
+        return {
+          id: ev.id,
+          timeLabel: formatGameTime(ev.timestamp),
+          time: ev.timestamp,
+          typeLabel: RECORD_TYPE_LABEL[ev.type],
+          detail: ev.description,
+          frame,
+          cameraId: frame.cameraId,
+          qualityLabel: CCTV_QUALITY_LABEL[frame.visibilityQuality],
+          observation: describeCCTVObservation(frame, truth),
+          identifiedNames: identifiedNamesForCCTV(frame, truth),
+        };
+      })
       .sort((a, b) => a.time - b.time);
 
     return { locationName: displayLocationName(location), available: true, status: "ready" as const, windowStart, windowEnd, lines, moreOutsideWindow: outsideWindow };
@@ -192,12 +211,18 @@ export async function searchCameraAction(locationId: string, windowStart: number
   return result;
 }
 
+export interface FinancialRecordLine extends RecordLine {
+  amountLabel: string;
+  directionLabel: string;
+  counterpartyLabel: string;
+}
+
 export interface BankSearchResult {
   personId: string;
   ownerName: string;
   status: "no_mandate" | "pending" | "denied" | "pending_records" | "ready";
   mandateReason: string;
-  lines: RecordLine[];
+  lines: FinancialRecordLine[];
 }
 
 export async function requestBankMandateAppAction(personId: string): Promise<MandateRequestOutcome> {
@@ -218,9 +243,18 @@ export async function searchBankAction(personId: string): Promise<BankSearchResu
     }
 
     discovery.checkBankRecords(truth, session, personId);
-    const lines: RecordLine[] = getVisibleEvidenceForPerson(truth, session, personId)
+    const lines: FinancialRecordLine[] = getVisibleEvidenceForPerson(truth, session, personId)
       .filter((ev) => ev.family === "financial")
-      .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
+      .map((ev) => ({
+        id: ev.id,
+        timeLabel: formatGameTime(ev.timestamp),
+        time: ev.timestamp,
+        typeLabel: RECORD_TYPE_LABEL[ev.type],
+        detail: ev.description,
+        amountLabel: ev.financialDetails ? formatChf(ev.financialDetails.amountChf) : "",
+        directionLabel: ev.financialDetails ? FINANCIAL_DIRECTION_LABEL[ev.financialDetails.direction] : "",
+        counterpartyLabel: ev.financialDetails?.counterpartyLabel ?? "",
+      }))
       .sort((a, b) => a.time - b.time);
 
     return { personId, ownerName, status: "ready" as const, mandateReason: outcome.reason, lines };
@@ -276,4 +310,25 @@ export async function executeSearchWarrantAction(personId: string): Promise<Sear
   });
   revalidatePath("/investigation", "layout");
   return result;
+}
+
+/** Fetches the safe, already-gated report for one piece of analyzed
+ * evidence (req. 2) — `getLabReport` itself re-checks `playerStatus ===
+ * "analyzed"`, so this can never hand back a report for evidence still in
+ * the lab queue. */
+export async function getLabReportAction(evidenceId: string): Promise<LabReportView | null> {
+  return withSession(({ session, truth }) => getLabReport(truth, session, evidenceId));
+}
+
+/** Marks the matching `lab_result` event `seen` the first time the player
+ * actually opens a report — REPORT READY → REPORT CONSULTED, reusing the
+ * existing event status machine rather than a new persisted field. A
+ * no-op if no such event was ever scheduled (shouldn't happen for
+ * lab-eligible evidence, but never throws either way). */
+export async function consultLabReportAction(evidenceId: string): Promise<void> {
+  await withSession(({ session }) => {
+    const eventId = labResultEventId(session, evidenceId);
+    if (eventId) markEventSeen(session, eventId);
+  });
+  revalidatePath("/investigation", "layout");
 }

@@ -3,6 +3,7 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getSuspects } from "@/lib/game-session/player-view";
 import { submitAccusationAction } from "@/lib/game-session/actions";
 import { ACCOMPLICE_ROLE_LABEL, MOTIVE_LABEL, WEAPON_OPTIONS } from "@/lib/game-session/labels";
+import { ACCUSATION_PERSON_ORDER_DOMAIN } from "@/lib/game-session/ordering";
 import { Soundscape } from "@/components/investigation/Soundscape";
 
 const ACCOMPLICE_SLOTS = 3;
@@ -10,7 +11,10 @@ const ACCOMPLICE_SLOTS = 3;
 export default async function AccusationPage() {
   const game = await getCurrentGame();
   if (!game) return null;
-  const suspects = getSuspects(game.truth);
+  // A domain independent from the suspect-list screen's own — see
+  // `ordering.ts` — so the culprit dropdown order can't be inferred from
+  // the suspect list's order, or vice versa.
+  const suspects = getSuspects(game.truth, ACCUSATION_PERSON_ORDER_DOMAIN);
 
   if (game.session.accusation) {
     return (

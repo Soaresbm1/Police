@@ -38,40 +38,80 @@ function canonicalProjection(truth: CaseTruth): Omit<CaseTruth, "generatedAt" | 
 // anything other than postCrimeMovements/generatedAt for these seeds, this
 // test catches it immediately.
 // Re-pinned for the age/occupation/life-status population rework, its
-// distribution-tuning follow-up, and now for Phase 5B-1 (surveillance),
-// which added `CaseTruth.caseOpenedAt` (a pure exposure of an already-
-// computed value, see `types/case.ts` — no RNG draw changes, so this pass's
-// hash change is shape-only, not a generation-behavior change). Phase 5A
+// distribution-tuning follow-up, Phase 5B-1 (surveillance, which added
+// `CaseTruth.caseOpenedAt`), and now for the investigation-clarity/evidence-UX
+// player-test pass, which — unlike every prior re-pin — DOES change
+// `CaseTruth.evidence` itself for every seed, on purpose:
+//   1. `generateAmbientFinancialActivity` adds 1-3 new mundane financial
+//      evidence items per suspect (req. "financial noise" — groceries/fuel/
+//      withdrawals with no suspicious flag), so `evidence.length` grows and
+//      new ids appear for every seed.
+//   2. The `camera` TAG_MAPPING's description no longer unconditionally
+//      names the actor (that was a truth-safety bug: it leaked identity
+//      regardless of the separately-computed CCTV `identifiable` flag) —
+//      every camera_footage evidence item's `description` text changed.
+//   3. `card_payment`/`cash_withdrawal` descriptions now embed the real,
+//      structured `formatChf(amountChf)` amount (previously plain, amount-
+//      less sentences) — every such item's `description` text changed, and
+//      `financialDetails` is now a populated field instead of absent.
+// None of this is a change to WHO is guilty, the timeline, motive, or
+// solvability — `computeSolvability`/`validateCase` are re-asserted below
+// exactly as before, and all 20 re-verified `validateCase(...).valid ===
+// true` with `postCrimeMovements.length > 0` after re-pinning. Phase 5A
 // isolation itself (items D/H/I/J above, and the mocked-call field-shape
-// assertion) is unaffected and still passes — this table is a population/
-// schema snapshot, not a Phase 5A invariant. All 20 re-verified
-// `validateCase(...).valid === true` when re-pinned.
+// assertion) is unaffected — this table is a population/evidence-content
+// snapshot, not a Phase 5A invariant.
+//
+// SECOND re-pin, for exactly 6 of these 20 seeds (00, 02, 03, 14, 16, 18) —
+// the pre-commit historical-case compatibility audit. That audit found
+// `generateRedHerrings`/`tampering.ts#buildSecondaryTrace` drew their new
+// `financialDetails.amountChf` straight from their shared per-call `rng`
+// parameter, BEFORE that same instance's `rng.id("ev")` call for the SAME
+// item — `RNG.id()` derives from `this.callCount` (rng.ts), a counter
+// shared by every `.float()`-family call on one `RNG` instance, so this
+// silently shifted that item's own evidence id (and, for red herrings,
+// every later item on the same stream) for any case where the draw fired.
+// Confirmed empirically (before/after git-stash diff across 20 fixed
+// seeds): 2/20 lost a red-herring evidence id outright. Fixed by rolling
+// the amount from an isolated `rng.derive(...)` sub-stream instead — the
+// same discipline `deriveEvidenceFromTimeline`'s `financial-${event.id}`
+// roll already used correctly (see both call sites' updated comments).
+// That fix necessarily changes WHICH amount gets rolled (never which id)
+// for the one evidence item on each affected path — confirmed, per seed,
+// to be exactly one red-herring `card_payment` item or one
+// `disguise_transaction` trace, nothing else: evidence ids, counts,
+// reliability, discoveryDifficulty, discoverableAt, requiresLabAnalysis,
+// and every non-financial description are all identical to the prior
+// re-pin for all 20 seeds (see `lib/game-engine/evidence/__tests__/
+// evidence-id-stability.test.ts`, which now pins the corrected ids for
+// this exact path so this class of bug can't silently return). The other
+// 14 seeds' hashes are untouched by this second re-pin.
 const EXPECTED_HASHES: Record<string, string> = {
-  "CASE-P5AREG00": "eefa613260919130f7063e096f753d6c8b200d9fbb89d5a3f63bb89c82465290",
-  "CASE-P5AREG01": "1ea9fa8ddba0b7c3bde719ecc7bcef1443cc84c345281e8d6d456730d9d63197",
-  "CASE-P5AREG02": "7b6423100bbcf56d66a1c0ef89af3b351d48e2c8b7debd18f7b5c6d736d7b754",
-  "CASE-P5AREG03": "9307d8c7d951e097602ea23a286cd6fc4e5439c356c4f3200f425a37532f79b4",
-  "CASE-P5AREG04": "88a7908b643bb5489b05cf6e80e90baa0d25c04d9c9e090326c5a6090c931790",
+  "CASE-P5AREG00": "4c1d1d50a2eb93745755c3a96758d9fc46e88916c0dec78a4c02787e347790ca",
+  "CASE-P5AREG01": "bea4c6e59d10940c5bdc8e91d68f39dbb8c9f39adf5e199ac290436dfa859a8c",
+  "CASE-P5AREG02": "17aa49f2967d19c7bd340385c5c3ae1930f8f5946fdf31193109228c45c8e12f",
+  "CASE-P5AREG03": "5c97f946c1dd7e2f952b404808b82984739ab295aa49d545f0f13c32cd726e33",
+  "CASE-P5AREG04": "52b991d6ee3d27ab622274859dfb684d67abd0e4b1d4656fc171a95942475ebf",
   // Original CASE-P5AREG05 hits a rare, pre-existing, unrelated generator
   // edge case (a sub-5-minute teleportation flag in travel timing — nothing
   // to do with population/age/occupation); swapped for a nearby seed that's
   // valid, per the project's own tolerance for rare procedural dead ends
   // (see CASE_GENERATION.md and batch.test.ts).
-  "CASE-P5AREG05B": "f493dada04d2c8c6d9f59e6a16aa6f2fb1f503de3b1cf15bb26b07327ece05dd",
-  "CASE-P5AREG06": "418114cd5d2b086498955e0973c0ad8d667ffca599a0c3a2a241d80af9e79bde",
-  "CASE-P5AREG07": "ba94b524e437c17aa9264889d906d02b3eec3779b7f67f74d99d4e03d98916bd",
-  "CASE-P5AREG08": "ef86f5c290046769e0ab2d418f8703132023d1fc621256d8ade3cff306f11f3a",
-  "CASE-P5AREG09": "68087bc764cfbac41755495d5a1d95ba9d03ae1c9f0d147cbcaa78b67aabaf89",
-  "CASE-P5AREG10": "83e1ef9b745ff69b8c33ee99f52acd7ec5da6beace4da0352624ad0165212580",
-  "CASE-P5AREG11": "3d42c05f63d91d733bc02ba1315a98dcc904beb5c08543b26d6add08fc73d71a",
-  "CASE-P5AREG12": "10bc55df64949bded6411dfacbc87b7f5f816228482e7ad6d3e7d1b7f1a0da92",
-  "CASE-P5AREG13": "9e72c99133260ccd34d33e5244a15076ca17a1de5f306b13b105bdeb4bd17588",
-  "CASE-P5AREG14": "51e9582d3db0dec9a51c34d6f78bedff53360298789c9631f21e77772c7cb39c",
-  "CASE-P5AREG15": "c34d00f51f4d433596375d104323e07dfceb06fcc9cf710e2e51dc9ccd271895",
-  "CASE-P5AREG16": "c23dad707536f3c66abcde84fe797ada25b338d8c747b9e859a091e93d029445",
-  "CASE-P5AREG17": "cec836c435d3ec142dbe65ea2cd7326049fe0a5177c22906af9200f41077a7c8",
-  "CASE-P5AREG18": "8bc8575538ac6553c1eaff548677f80dfd7e1eb93634b4cd4c68a45aa76e7639",
-  "CASE-P5AREG19": "dae6d877c03feb830ed752a5379b36ffc8afea6b27d02081161903c0fa98fa0e",
+  "CASE-P5AREG05B": "da1a4020c46f0d23e79509f8ccea91ba90e07304252b691f3a8bc97ece4151ed",
+  "CASE-P5AREG06": "611caee22f1aeea8cef4fc809b60665f5e8f64436cc48875e10679cdfe4c59eb",
+  "CASE-P5AREG07": "4b7bac65570be0c4c054547a626f1a9812e0403a9ea51d7c5a197ad2e9779e40",
+  "CASE-P5AREG08": "f3e6b53b7bb2d8fdc81cfe48426741da6623e18058037785f5c348f589425f7a",
+  "CASE-P5AREG09": "dbf47c1e5c0f3286bf586a17abb2707c7f9fddb2ed9ed9f0dbf8a90da1d38a5a",
+  "CASE-P5AREG10": "a5f93362a0e9f1a1a6fcd94ca52e120fb90a8d0124257703dd8385bb5c2b3b02",
+  "CASE-P5AREG11": "e47316a7cbba5ae7ffaad9368904a41d6dfaeee022f25ff17ffd08538065a3cf",
+  "CASE-P5AREG12": "9ba9f979e14bdb9b2cfdf662287a5a46eceec5d80fb9e21dab1f749339209b53",
+  "CASE-P5AREG13": "472389394d5455687c148c5fa355f927cfcaf046ae8223b304a45b1e91e8ef9f",
+  "CASE-P5AREG14": "45a8f11a422503707fb4569b34756f6931ec18fc2e94a2c07ac0efde7b808116",
+  "CASE-P5AREG15": "5699637ef290dfba187e172367720adbedf69e2aa4c70648fa8f7b6f89dda347",
+  "CASE-P5AREG16": "fb85bc6b5ed90abdbdc96230aba66e2445e56df8bbb5b2909ae19cdcab01e001",
+  "CASE-P5AREG17": "6e9bc08b57fb48e1bdb0878c22e56889f9cea9461f7a4b40d8c32fd9c61f646e",
+  "CASE-P5AREG18": "7c2330c366009af74b748a064bafbc4570e1345ce2f4bb2bbf43cc9b8d47aea0",
+  "CASE-P5AREG19": "8c52f3a14f3231f1ccf11721347688746c6d2717530503cdc466d764efa3b0a5",
 };
 
 describe("Phase 5A — RNG domain isolation (the mechanism the whole feature relies on)", () => {

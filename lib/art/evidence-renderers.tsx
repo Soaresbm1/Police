@@ -4,6 +4,7 @@ import { hashSeed, pickRange } from "./hash";
 import { rendererKindForEvidence, type EvidenceRendererKind } from "./evidence-kind";
 import { buildCCTVFrameDescriptor } from "./cctv";
 import { buildCCTVFrameSvg } from "./cctv-renderer";
+import { evidenceCode } from "./evidence-code";
 
 export { rendererKindForEvidence };
 
@@ -26,10 +27,6 @@ const RELIABILITY_TONE: Record<EvidenceReliability, string> = {
   contaminated: "#b8493e",
   falsified: "#b8493e",
 };
-
-function evidenceCode(id: string): string {
-  return `EV-${((hashSeed(id) % 9000) + 1000).toString()}`;
-}
 
 function frame(children: string, bg = "#0b0c0f"): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160"><rect width="240" height="160" fill="${bg}" />${children}<rect x="0.5" y="0.5" width="239" height="159" fill="none" stroke="#40444d" stroke-width="1" /></svg>`;

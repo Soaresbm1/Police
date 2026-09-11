@@ -7,6 +7,7 @@ import { formatGameTime, type GameMinutes } from "@/lib/game-engine/types/time";
 import { travelMinutes } from "@/lib/game-engine/types/location";
 import { describeMandateEvent } from "./mandates";
 import { readyUnseenCount, visibleEvents } from "./events";
+import { orderPeopleGuiltBlind, SUSPECT_LIST_ORDER_DOMAIN, WITNESS_LIST_ORDER_DOMAIN } from "./ordering";
 import type { SurveillanceObservationType } from "./types";
 import {
   checkSurveillanceRequest,
@@ -64,14 +65,18 @@ export function getAllPeople(truth: CaseTruth): PersonPublicView[] {
   return truth.people.map((p) => toPublicPerson(truth, p));
 }
 
-export function getSuspects(truth: CaseTruth): PersonPublicView[] {
-  return truth.suspectIds.map((id) => toPublicPerson(truth, truth.people.find((p) => p.id === id)!));
+/** `domain` selects an independent guilt-blind shuffle (see `ordering.ts`)
+ * — defaults to the suspect-list screen's own domain; the accusation
+ * dropdown requests `ACCUSATION_PERSON_ORDER_DOMAIN` instead so neither
+ * screen's order can be inferred from the other's. */
+export function getSuspects(truth: CaseTruth, domain: string = SUSPECT_LIST_ORDER_DOMAIN): PersonPublicView[] {
+  const suspects = truth.suspectIds.map((id) => toPublicPerson(truth, truth.people.find((p) => p.id === id)!));
+  return orderPeopleGuiltBlind(truth.seed, domain, suspects);
 }
 
-export function getWitnesses(truth: CaseTruth): PersonPublicView[] {
-  return truth.people
-    .filter((p) => p.id !== truth.victimId && !truth.suspectIds.includes(p.id))
-    .map((p) => toPublicPerson(truth, p));
+export function getWitnesses(truth: CaseTruth, domain: string = WITNESS_LIST_ORDER_DOMAIN): PersonPublicView[] {
+  const witnesses = truth.people.filter((p) => p.id !== truth.victimId && !truth.suspectIds.includes(p.id)).map((p) => toPublicPerson(truth, p));
+  return orderPeopleGuiltBlind(truth.seed, domain, witnesses);
 }
 
 export function getPerson(truth: CaseTruth, personId: PersonId): PersonPublicView | undefined {

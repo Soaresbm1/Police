@@ -4,7 +4,7 @@ import { fullName } from "../types/person";
 import type { Location, LocationId } from "../types/location";
 import type { GameMinutes } from "../types/time";
 import type { TimelineEvent, TimelineActionType } from "../types/timeline";
-import type { Evidence } from "../types/evidence";
+import type { Evidence, FinancialTransactionDetails } from "../types/evidence";
 import { EVIDENCE_FAMILY_BY_TYPE } from "../types/evidence";
 import type { TamperingAction, TamperingEvent } from "../types/evidence";
 import type { ArchetypePolicy } from "./archetype";
@@ -278,6 +278,22 @@ function buildSecondaryTrace(
     },
   };
   const d = descriptions[action];
+  // A real amount/counterparty for the one financial-family trace this
+  // function can produce — honest about what's actually known: the
+  // fabricated split-transaction trail doesn't name a specific
+  // counterparty, so this says so rather than inventing one.
+  //
+  // Own derived sub-stream (never `rng` directly) — `rng` here is the
+  // caller's per-action `actionRng`, later reused for `actionRng.id("tmp")`
+  // (see `applyTampering` above), so drawing this amount straight from it
+  // would shift that call's `callCount` (rng.ts) and silently change the
+  // trace evidence's own id for every `disguise_transaction` case —
+  // exactly the bug confirmed in `generateRedHerrings` by the historical-
+  // compatibility audit. Isolating the roll here restores exact id parity.
+  const financialDetails: FinancialTransactionDetails | undefined =
+    d.type === "bank_transfer"
+      ? { amountChf: rng.derive("secondary-trace-financial").int(200, 2000), direction: "debit", counterpartyLabel: "Tiers non identifié" }
+      : undefined;
   return {
     id: rng.id("ev"),
     family: EVIDENCE_FAMILY_BY_TYPE[d.type],
@@ -294,5 +310,6 @@ function buildSecondaryTrace(
     isRedHerring: false,
     status: "undiscovered",
     description: d.description,
+    ...(financialDetails ? { financialDetails } : {}),
   };
 }

@@ -1,9 +1,11 @@
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { sendToLabAction, collectEvidenceAction } from "@/lib/game-session/actions";
 import type { VisibleEvidence } from "@/lib/game-session/player-view";
-import { RECORD_TYPE_LABEL } from "@/lib/game-session/labels";
+import { LAB_ANALYSIS_LABEL, RECORD_TYPE_LABEL, RELIABILITY_LABEL } from "@/lib/game-session/labels";
 import { EvidenceVisual } from "@/lib/art/evidence-renderers";
+import { evidenceCode } from "@/lib/art/evidence-code";
 import { EvidenceInspectionTrigger } from "./EvidenceInspectionModal";
+import { LabReportTrigger } from "./LabReportView";
 
 const RELIABILITY_COLOR: Record<string, string> = {
   reliable: "text-success",
@@ -24,15 +26,9 @@ const RELIABILITY_BORDER: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   discovered: "Découverte",
   collected: "Prélevée",
-  sent_to_lab: "Envoyée au labo",
-  analyzed: "Analysée",
+  sent_to_lab: "Analyse en cours",
+  analyzed: "Rapport disponible",
 };
-
-function evidenceCode(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return `EV-${(Math.abs(h) % 9000 + 1000).toString()}`;
-}
 
 export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
   return (
@@ -44,7 +40,7 @@ export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
       </div>
       <p className="text-sm text-foreground">{evidence.description}</p>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className={RELIABILITY_COLOR[evidence.reliability] ?? "text-muted"}>{evidence.reliability}</span>
+        <span className={RELIABILITY_COLOR[evidence.reliability] ?? "text-muted"}>{RELIABILITY_LABEL[evidence.reliability] ?? evidence.reliability}</span>
         <span className="border border-border-strong px-1.5 py-0.5 text-muted">{STATUS_LABEL[evidence.playerStatus]}</span>
         <span className="font-data ml-auto text-muted">{formatGameTime(evidence.timestamp)}</span>
       </div>
@@ -60,11 +56,12 @@ export function EvidenceCard({ evidence }: { evidence: VisibleEvidence }) {
         {evidence.requiresLabAnalysis && (evidence.playerStatus === "discovered" || evidence.playerStatus === "collected") && (
           <form action={sendToLabAction.bind(null, evidence.id)}>
             <button type="submit" className="btn btn-primary !px-3 !py-1 !text-[10px]">
-              Envoyer au laboratoire ({evidence.requiresLabAnalysis})
+              Envoyer au laboratoire — {LAB_ANALYSIS_LABEL[evidence.requiresLabAnalysis]}
             </button>
           </form>
         )}
         {evidence.playerStatus === "sent_to_lab" && <span className="text-xs text-warning">Analyse en cours…</span>}
+        {evidence.playerStatus === "analyzed" && evidence.requiresLabAnalysis && <LabReportTrigger evidenceId={evidence.id} />}
       </div>
     </div>
   );

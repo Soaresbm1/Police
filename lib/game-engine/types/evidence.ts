@@ -120,6 +120,28 @@ export const LAB_ANALYSIS_DURATION_MINUTES: Record<LabAnalysisType, number> = {
   digital_forensics: 90,
 };
 
+export type FinancialTransactionDirection = "debit" | "credit";
+
+/**
+ * Player-UX pass (evidence clarity): structured detail for `financial`-
+ * family evidence, so the banking app can show a real amount/type/
+ * counterparty instead of a bare description line. Optional on `Evidence`
+ * — absent for every non-financial type, and never fabricated beyond what
+ * the immutable transaction actually represents (no `relevantToCrime`/
+ * `suspicious` flag anywhere here or downstream; see
+ * `evidence-generator.ts`).
+ */
+export interface FinancialTransactionDetails {
+  amountChf: number;
+  direction: FinancialTransactionDirection;
+  /** Who/what is on the other side of the transaction — a merchant name
+   * for a card payment, a bank/ATM label for a withdrawal, a person's
+   * name for a transfer. Always a real, already-legitimate label (a venue
+   * or person the evidence is already tied to), never invented beyond
+   * that. */
+  counterpartyLabel: string;
+}
+
 export interface Evidence {
   id: string;
   family: EvidenceFamily;
@@ -142,4 +164,7 @@ export interface Evidence {
   /** Player-facing factual description (still ground-truth-accurate; narrative flavor is a
    * separate concern handled by the NarrativeProvider layer). */
   description: string;
+  /** Only set for `family === "financial"` evidence. See
+   * `FinancialTransactionDetails`. */
+  financialDetails?: FinancialTransactionDetails;
 }

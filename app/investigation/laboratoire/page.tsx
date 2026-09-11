@@ -4,14 +4,9 @@ import { sendToLabAction } from "@/lib/game-session/actions";
 import { formatDuration, formatGameTime } from "@/lib/game-engine/types/time";
 import { formatCaseNumber } from "@/lib/game-engine/world/city";
 import { DocumentSheet } from "@/components/investigation/DocumentSheet";
-
-const ANALYSIS_LABEL: Record<string, string> = {
-  fingerprint: "Empreintes digitales",
-  dna: "ADN",
-  ballistics: "Balistique",
-  toxicology: "Toxicologie",
-  digital_forensics: "Forensique numérique",
-};
+import { LAB_ANALYSIS_LABEL, RELIABILITY_LABEL } from "@/lib/game-session/labels";
+import { evidenceCode } from "@/lib/art/evidence-code";
+import { LabReportTrigger } from "@/components/investigation/LabReportView";
 
 export default async function LaboratoirePage() {
   const game = await getCurrentGame();
@@ -53,9 +48,9 @@ export default async function LaboratoirePage() {
               return (
                 <div key={job.evidenceId} className="panel-sunken p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="data-id">{job.evidenceId.slice(0, 10).toUpperCase()}</span>
+                    <span className="data-id">{evidenceCode(job.evidenceId)}</span>
                     <span className="font-data text-[10px] uppercase tracking-wide text-warning">
-                      {ANALYSIS_LABEL[job.analysisType] ?? job.analysisType}
+                      {LAB_ANALYSIS_LABEL[job.analysisType]}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-foreground">{ev.description}</p>
@@ -84,7 +79,7 @@ export default async function LaboratoirePage() {
               <div key={ev.id} className="panel-sunken flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
                 <div>
                   <span className="font-data mr-2 text-xs uppercase tracking-wide text-muted">
-                    {ANALYSIS_LABEL[ev.requiresLabAnalysis!] ?? ev.requiresLabAnalysis}
+                    {LAB_ANALYSIS_LABEL[ev.requiresLabAnalysis!]}
                   </span>
                   <span className="text-foreground">{ev.description}</span>
                 </div>
@@ -111,7 +106,10 @@ export default async function LaboratoirePage() {
                   <span className="font-data text-[10px] text-muted">{formatGameTime(ev.timestamp)}</span>
                 </div>
                 <p className="font-document mt-2 text-sm text-foreground">{ev.description}</p>
-                <p className="mt-1 text-xs text-muted">Fiabilité : {ev.reliability}</p>
+                <p className="mt-1 text-xs text-muted">Fiabilité : {RELIABILITY_LABEL[ev.reliability]}</p>
+                <div className="mt-3">
+                  <LabReportTrigger evidenceId={ev.id} />
+                </div>
               </div>
             ))}
           </div>

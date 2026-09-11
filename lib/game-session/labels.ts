@@ -1,5 +1,5 @@
 import type { AccompliceRole, CaseArchetype, MotiveType } from "@/lib/game-engine/types/case";
-import type { EvidenceType } from "@/lib/game-engine/types/evidence";
+import type { EvidenceReliability, EvidenceType, FinancialTransactionDirection, LabAnalysisType } from "@/lib/game-engine/types/evidence";
 
 export const RECORD_TYPE_LABEL: Record<EvidenceType, string> = {
   fingerprint: "Empreinte",
@@ -26,6 +26,41 @@ export const RECORD_TYPE_LABEL: Record<EvidenceType, string> = {
   witness_statement: "Témoignage",
   tampering_trace: "Trace de manipulation",
   staging_tell: "Incohérence de mise en scène",
+};
+
+/**
+ * Single source of truth for how a lab analysis type reads to the player
+ * — previously duplicated three ways (discovery.ts's lowercase notification
+ * text, laboratoire/page.tsx's capitalized label, and two raw-string
+ * `evidence.requiresLabAnalysis` prints in EvidenceCard.tsx/
+ * EvidenceInspectionModal.tsx that showed the untranslated English type
+ * value, e.g. "Envoyer au laboratoire (fingerprint)") — this is what
+ * player feedback flagged as "DNA is clear, fingerprint handling is
+ * unclear": the fingerprint workflow already existed, only its label
+ * didn't read as French.
+ */
+export const LAB_ANALYSIS_LABEL: Record<LabAnalysisType, string> = {
+  dna: "Analyse ADN",
+  fingerprint: "Analyse d'empreintes digitales",
+  toxicology: "Analyse toxicologique",
+  ballistics: "Analyse balistique",
+  digital_forensics: "Analyse forensique numérique",
+};
+
+export const FINANCIAL_DIRECTION_LABEL: Record<FinancialTransactionDirection, string> = {
+  debit: "Débit",
+  credit: "Crédit",
+};
+
+/** Centralized so EvidenceCard.tsx and EvidenceInspectionModal.tsx can
+ * never drift (previously only the modal translated this — the card
+ * showed the raw English enum value). */
+export const RELIABILITY_LABEL: Record<EvidenceReliability, string> = {
+  reliable: "Fiable",
+  partial: "Partielle",
+  ambiguous: "Ambiguë",
+  contaminated: "Contaminée",
+  falsified: "Falsifiée",
 };
 
 export const MOTIVE_LABEL: Record<MotiveType, string> = {

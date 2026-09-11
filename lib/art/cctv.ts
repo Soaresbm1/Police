@@ -57,3 +57,36 @@ export function buildCCTVFrameDescriptor(evidence: Evidence, truth?: CaseTruth):
     visibleVehiclePlate: vehicleOwner?.vehicle?.plate ?? null,
   };
 }
+
+/**
+ * The one safe, player-facing sentence describing what a CCTV frame shows
+ * — strictly gated by `descriptor.identifiable`/`visiblePersonIds`, the
+ * same fairness-critical fields `buildCCTVFrameSvg` already respects (see
+ * that function's own doc comment). Never names anyone the descriptor
+ * itself doesn't already say is identifiable; a low-quality frame reads as
+ * an honest "present but not identifiable", never a guess.
+ */
+/** Player-facing names for `descriptor.visiblePersonIds` — strictly empty
+ * unless `identifiable` is true, the same fairness-critical field
+ * `buildCCTVFrameSvg` already respects (see that function's own doc
+ * comment). Never names anyone the descriptor itself doesn't already say
+ * is identifiable. */
+export function identifiedNamesForCCTV(descriptor: CCTVFrameDescriptor, truth: CaseTruth): string[] {
+  if (!descriptor.identifiable) return [];
+  return descriptor.visiblePersonIds
+    .map((id) => truth.people.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => `${p.firstName} ${p.lastName}`);
+}
+
+/**
+ * The one safe, player-facing sentence describing what a CCTV frame shows
+ * — an honest "present but not identifiable" for a low-quality frame,
+ * never a guess.
+ */
+export function describeCCTVObservation(descriptor: CCTVFrameDescriptor, truth: CaseTruth): string {
+  const names = identifiedNamesForCCTV(descriptor, truth);
+  if (names.length > 0) return `Présence confirmée à l'image : ${names.join(", ")}.`;
+  if (descriptor.identifiable) return "Une personne a été enregistrée à cette heure.";
+  return "Une silhouette a été enregistrée ; la qualité de l'image ne permet pas de l'identifier.";
+}

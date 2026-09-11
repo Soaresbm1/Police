@@ -3,16 +3,8 @@
 import { useState } from "react";
 import type { VisibleEvidence } from "@/lib/game-session/player-view";
 import { EvidenceVisual, EVIDENCE_KIND_LABEL, rendererKindForEvidence, evidenceTimestampLabel } from "@/lib/art/evidence-renderers";
-import { RECORD_TYPE_LABEL } from "@/lib/game-session/labels";
+import { LAB_ANALYSIS_LABEL, RECORD_TYPE_LABEL, RELIABILITY_LABEL } from "@/lib/game-session/labels";
 import { playSound } from "@/lib/sound/sound-manager";
-
-const RELIABILITY_LABEL: Record<string, string> = {
-  reliable: "Fiable",
-  partial: "Partielle",
-  ambiguous: "Ambiguë",
-  contaminated: "Contaminée",
-  falsified: "Falsifiée",
-};
 
 const STATUS_LABEL: Record<string, string> = {
   discovered: "Découverte",
@@ -78,7 +70,7 @@ export function EvidenceInspectionTrigger({ evidence, label = "Examiner" }: { ev
               {evidence.requiresLabAnalysis && (
                 <div>
                   <p className="field-label">Analyse requise</p>
-                  <p className="mt-0.5 text-foreground">{evidence.requiresLabAnalysis}</p>
+                  <p className="mt-0.5 text-foreground">{LAB_ANALYSIS_LABEL[evidence.requiresLabAnalysis]}</p>
                 </div>
               )}
             </div>

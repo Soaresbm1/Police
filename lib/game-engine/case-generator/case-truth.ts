@@ -7,7 +7,7 @@ import { generatePopulation } from "./population";
 import { generateRelationships } from "./relationships";
 import { deriveMotiveCandidates, pickCulprit, selectVictim, toMotive, type MotiveCandidate } from "./motive";
 import { simulateCaseDay } from "../simulation/timeline-engine";
-import { deriveEvidenceFromTimeline, generateRedHerrings } from "../evidence/evidence-generator";
+import { deriveEvidenceFromTimeline, generateAmbientFinancialActivity, generateRedHerrings } from "../evidence/evidence-generator";
 import { buildKnowledgeGraph, propagateSecondHandKnowledge } from "../witness/knowledge-graph";
 import { generateTestimony } from "../witness/testimony-generator";
 import { buildAlibis } from "./alibis";
@@ -177,7 +177,18 @@ export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}):
     config.redHerringCount,
   );
 
-  let evidence = [...evidenceFromTimeline, ...redHerrings, ...stagingApplication.evidence];
+  // Ordinary, non-narrative financial background activity (project brief
+  // "Investigation Clarity & Evidence UX" §6) — groceries, fuel, ordinary
+  // withdrawals — so a suspect's bank statement isn't ONLY the handful of
+  // narratively-real transactions. Never flagged suspicious/relevant in
+  // any way; scoped to `suspects` (not the whole cast) to keep volume
+  // bounded to who a player would actually check.
+  const ambientFinancialActivity = generateAmbientFinancialActivity(rootRng.derive("ambient-financial"), suspects, locations, {
+    caseOpenedAt: simulation.caseOpenedAt,
+    crimeTimestamp: simulation.crimeTimestamp,
+  });
+
+  let evidence = [...evidenceFromTimeline, ...redHerrings, ...stagingApplication.evidence, ...ambientFinancialActivity];
 
   // --- Deliberate tampering -------------------------------------------------
   const disposalAccomplice = accompliceResult.accomplices.find((a) => a.role === "evidence_disposal");

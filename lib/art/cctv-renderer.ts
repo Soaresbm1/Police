@@ -2,12 +2,17 @@ import type { CCTVFrameDescriptor } from "./cctv";
 import { formatGameTime } from "@/lib/game-engine/types/time";
 import { hashSeed, pickRange } from "./hash";
 
+// Player-UX pass (evidence clarity): raised across the board from the
+// original 8-22% range, which read as an empty black rectangle rather than
+// a dim security-camera still — testers couldn't tell what they were
+// looking at. Relative ordering (clear brightest, low_light darkest) is
+// unchanged, only the floor is legible now.
 const QUALITY_BRIGHTNESS: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
-  clear: 22,
-  partial: 17,
-  obstructed: 13,
-  low_light: 8,
-  distant: 15,
+  clear: 38,
+  partial: 30,
+  obstructed: 24,
+  low_light: 14,
+  distant: 26,
 };
 
 const QUALITY_NOISE: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
@@ -18,11 +23,24 @@ const QUALITY_NOISE: Record<CCTVFrameDescriptor["visibilityQuality"], number> = 
   distant: 0.05,
 };
 
+/** Short French label overlaid on the frame itself, so the quality tier
+ * (which already gates `identifiable` — see `cctv.ts`) is legible at a
+ * glance instead of only implied by how dark the image looks. */
+export const CCTV_QUALITY_LABEL: Record<CCTVFrameDescriptor["visibilityQuality"], string> = {
+  clear: "IMAGE NETTE",
+  partial: "IMAGE PARTIELLE",
+  obstructed: "VUE OBSTRUÉE",
+  low_light: "FAIBLE LUMINOSITÉ",
+  distant: "PRISE DE VUE ÉLOIGNÉE",
+};
+
 function silhouette(x: number, identifiable: boolean, seed: string): string {
   const height = pickRange(`${seed}:h`, 60, 90);
   const headR = height * 0.14;
   const y = 170 - height;
-  const opacity = identifiable ? 0.55 : 0.3;
+  // Raised alongside QUALITY_BRIGHTNESS so a silhouette still reads clearly
+  // against the now-lighter background instead of nearly vanishing into it.
+  const opacity = identifiable ? 0.8 : 0.45;
   const blur = identifiable ? "" : ` filter="url(#cctv-smudge)"`;
   return (
     `<g fill="#0a0a0a" fill-opacity="${opacity}"${blur}>` +
@@ -69,6 +87,9 @@ export function buildCCTVFrameSvg(descriptor: CCTVFrameDescriptor, personCountHi
     // Frame border + burn-in text.
     `<rect x="0.5" y="0.5" width="319" height="179" fill="none" stroke="#3a2020" stroke-width="1" />` +
     `<text x="8" y="16" font-family="ui-monospace, monospace" font-size="10" fill="#c9a23d" opacity="0.85">${descriptor.cameraId}</text>` +
+    // Quality tier overlay — makes WHY identification is/isn't possible
+    // legible at a glance instead of only implied by how dark the image is.
+    `<text x="312" y="28" font-family="ui-monospace, monospace" font-size="8" fill="#c9a23d" text-anchor="end" opacity="0.75">${CCTV_QUALITY_LABEL[descriptor.visibilityQuality]}</text>` +
     `<text x="8" y="172" font-family="ui-monospace, monospace" font-size="9" fill="#c9a23d" opacity="0.85">${formatGameTime(descriptor.timestamp)}</text>` +
     `<circle cx="304" cy="12" r="3" fill="#d33" opacity="0.9" />` +
     `<text x="290" y="16" font-family="ui-monospace, monospace" font-size="8" fill="#d33" text-anchor="end" opacity="0.9">REC</text>` +
