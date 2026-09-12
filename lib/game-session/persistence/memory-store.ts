@@ -28,6 +28,7 @@ function freshSession(userId: string, seed: string, difficulty: Difficulty, crim
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
   };
 }
 

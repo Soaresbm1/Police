@@ -24,6 +24,7 @@ function makeSession(seed: string, overrides: Partial<GameSession> = {}): GameSe
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
     ...overrides,
   };
 }

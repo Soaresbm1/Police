@@ -24,6 +24,7 @@ function makeSession(seed: string, evidenceStatus: GameSession["evidenceStatus"]
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
   };
 }
 

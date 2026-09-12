@@ -49,6 +49,9 @@ export interface Database {
           crime_scene_inspected_zone_ids: Json;
           last_action_message: string | null;
           last_revealed_evidence_ids: Json;
+          /** Motive & Digital Evidence Phase 2 — see
+           * supabase/migrations/0006_hint_state.sql. */
+          hint_state: Json;
           created_at: string;
           updated_at: string;
         };

@@ -6,6 +6,7 @@ import type { GameSession } from "@/lib/game-session/types";
 import type { PlayerSettings } from "@/lib/game-session/persistence";
 import { getReadyUnseenEventCount } from "@/lib/game-session/player-view";
 import { SoundToggle } from "@/components/investigation/SoundToggle";
+import { HintPanel } from "@/components/investigation/HintPanel";
 import { SettingsOverlay } from "./SettingsOverlay";
 import { PoliceEmblem } from "@/components/shared/PoliceEmblem";
 
@@ -84,6 +85,7 @@ export function TopBar({ session, settings }: { session: GameSession; settings: 
             </button>
           </form>
         </div>
+        <HintPanel />
         <SoundToggle />
         <SettingsOverlay
           inGame

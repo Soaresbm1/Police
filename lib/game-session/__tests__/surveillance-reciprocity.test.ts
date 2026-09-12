@@ -25,6 +25,7 @@ function freshSession(currentTime: number): GameSession {
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
   };
 }
 

@@ -24,6 +24,7 @@ function readySession(seed: string, deviceId: string): GameSession {
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
   };
 }
 

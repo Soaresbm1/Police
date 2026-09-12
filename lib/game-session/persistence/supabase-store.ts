@@ -3,6 +3,7 @@ import type { LabJob, PlayerTimelineEntry, MandateRecord, SurveillanceRecord, Bo
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { applyCaseToCareer } from "../career";
+import { normalizeHintState } from "../hints";
 import type { CaseHistoryEntry, PlayerProfile, PlayerSettings, SessionStore } from "./types";
 
 /** jsonb columns round-trip through `Json` — every read needs a two-step
@@ -43,10 +44,18 @@ export function rowToSession(row: SessionRow): GameSession {
     crimeSceneInspectedZoneIds: fromJson<string[]>(row.crime_scene_inspected_zone_ids),
     lastRevealedEvidenceIds: fromJson<string[]>(row.last_revealed_evidence_ids),
     lastActionMessage: row.last_action_message,
+    // Phase 2 (investigation guidance) — see supabase/migrations/
+    // 0006_hint_state.sql. `normalizeHintState` tolerates null/{}/a
+    // partial or corrupted object (any row persisted before this column
+    // existed, or edited directly) and always returns a valid HintState
+    // rather than throwing — see its own doc comment in hints.ts.
+    hintState: normalizeHintState(row.hint_state),
   };
 }
 
-function sessionToRow(userId: string, session: GameSession): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
+/** Exported for the persistence round-trip tests (req. 6) — every other
+ * caller stays internal to this file. */
+export function sessionToRow(userId: string, session: GameSession): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
   return {
     user_id: userId,
     seed: session.seed,
@@ -66,6 +75,7 @@ function sessionToRow(userId: string, session: GameSession): Database["public"][
     crime_scene_inspected_zone_ids: session.crimeSceneInspectedZoneIds as unknown as Json,
     last_action_message: session.lastActionMessage,
     last_revealed_evidence_ids: session.lastRevealedEvidenceIds as unknown as Json,
+    hint_state: session.hintState as unknown as Json,
     updated_at: new Date().toISOString(),
   };
 }
@@ -138,6 +148,7 @@ export class SupabaseSessionStore implements SessionStore {
       crimeSceneExamined: false,
       crimeSceneInspectedZoneIds: [],
       lastRevealedEvidenceIds: [],
+      hintState: { progress: {}, history: [], totalHintsUsed: 0 },
       lastActionMessage: null,
     };
     const supabase = await this.client();

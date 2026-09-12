@@ -211,6 +211,68 @@ export interface InvestigationEvent {
   payload: { title: string; detail: string };
 }
 
+/** Investigation-guidance system (Motive & Digital Evidence Phase 2).
+ * Categories are broader than any one screen — several map to the same
+ * underlying app (e.g. `warrant`/`financial` both touch the banking app),
+ * kept distinct because they represent different PROCEDURAL steps (request
+ * vs. exploit) a hint might point toward. `witness` is reserved for a
+ * possible future distinction from `interrogation`; V1 only ever emits
+ * `interrogation` opportunities (see `hints.ts`'s module doc comment). */
+export type HintCategory =
+  | "crime_scene"
+  | "forensic"
+  | "financial"
+  | "digital"
+  | "witness"
+  | "interrogation"
+  | "cctv"
+  | "phone_records"
+  | "warrant"
+  | "surveillance"
+  | "timeline"
+  | "evidence_cross_reference";
+
+/** How far the player has escalated ONE hint opportunity — `0` means
+ * never requested. Persists across refresh (session state) so "another
+ * piste" never re-offers an opportunity from scratch after the player
+ * already saw its Level 2, and so final scoring can compute the
+ * assistance penalty from the HIGHEST level ever reached per opportunity,
+ * never a cumulative count of every escalation click. */
+export type HintLevel = 0 | 1 | 2 | 3;
+
+export interface HintHistoryEntry {
+  hintId: string;
+  category: HintCategory;
+  level: 1 | 2 | 3;
+  text: string;
+  /** In-game clock at the moment this hint was shown — never a hidden
+   * timestamp, purely for the player's own history view. */
+  requestedAt: GameMinutes;
+}
+
+/**
+ * Player-facing investigation-guidance state (Phase 2). Everything here
+ * is either already-safe (a `HintCategory`, an in-game timestamp, the
+ * exact rendered text the player already saw) or purely administrative
+ * (`hintId`, a stable string never derived from a hidden CaseTruth id —
+ * see `hints.ts`). It never stores `CaseTruth` data, a priority score, or
+ * any reason a hint was chosen — recomputed fresh from `truth`+`session`
+ * every time, never cached here.
+ *
+ * @remarks Persistence: absent/undefined on any session persisted before
+ * this field existed (no Supabase column exists yet for it — see the
+ * Phase 2 report's migration proposal) — every reader must treat that as
+ * a fresh `{ progress: {}, history: [], totalHintsUsed: 0 }`, exactly like
+ * `events`/`surveillance` before their own migrations landed.
+ */
+export interface HintState {
+  /** hintId -> highest level ever shown for that opportunity. */
+  progress: Record<string, HintLevel>;
+  /** Ordered, oldest first — the player's own hint-history view. */
+  history: HintHistoryEntry[];
+  totalHintsUsed: number;
+}
+
 export interface GameSession {
   id: string;
   seed: string;
@@ -247,4 +309,8 @@ export interface GameSession {
    * one-shot "you found something" message. Cleared on next read. */
   lastRevealedEvidenceIds: string[];
   lastActionMessage: string | null;
+  /** Phase 2 investigation-guidance state. See `HintState`'s own doc
+   * comment for the persistence caveat — not yet backed by a Supabase
+   * column, so every reader must tolerate it being absent. */
+  hintState: HintState;
 }

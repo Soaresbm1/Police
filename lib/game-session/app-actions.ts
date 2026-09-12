@@ -15,6 +15,7 @@ import { buildCCTVFrameDescriptor, describeCCTVObservation, identifiedNamesForCC
 import { CCTV_QUALITY_LABEL } from "@/lib/art/cctv-renderer";
 import { getLabReport, labResultEventId, type LabReportView } from "./lab-report";
 import { markEventSeen } from "./events";
+import { escalateHint, getHintHistoryView, getNextHint, type HintHistoryView, type HintPayload } from "./hints";
 
 /** Every search-type action pays a small, believable amount of in-game time
  * — real bureaucratic lookups aren't instant — advancing the clock so the
@@ -331,4 +332,32 @@ export async function consultLabReportAction(evidenceId: string): Promise<void> 
     if (eventId) markEventSeen(session, eventId);
   });
   revalidatePath("/investigation", "layout");
+}
+
+/**
+ * Investigation-guidance system (Phase 2). The browser only ever receives
+ * a `HintPayload` (`{hintId, level, text}`, plus an optional `terminal`
+ * flag) — never the underlying `HintOpportunity`'s priority/category, and
+ * never any CaseTruth field. See `hints.ts`'s module doc comment for the
+ * full truth-safety accounting.
+ */
+export async function getNextHintAction(): Promise<HintPayload> {
+  const result = await withSession(({ session, truth }) => getNextHint(truth, session));
+  revalidatePath("/investigation", "layout");
+  return result;
+}
+
+/** "INDICE PLUS PRÉCIS" — escalates the specific hint the player is
+ * currently looking at (the client passes back the `hintId` from the
+ * payload it already received) by exactly one level. */
+export async function escalateHintAction(hintId: string): Promise<HintPayload> {
+  const result = await withSession(({ session, truth }) => escalateHint(truth, session, hintId));
+  revalidatePath("/investigation", "layout");
+  return result;
+}
+
+/** The player's own hint-history view (req. 17) — read-only, never
+ * mutates session state. */
+export async function getHintHistoryAction(): Promise<HintHistoryView[]> {
+  return withSession(({ session }) => getHintHistoryView(session));
 }

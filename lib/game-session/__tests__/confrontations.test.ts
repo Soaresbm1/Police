@@ -28,6 +28,7 @@ function makeSession(overrides: Partial<GameSession> = {}): GameSession {
     crimeSceneInspectedZoneIds: [],
     lastRevealedEvidenceIds: [],
     lastActionMessage: null,
+    hintState: { progress: {}, history: [], totalHintsUsed: 0 },
     ...overrides,
   };
 }
