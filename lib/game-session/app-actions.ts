@@ -209,7 +209,7 @@ export async function searchCameraAction(locationId: string, windowStart: number
           qualityLabel: CCTV_QUALITY_LABEL[frame.visibilityQuality],
           observation: describeCCTVObservation(frame, truth),
           identifiedNames: identifiedNamesForCCTV(frame, truth),
-          sequence: buildCCTVSequence(ev.id, frame, sourceEvent),
+          sequence: buildCCTVSequence(ev.id, frame, sourceEvent, location.type),
         };
       })
       .sort((a, b) => a.time - b.time);

@@ -1,6 +1,7 @@
 import type { CCTVFrameDescriptor } from "./cctv";
 import type { TimelineEvent } from "@/lib/game-engine/types/timeline";
 import type { GameMinutes } from "@/lib/game-engine/types/time";
+import type { LocationType } from "@/lib/game-engine/types/location";
 import { hashSeed, pickRange } from "./hash";
 
 /**
@@ -63,10 +64,46 @@ export interface CCTVActor {
   visibleUntil: number | null;
 }
 
+/**
+ * Cosmetic-only background "genre" the player draws — never a new fact.
+ * Derived from `Location.type`, which is already ordinary, non-secret data
+ * the player can see elsewhere (map screen, location names/labels) — this
+ * only picks which generic structural shapes (walls, pillars, shelves) look
+ * plausible for that kind of place. It NEVER adds people, objects, vehicles,
+ * signage, or anything the case truth doesn't already establish (req. 7).
+ */
+export type CCTVEnvironmentKind = "corridor" | "parking" | "street" | "shop" | "generic";
+
+const ENVIRONMENT_BY_LOCATION_TYPE: Record<LocationType, CCTVEnvironmentKind> = {
+  police_station: "corridor",
+  apartment: "corridor",
+  house: "corridor",
+  office: "corridor",
+  hospital: "corridor",
+  hotel: "corridor",
+  warehouse: "corridor",
+  parking: "parking",
+  bank: "shop",
+  pharmacy: "shop",
+  shop: "shop",
+  restaurant: "shop",
+  bar: "shop",
+  train_station: "street",
+  gas_station: "street",
+  park: "street",
+};
+
+export function cctvEnvironmentForLocationType(locationType: LocationType | undefined): CCTVEnvironmentKind {
+  if (!locationType) return "generic";
+  return ENVIRONMENT_BY_LOCATION_TYPE[locationType] ?? "generic";
+}
+
 export interface CCTVSequenceDescriptor {
   evidenceId: string;
   cameraId: string;
   locationId: string;
+  /** Cosmetic background genre only — see `CCTVEnvironmentKind`. */
+  environment: CCTVEnvironmentKind;
   /** The real, immutable start of this observation (== the evidence's own
    * timestamp / the source event's timestamp). */
   startTime: GameMinutes;
@@ -115,6 +152,7 @@ export function buildCCTVSequence(
   evidenceId: string,
   frame: CCTVFrameDescriptor,
   sourceEvent: TimelineEvent | undefined,
+  locationType?: LocationType,
 ): CCTVSequenceDescriptor | null {
   if (!sourceEvent) return null;
 
@@ -182,6 +220,7 @@ export function buildCCTVSequence(
     evidenceId,
     cameraId: frame.cameraId,
     locationId: frame.locationId,
+    environment: cctvEnvironmentForLocationType(locationType),
     startTime: sourceEvent.timestamp,
     clockStartSecond: pickRange(`${seedBase}:clock`, 0, 59),
     durationSeconds,

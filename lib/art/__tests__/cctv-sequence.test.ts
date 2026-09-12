@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCCTVSequence, type CCTVSequenceDescriptor, type CCTVVisualEventType } from "../cctv-sequence";
+import { buildCCTVSequence, cctvEnvironmentForLocationType, type CCTVSequenceDescriptor, type CCTVVisualEventType } from "../cctv-sequence";
 import { buildCCTVFrameDescriptor } from "../cctv";
 import type { Evidence } from "@/lib/game-engine/types/evidence";
 import type { TimelineEvent } from "@/lib/game-engine/types/timeline";
@@ -217,6 +217,41 @@ describe("buildCCTVSequence — temporal consistency (req. 36)", () => {
     for (const t of [0, seq.durationSeconds * 0.25, seq.durationSeconds * 0.5, seq.durationSeconds * 0.75, seq.durationSeconds]) {
       expect(visibleAt(seq, t)).toEqual(visibleAt(seq, t));
     }
+  });
+});
+
+describe("cctvEnvironmentForLocationType (Phase 3B — visual realism pass)", () => {
+  it("maps every LocationType to one of the documented cosmetic environment kinds", () => {
+    const allowed = new Set(["corridor", "parking", "street", "shop", "generic"]);
+    const types = [
+      "police_station", "apartment", "house", "restaurant", "bar", "office", "parking", "bank", "pharmacy",
+      "hospital", "train_station", "gas_station", "shop", "hotel", "park", "warehouse",
+    ] as const;
+    for (const t of types) {
+      expect(allowed.has(cctvEnvironmentForLocationType(t))).toBe(true);
+    }
+  });
+
+  it("falls back to 'generic' when no location type is known", () => {
+    expect(cctvEnvironmentForLocationType(undefined)).toBe("generic");
+  });
+
+  it("is a pure, deterministic mapping (same type always yields the same kind)", () => {
+    expect(cctvEnvironmentForLocationType("parking")).toBe(cctvEnvironmentForLocationType("parking"));
+  });
+});
+
+describe("buildCCTVSequence — environment field (Phase 3B)", () => {
+  it("threads the resolved environment kind onto the descriptor", () => {
+    const frame = buildCCTVFrameDescriptor(makeEvidence());
+    const seq = buildCCTVSequence("ev1", frame, makeTimelineEvent(), "parking");
+    expect(seq!.environment).toBe("parking");
+  });
+
+  it("defaults to 'generic' when no location type is supplied (backward compatible)", () => {
+    const frame = buildCCTVFrameDescriptor(makeEvidence());
+    const seq = buildCCTVSequence("ev1", frame, makeTimelineEvent());
+    expect(seq!.environment).toBe("generic");
   });
 });
 
