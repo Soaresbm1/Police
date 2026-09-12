@@ -13,6 +13,7 @@ import { formatChf } from "@/lib/game-engine/evidence/evidence-generator";
 import { FINANCIAL_DIRECTION_LABEL, RECORD_TYPE_LABEL } from "./labels";
 import { buildCCTVFrameDescriptor, describeCCTVObservation, identifiedNamesForCCTV, type CCTVFrameDescriptor } from "@/lib/art/cctv";
 import { CCTV_QUALITY_LABEL } from "@/lib/art/cctv-renderer";
+import { buildCCTVSequence, type CCTVSequenceDescriptor } from "@/lib/art/cctv-sequence";
 import { getLabReport, labResultEventId, type LabReportView } from "./lab-report";
 import { markEventSeen } from "./events";
 import { escalateHint, getHintHistoryView, getNextHint, type HintHistoryView, type HintPayload } from "./hints";
@@ -145,6 +146,11 @@ export interface CameraRecordLine extends RecordLine {
   observation: string;
   /** Empty unless `frame.identifiable` is true. */
   identifiedNames: string[];
+  /** Playable animation descriptor (Phase 3 — see `lib/art/cctv-sequence.ts`)
+   * — `null` when the underlying evidence has no resolvable source event to
+   * ground a sequence in, in which case the viewer falls back to the
+   * existing static frame. */
+  sequence: CCTVSequenceDescriptor | null;
 }
 
 export interface CameraSearchResult {
@@ -191,6 +197,7 @@ export async function searchCameraAction(locationId: string, windowStart: number
     const lines: CameraRecordLine[] = inWindow
       .map((ev) => {
         const frame = buildCCTVFrameDescriptor(ev, truth);
+        const sourceEvent = ev.sourceEventId ? truth.timeline.find((e) => e.id === ev.sourceEventId) : undefined;
         return {
           id: ev.id,
           timeLabel: formatGameTime(ev.timestamp),
@@ -202,6 +209,7 @@ export async function searchCameraAction(locationId: string, windowStart: number
           qualityLabel: CCTV_QUALITY_LABEL[frame.visibilityQuality],
           observation: describeCCTVObservation(frame, truth),
           identifiedNames: identifiedNamesForCCTV(frame, truth),
+          sequence: buildCCTVSequence(ev.id, frame, sourceEvent),
         };
       })
       .sort((a, b) => a.time - b.time);

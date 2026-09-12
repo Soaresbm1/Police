@@ -7,7 +7,7 @@ import { hashSeed, pickRange } from "./hash";
 // a dim security-camera still — testers couldn't tell what they were
 // looking at. Relative ordering (clear brightest, low_light darkest) is
 // unchanged, only the floor is legible now.
-const QUALITY_BRIGHTNESS: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
+export const QUALITY_BRIGHTNESS: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
   clear: 38,
   partial: 30,
   obstructed: 24,
@@ -15,7 +15,7 @@ const QUALITY_BRIGHTNESS: Record<CCTVFrameDescriptor["visibilityQuality"], numbe
   distant: 26,
 };
 
-const QUALITY_NOISE: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
+export const QUALITY_NOISE: Record<CCTVFrameDescriptor["visibilityQuality"], number> = {
   clear: 0.02,
   partial: 0.04,
   obstructed: 0.07,

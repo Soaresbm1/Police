@@ -4,14 +4,17 @@ import { useState } from "react";
 import { cctvFrameDataUri } from "@/lib/art/cctv-renderer";
 import type { CameraRecordLine } from "@/lib/game-session/app-actions";
 import { playSound } from "@/lib/sound/sound-manager";
+import { CCTVAnimatedPlayer } from "./CCTVAnimatedPlayer";
 
 /**
  * Single abstraction over "what a CCTV frame looks like to the player" —
- * today a still image, but every call site goes through this component
- * rather than rendering `<img>`/`<video>` directly, so a future real clip
- * can replace the visual without touching `CamerasApp` (req. 13). Renders
- * only what `CameraRecordLine` already carries — never fabricates a
- * detail beyond the immutable `CCTVFrameDescriptor` (req. 11).
+ * an animated playable sequence when `line.sequence` resolved (Phase 3),
+ * falling back to the original static still otherwise. Every call site goes
+ * through this component rather than rendering `<img>`/`<video>`/`<canvas>`
+ * directly, so the visual technology can keep evolving without touching
+ * `CamerasApp` (req. 13/22). Renders only what `CameraRecordLine` already
+ * carries — never fabricates a detail beyond the immutable
+ * `CCTVFrameDescriptor`/`CCTVSequenceDescriptor` (req. 11).
  */
 export function CCTVViewer({ line, locationName }: { line: CameraRecordLine; locationName: string }) {
   const [open, setOpen] = useState(false);
@@ -49,8 +52,12 @@ export function CCTVViewer({ line, locationName }: { line: CameraRecordLine; loc
               </button>
             </div>
 
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={cctvFrameDataUri(line.frame)} alt="" className="w-full border border-border-strong" />
+            {line.sequence ? (
+              <CCTVAnimatedPlayer sequence={line.sequence} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={cctvFrameDataUri(line.frame)} alt="" className="w-full border border-border-strong" />
+            )}
 
             <div className="hairline grid grid-cols-2 gap-3 pt-3 text-xs sm:grid-cols-3">
               <div>
