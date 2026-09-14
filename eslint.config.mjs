@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     // (C# source + generated WebGL build output), not part of the Next.js
     // app; never meant to be linted by this config.
     "unity/**",
+    // Generated Unity WebGL runtime files copied into public/ for the
+    // embedded CCTV renderer (Phase U3) — machine-generated Emscripten/
+    // IL2CPP output, not CASELINE source.
+    "public/unity/**",
   ]),
   // Living Investigation System hardening: MandateRecord.granted is the
   // real, deterministic bank/search-warrant decision, computed and

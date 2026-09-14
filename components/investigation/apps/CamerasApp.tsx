@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { searchCameraAction, type CameraSearchResult } from "@/lib/game-session/app-actions";
 import { AppFrame } from "./AppFrame";
 import { playSound } from "@/lib/sound/sound-manager";
 import { Soundscape } from "../Soundscape";
 import { CCTVViewer } from "../CCTVViewer";
+import { unityCctvHost } from "@/lib/art/unity-cctv-host";
 
 export interface CameraLocationOption {
   id: string;
@@ -30,6 +31,18 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
   const [slot, setSlot] = useState(slotKey(1, 2));
   const [result, setResult] = useState<CameraSearchResult | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // CamerasApp is the "investigation page" boundary for the persistent
+  // Unity CCTV instance (Phase U3.5) — it's the true host lifecycle: Quit()
+  // only happens here, when the Cameras app itself unmounts, never on a
+  // clip's modal open/close/toggle (see lib/art/unity-cctv-host.ts).
+  // Debounced via scheduleDispose()/cancelScheduledDispose() so React 18
+  // StrictMode's dev-only mount→cleanup→remount cycle never tears down a
+  // live instance.
+  useEffect(() => {
+    unityCctvHost.cancelScheduledDispose();
+    return () => unityCctvHost.scheduleDispose();
+  }, []);
 
   const handleSearch = () => {
     if (!locationId) return;

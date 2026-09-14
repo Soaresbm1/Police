@@ -20,10 +20,33 @@ namespace Caseline.CCTVEditor
     public static class CCTVPrototypeBuilder
     {
         private const string ScenePath = "Assets/Scenes/CCTVPrototype.unity";
+        private const string EmbedScenePath = "Assets/Scenes/CCTVEmbed.unity";
         private const string AnimFolder = "Assets/Animations/CCTV";
 
         [MenuItem("Tools/CASELINE/Build CCTV Prototype Scene")]
         public static void BuildScene()
+        {
+            BuildCoreScene(ScenePath, autoLoad: true, addWebBridge: false);
+            Debug.Log($"[CCTV] Prototype scene built and saved to {ScenePath}");
+        }
+
+        /// <summary>Phase U3 — the production embed target: the exact same
+        /// environment/camera/actor rig as the dev/QA scene, but with no
+        /// StreamingAssets auto-load (no demo footage should ever flash in
+        /// the real embedded viewer — see
+        /// <see cref="CCTVSceneController.autoLoadFromStreamingAssets"/>)
+        /// and a <see cref="CCTVWebBridge"/> named exactly "WebBridge" so
+        /// CASELINE's React component can reach it via
+        /// <c>unityInstance.SendMessage('WebBridge', 'LoadScenarioJson', json)</c>.
+        /// No dev scenario switcher is wired here (req. 8).</summary>
+        [MenuItem("Tools/CASELINE/Build CCTV Embed Scene")]
+        public static void BuildEmbedScene()
+        {
+            var sceneController = BuildCoreScene(EmbedScenePath, autoLoad: false, addWebBridge: true);
+            Debug.Log($"[CCTV] Embed scene built and saved to {EmbedScenePath} (sceneController={sceneController != null})");
+        }
+
+        private static CCTVSceneController BuildCoreScene(string savePath, bool autoLoad, bool addWebBridge)
         {
             EnsureFolder("Assets/Scenes");
             EnsureFolder("Assets/Animations");
@@ -47,12 +70,20 @@ namespace Caseline.CCTVEditor
             SetPrivateField(sceneController, "cctvCamera", camera);
             SetPrivateField(sceneController, "environment", environment);
             SetPrivateListField(sceneController, "sceneActors", new[] { actor.GetComponent<CCTVActorController>() });
+            SetPrivateBoolField(sceneController, "autoLoadFromStreamingAssets", autoLoad);
             SetPrivateField(overlay, "playback", playback);
 
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene, ScenePath);
+            if (addWebBridge)
+            {
+                var bridgeGo = new GameObject("WebBridge");
+                bridgeGo.transform.SetParent(managers.transform);
+                var bridge = bridgeGo.AddComponent<CCTVWebBridge>();
+                SetPrivateField(bridge, "sceneController", sceneController);
+            }
 
-            Debug.Log($"[CCTV] Prototype scene built and saved to {ScenePath}");
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, savePath);
+            return sceneController;
         }
 
         /// <summary>Entry point for the final non-batch CLI launch — opens
@@ -111,6 +142,119 @@ namespace Caseline.CCTVEditor
             });
 
             Debug.Log($"[CCTV] WebGL build result: {report.summary.result}, size={report.summary.totalSize} bytes, errors={report.summary.totalErrors}");
+        }
+
+        /// <summary>Production/release WebGL build of the EMBED scene (Phase
+        /// U3, req. 4) — no Development flag, no autoconnect profiler, no
+        /// deep profiling. Compression is explicitly DISABLED
+        /// (<see cref="UnityEditor.WebGL.WebGLCompressionFormat.Disabled"/>):
+        /// per this phase's own "correctness first" instruction, an
+        /// uncompressed build sidesteps any risk of Vercel/Next.js static
+        /// serving not sending the exact `Content-Encoding` header Unity's
+        /// loader expects for pre-compressed `.br`/`.gz` files — safe to
+        /// revisit as a size optimization once that's independently
+        /// confirmed. Output stays local under
+        /// <c>unity/CaselineVisualPrototype/WebBuildRelease</c>; nothing
+        /// here touches the dev build at <c>WebBuild/</c> or CASELINE's own
+        /// `public/` folder — copying the minimum required subset into
+        /// `public/unity/cctv/` is a separate, explicit step.</summary>
+        [MenuItem("Tools/CASELINE/Build CCTV Embed WebGL (Release)")]
+        public static void BuildWebGLRelease()
+        {
+            var buildDir = Path.Combine(Directory.GetParent(Application.dataPath)!.FullName, "WebBuildRelease");
+            Directory.CreateDirectory(buildDir);
+
+            var previousCompression = PlayerSettings.WebGL.compressionFormat;
+            var previousDevelopment = EditorUserBuildSettings.development;
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
+            EditorUserBuildSettings.development = false;
+
+            try
+            {
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { EmbedScenePath },
+                    locationPathName = buildDir,
+                    target = BuildTarget.WebGL,
+                    options = BuildOptions.None,
+                });
+
+                Debug.Log($"[CCTV] Release WebGL build result: {report.summary.result}, size={report.summary.totalSize} bytes, errors={report.summary.totalErrors}");
+            }
+            finally
+            {
+                PlayerSettings.WebGL.compressionFormat = previousCompression;
+                EditorUserBuildSettings.development = previousDevelopment;
+            }
+        }
+
+        /// <summary>Phase U3.5, req. 13 — same as <see cref="BuildWebGLRelease"/>
+        /// but with Brotli compression enabled, for a real size/behavior
+        /// comparison against the uncompressed build. Separate output
+        /// directory (<c>WebBuildBrotli</c>) so neither build overwrites the
+        /// other; nothing here touches `public/unity/cctv/` — copying a
+        /// chosen candidate there is a separate, explicit step.</summary>
+        [MenuItem("Tools/CASELINE/Build CCTV Embed WebGL (Brotli)")]
+        public static void BuildWebGLBrotli()
+        {
+            var buildDir = Path.Combine(Directory.GetParent(Application.dataPath)!.FullName, "WebBuildBrotli");
+            Directory.CreateDirectory(buildDir);
+
+            var previousCompression = PlayerSettings.WebGL.compressionFormat;
+            var previousDevelopment = EditorUserBuildSettings.development;
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
+            EditorUserBuildSettings.development = false;
+
+            try
+            {
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { EmbedScenePath },
+                    locationPathName = buildDir,
+                    target = BuildTarget.WebGL,
+                    options = BuildOptions.None,
+                });
+
+                Debug.Log($"[CCTV] Brotli WebGL build result: {report.summary.result}, size={report.summary.totalSize} bytes, errors={report.summary.totalErrors}");
+            }
+            finally
+            {
+                PlayerSettings.WebGL.compressionFormat = previousCompression;
+                EditorUserBuildSettings.development = previousDevelopment;
+            }
+        }
+
+        /// <summary>Phase U3.5, req. 13 — Gzip variant, for comparison
+        /// against Brotli. Separate output directory
+        /// (<c>WebBuildGzip</c>).</summary>
+        [MenuItem("Tools/CASELINE/Build CCTV Embed WebGL (Gzip)")]
+        public static void BuildWebGLGzip()
+        {
+            var buildDir = Path.Combine(Directory.GetParent(Application.dataPath)!.FullName, "WebBuildGzip");
+            Directory.CreateDirectory(buildDir);
+
+            var previousCompression = PlayerSettings.WebGL.compressionFormat;
+            var previousDevelopment = EditorUserBuildSettings.development;
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+            EditorUserBuildSettings.development = false;
+
+            try
+            {
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { EmbedScenePath },
+                    locationPathName = buildDir,
+                    target = BuildTarget.WebGL,
+                    options = BuildOptions.None,
+                });
+
+                Debug.Log($"[CCTV] Gzip WebGL build result: {report.summary.result}, size={report.summary.totalSize} bytes, errors={report.summary.totalErrors}");
+            }
+            finally
+            {
+                PlayerSettings.WebGL.compressionFormat = previousCompression;
+                EditorUserBuildSettings.development = previousDevelopment;
+            }
         }
 
         /// <summary>Extracts Unity's built-in Cube/Plane meshes into real
@@ -383,6 +527,14 @@ namespace Caseline.CCTVEditor
             var so = new SerializedObject(target);
             var prop = so.FindProperty(fieldName);
             prop.objectReferenceValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetPrivateBoolField(Object target, string fieldName, bool value)
+        {
+            var so = new SerializedObject(target);
+            var prop = so.FindProperty(fieldName);
+            prop.boolValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
