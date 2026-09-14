@@ -34,5 +34,9 @@ sysinfo.txt
 *.unitypackage
 *.app
 
-# WebGL build output (kept local for manual inspection only)
+# WebGL build output (kept local for manual inspection only — the
+# deployed copy lives under public/unity/cctv/Build/, committed separately)
 WebBuild/
+WebBuildBrotli/
+WebBuildGzip/
+WebBuildRelease/

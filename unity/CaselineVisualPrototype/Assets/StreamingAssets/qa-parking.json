@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "parking",
+  "camera": {
+    "id": "QA-PARKING",
+    "position": [-5.564, 4.93, -2.564],
+    "rotation": [27.12, 45, 0]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "qa-actor",
+      "identified": false,
+      "startTime": 0.5,
+      "endTime": 15.5,
+      "startPosition": [-9, 0, 3],
+      "endPosition": [9, 0, 3],
+      "walkSpeed": 1.4
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "shop",
+  "camera": {
+    "id": "QA-SHOP",
+    "position": [-6.721, 4.67, -3.721],
+    "rotation": [21.635, 45, 0]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "qa-actor",
+      "identified": false,
+      "startTime": 0.5,
+      "endTime": 15.5,
+      "startPosition": [-9, 0, 3],
+      "endPosition": [9, 0, 3],
+      "walkSpeed": 1.4
+    }
+  ]
+}

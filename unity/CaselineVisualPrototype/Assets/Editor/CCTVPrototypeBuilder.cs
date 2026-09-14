@@ -123,6 +123,41 @@ namespace Caseline.CCTVEditor
             Debug.Log("[CCTV] Scenario switcher wired and scene saved.");
         }
 
+        /// <summary>Phase U4.3 — a SEPARATE, clearly-labeled switcher for
+        /// visually inspecting all 5 environment kinds' geometry/camera
+        /// framing with synthetic, non-case data (`qa-*.json`, each a
+        /// generic `qa-actor` walking the full standard ±9m line —
+        /// nothing exported from or traceable to any real CASELINE case).
+        /// Deliberately kept separate from <see cref="SetupScenarioSwitcher"/>
+        /// so the real-case QA list is never silently mixed with synthetic
+        /// data. Wired only onto the dev-only CCTVPrototype scene — the
+        /// production CCTVEmbed scene never gets a scenario switcher at
+        /// all (see <see cref="BuildEmbedScene"/>), so these files are
+        /// never reachable from a deployed build, Supabase, or any
+        /// CASELINE gameplay path; they exist purely for someone running
+        /// this Editor scene locally to eyeball framing across every
+        /// environment kind.</summary>
+        [MenuItem("Tools/CASELINE/Wire Synthetic Environment QA Switcher")]
+        public static void SetupSyntheticEnvironmentQaSwitcher()
+        {
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var sceneController = Object.FindFirstObjectByType<CCTVSceneController>();
+            var overlay = Object.FindFirstObjectByType<CCTVOverlay>();
+            if (sceneController == null || overlay == null)
+            {
+                Debug.LogError("[CCTV] SetupSyntheticEnvironmentQaSwitcher: scene is missing CCTVSceneController/CCTVOverlay — run Build CCTV Prototype Scene first.");
+                return;
+            }
+
+            var files = new[] { "qa-corridor.json", "qa-parking.json", "qa-shop.json", "qa-street.json", "qa-generic.json" };
+            var labels = new[] { "QA: CORRIDOR", "QA: PARKING", "QA: SHOP", "QA: STREET", "QA: GENERIC" };
+            overlay.SetScenarioSwitcher(sceneController, files, labels);
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            Debug.Log("[CCTV] Synthetic environment QA switcher wired and scene saved.");
+        }
+
         /// <summary>Development WebGL build of just the CCTVPrototype scene
         /// (Phase U1, req. 17) — output stays local under
         /// <c>unity/CaselineVisualPrototype/WebBuild</c>, never wired into

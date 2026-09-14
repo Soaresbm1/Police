@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "street",
+  "camera": {
+    "id": "QA-STREET",
+    "position": [0, 3.802, -3.496],
+    "rotation": [24.068, 0, 0]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "qa-actor",
+      "identified": false,
+      "startTime": 0.5,
+      "endTime": 15.5,
+      "startPosition": [-9, 0, 3],
+      "endPosition": [9, 0, 3],
+      "walkSpeed": 1.4
+    }
+  ]
+}

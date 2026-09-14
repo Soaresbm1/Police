@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "generic",
+  "camera": {
+    "id": "QA-GENERIC",
+    "position": [-6.357, 4.8, -3.357],
+    "rotation": [23.452, 45, 0]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "qa-actor",
+      "identified": false,
+      "startTime": 0.5,
+      "endTime": 15.5,
+      "startPosition": [-9, 0, 3],
+      "endPosition": [9, 0, 3],
+      "walkSpeed": 1.4
+    }
+  ]
+}

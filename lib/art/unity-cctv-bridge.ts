@@ -71,19 +71,42 @@ export interface UnityCCTVScenario {
  * Unity's own `Quaternion.LookRotation(target - position)` computes for
  * that position/target pair (verified in-editor, not hand-derived), so
  * the camera is guaranteed to be pointed correctly rather than
- * approximately. Distances (6.8-8.8m) were chosen together with the
- * per-environment FOV in `CCTVCameraFraming.cs` so the actor occupies
- * roughly 15-30% of the frame height — see that file's doc comment for
- * the exact math. The camera remains a fixed, static surveillance shot:
- * no pan/tilt/zoom, no actor tracking — this is still just a constant
- * per environment kind.
+ * approximately. Distances were chosen together with the per-environment
+ * FOV in `CCTVCameraFraming.cs` so the actor occupies roughly 18-25% of
+ * the frame height around the center of the walking path — see that
+ * file's doc comment for the exact math. The camera remains a fixed,
+ * static surveillance shot: no pan/tilt/zoom, no actor tracking — this
+ * is still just a constant per environment kind.
+ *
+ * Phase U4.3 — U4.2's own deterministic occupancy measurement tooling
+ * (`CCTVFramingMeasurement`/`CCTVFramingReport` in the Unity project;
+ * Camera projection math, not screenshots) found the corner-mounted
+ * 45°-yaw presets (parking/shop/generic) already had a correct ~19-20%
+ * occupancy at the path's center, but swung as high as ~40-44% at the
+ * NEAR end of the ±9m walking line, because the camera sits close to
+ * that end — the likely source of the "looks bigger than expected"
+ * impression from casual visual QA, which depends on where the actor
+ * happens to be. Those three were moved ~30% farther out along the
+ * *exact same viewing ray* toward the *same* look-at target — a pure
+ * dolly-back, which is why their `rotation` values below are UNCHANGED
+ * from U4.2 (scaling a position along the ray to a fixed target point
+ * never changes the direction to that point) — with FOV narrowed just
+ * enough to hold the center-of-path occupancy where it already was. A
+ * longer effective lens at greater distance has proportionally less
+ * perspective foreshortening, which is what actually flattens the
+ * near/far swing (confirmed empirically after the change with the same
+ * tooling, not assumed from formula alone). `street`'s center occupancy
+ * (14.5%) was a little under the target floor, so it was moved ~19%
+ * closer along its own ray (rotation likewise unchanged) with FOV left
+ * alone. `corridor` was already flat at 20.6% across the whole path and
+ * is untouched.
  */
 const CAMERA_PRESETS: Record<CCTVEnvironmentKind, { position: [number, number, number]; rotation: [number, number, number] }> = {
   corridor: { position: [0, 3.6, -5.4], rotation: [17.819, 0, 0] },
-  parking: { position: [-4.28, 4, -1.28], rotation: [27.12, 45, 0] },
-  shop: { position: [-5.17, 3.8, -2.17], rotation: [21.635, 45, 0] },
-  street: { position: [0, 4.5, -5.06], rotation: [24.068, 0, 0] },
-  generic: { position: [-4.89, 3.9, -1.89], rotation: [23.452, 45, 0] },
+  parking: { position: [-5.564, 4.93, -2.564], rotation: [27.12, 45, 0] },
+  shop: { position: [-6.721, 4.67, -3.721], rotation: [21.635, 45, 0] },
+  street: { position: [0, 3.802, -3.496], rotation: [24.068, 0, 0] },
+  generic: { position: [-6.357, 4.8, -3.357], rotation: [23.452, 45, 0] },
 };
 
 /** World-space half-width (meters) the mapped walking line spans — kept

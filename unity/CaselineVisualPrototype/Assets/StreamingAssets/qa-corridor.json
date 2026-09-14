@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "corridor",
+  "camera": {
+    "id": "QA-CORRIDOR",
+    "position": [0, 3.6, -5.4],
+    "rotation": [17.819, 0, 0]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "qa-actor",
+      "identified": false,
+      "startTime": 0.5,
+      "endTime": 15.5,
+      "startPosition": [-9, 0, 3],
+      "endPosition": [9, 0, 3],
+      "walkSpeed": 1.4
+    }
+  ]
+}

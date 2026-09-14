@@ -11,9 +11,9 @@ namespace Caseline.CCTV.Tests
     public class CCTVCameraFramingTests
     {
         [TestCase("corridor", 50f)]
-        [TestCase("shop", 55f)]
-        [TestCase("generic", 57f)]
-        [TestCase("parking", 62f)]
+        [TestCase("shop", 48f)]
+        [TestCase("generic", 49f)]
+        [TestCase("parking", 50f)]
         [TestCase("street", 65f)]
         public void FieldOfViewForKind_ReturnsTheExpectedFixedValue(string kind, float expected)
         {
