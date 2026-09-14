@@ -26,11 +26,49 @@ function slotWindow(day: number, quarter: number): { start: number; end: number 
   return { start, end: start + 360 };
 }
 
+/**
+ * Phase U3.7 — pure resolver for which location id the `<select>` should
+ * actually hold. `location.id` values are themselves stable and
+ * deterministic (same seed → same ids, see
+ * lib/game-engine/case-generator/__tests__/location-id-stability.test.ts) —
+ * the failure mode this fixes isn't id generation, it's `CamerasApp`
+ * holding onto a `locationId` in React state that no longer appears in a
+ * *new* `locations` prop (the server component re-rendered with a
+ * different active case — most commonly because the session backing it
+ * was lost and recreated, see withSession/MemoryStore). Submitting that
+ * stale id used to silently resolve to "Lieu inconnu" server-side. Called
+ * from a `useEffect` below so it only ever runs in response to `locations`
+ * actually changing, never during render.
+ */
+export function resolveValidLocationId(locations: CameraLocationOption[], currentId: string): string {
+  if (locations.some((l) => l.id === currentId)) return currentId;
+  return locations[0]?.id ?? "";
+}
+
 export function CamerasApp({ locations, initialLocationId }: { locations: CameraLocationOption[]; initialLocationId?: string }) {
   const [locationId, setLocationId] = useState(initialLocationId ?? locations[0]?.id ?? "");
   const [slot, setSlot] = useState(slotKey(1, 2));
   const [result, setResult] = useState<CameraSearchResult | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Self-heals if `locations` changes out from under this mounted component
+  // (see resolveValidLocationId above) — without this, a stale locationId
+  // survives in state and every subsequent search silently targets a
+  // location that no longer exists. Adjusted directly during render (React's
+  // own recommended pattern for "adjusting state when a prop changes",
+  // guarded by comparing against the last-seen `locations` reference) rather
+  // than in a useEffect, so it takes effect in the same commit instead of
+  // triggering a cascading extra render.
+  const [prevLocations, setPrevLocations] = useState(locations);
+  if (locations !== prevLocations) {
+    setPrevLocations(locations);
+    const resolved = resolveValidLocationId(locations, locationId);
+    if (resolved !== locationId) {
+      setLocationId(resolved);
+      setResult(null);
+    }
+  }
 
   // CamerasApp is the "investigation page" boundary for the persistent
   // Unity CCTV instance (Phase U3.5) — it's the true host lifecycle: Quit()
@@ -49,13 +87,24 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
     const [day, quarter] = slot.split("-").map(Number);
     const { start, end } = slotWindow(day, quarter);
     startTransition(async () => {
-      const res = await searchCameraAction(locationId, start, end);
-      setResult(res);
-      // "pending" is not a conclusion of any kind — only a resolved,
-      // ready result (with or without footage) or a genuinely
-      // camera-less location get any sound at all.
-      if (res.status === "ready") playSound(res.lines.length > 0 ? "success" : "notify");
-      else if (res.status === "unavailable") playSound("notify");
+      try {
+        const res = await searchCameraAction(locationId, start, end);
+        setResult(res);
+        setSearchError(null);
+        // "pending" is not a conclusion of any kind — only a resolved,
+        // ready result (with or without footage) or a genuinely
+        // camera-less location get any sound at all.
+        if (res.status === "ready") playSound(res.lines.length > 0 ? "success" : "notify");
+        else if (res.status === "unavailable") playSound("notify");
+      } catch {
+        // Most commonly withSession's "Aucune enquête en cours." — the
+        // session backing this page vanished between render and submit
+        // (see resolveValidLocationId above for the same root cause hitting
+        // the location list). Surface it inline instead of letting an
+        // uncaught server-action rejection crash the whole page.
+        setResult(null);
+        setSearchError("La session d'enquête est introuvable. Rechargez la page pour continuer.");
+      }
     });
   };
 
@@ -104,6 +153,8 @@ export function CamerasApp({ locations, initialLocationId }: { locations: Camera
       </div>
 
       {isPending && <p className="font-data text-xs text-muted">Extraction des bandes archivées…</p>}
+
+      {!isPending && searchError && <p className="text-sm text-danger">{searchError}</p>}
 
       {!isPending && result && (
         <div className="panel overflow-hidden">
