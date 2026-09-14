@@ -333,7 +333,31 @@ namespace Caseline.CCTVEditor
             return cam;
         }
 
-        private static GameObject BuildActor()
+        // Phase U4 — normalized human-proportion landmarks (meters from
+        // ground), replacing the earlier box-man measurements. Picked from
+        // ordinary adult anthropometry (hip ~0.92m, shoulder ~1.4m, ~1.8m
+        // total height) rather than tuned by eye, so the figure reads as a
+        // person rather than stacked boxes. Every number here is cosmetic —
+        // none of it feeds CCTVActorTimeline or any position CASELINE
+        // itself computes.
+        private const float HipsHeight = 0.92f;
+        private const float SpineLength = 0.20f;
+        private const float ChestLength = 0.22f;
+        private const float NeckLength = 0.10f;
+        private const float HeadLength = 0.10f;
+        private const float HeadRadius = 0.12f;
+        private const float UpperArmLength = 0.30f;
+        private const float LowerArmLength = 0.27f;
+        private const float HandLength = 0.09f;
+        private const float UpperLegLength = 0.46f;
+        private const float LowerLegLength = 0.42f;
+
+        /// <summary>Public (Phase U4) so EditMode tests can build a real
+        /// actor — bones, animator, clips — and verify pose determinism
+        /// against the actual asset this class ships, rather than a
+        /// hand-rolled stand-in. Still only ever called by this Editor-only
+        /// class's own menu commands in normal use.</summary>
+        public static GameObject BuildActor()
         {
             var actorsRoot = new GameObject("Actors");
             // Name is cosmetic only — CCTVSceneController assigns JSON actor
@@ -343,17 +367,39 @@ namespace Caseline.CCTVEditor
             var root = new GameObject("Actor");
             root.transform.SetParent(actorsRoot.transform);
 
-            var bodyMat = MakeMaterial("CCTV_Actor", new Color(0.08f, 0.08f, 0.08f));
+            var bodyMat = MakeMaterial("CCTV_Actor", new Color(0.09f, 0.09f, 0.1f));
 
-            var hips = CreateBone("Hips", root.transform, new Vector3(0, 0.95f, 0));
-            var spine = CreateBone("Spine", hips, new Vector3(0, 0.28f, 0));
-            var chest = CreateBone("Chest", spine, new Vector3(0, 0.24f, 0));
-            var head = CreateBone("Head", chest, new Vector3(0, 0.26f, 0));
-            AddVisual(head, PrimitiveType.Sphere, new Vector3(0.11f, 0f, 0), new Vector3(0.22f, 0.22f, 0.22f), bodyMat);
-            AddVisual(chest, PrimitiveType.Cube, new Vector3(0, 0.1f, 0), new Vector3(0.34f, 0.34f, 0.2f), bodyMat);
+            var hips = CreateBone("Hips", root.transform, new Vector3(0, HipsHeight, 0));
+            // Pelvis visual sits directly on the Hips bone (no independent
+            // motion needed — it moves 1:1 with the twist curve applied to
+            // Hips itself) and is narrower than the chest, giving the torso
+            // a visible waist taper instead of one uniform box.
+            AddVisual(hips, PrimitiveType.Cube, new Vector3(0, 0.02f, 0), new Vector3(0.28f, 0.20f, 0.18f), bodyMat);
 
-            BuildArm("Left", chest, new Vector3(-0.2f, 0.12f, 0), bodyMat);
-            BuildArm("Right", chest, new Vector3(0.2f, 0.12f, 0), bodyMat);
+            var spine = CreateBone("Spine", hips, new Vector3(0, SpineLength, 0));
+            var chest = CreateBone("Chest", spine, new Vector3(0, ChestLength, 0));
+            AddVisual(chest, PrimitiveType.Cube, new Vector3(0, 0.08f, 0), new Vector3(0.36f, 0.30f, 0.20f), bodyMat);
+
+            var neck = CreateBone("Neck", chest, new Vector3(0, NeckLength, 0));
+            AddVisual(neck, PrimitiveType.Cube, new Vector3(0, 0f, 0), new Vector3(0.13f, 0.11f, 0.13f), bodyMat);
+
+            var head = CreateBone("Head", neck, new Vector3(0, HeadLength, 0));
+            // Fix (Phase U4): this sphere used to be offset SIDEWAYS
+            // (0.11, 0, 0) instead of upward — a leftover typo that made
+            // the head sit off-center on the neck rather than stacked
+            // above it, and was the single biggest contributor to the
+            // "misshapen head" look. Offsetting by its own radius on Y
+            // centers it directly above the neck.
+            AddVisual(head, PrimitiveType.Sphere, new Vector3(0, HeadRadius, 0), new Vector3(HeadRadius * 2f, HeadRadius * 2f, HeadRadius * 2f), bodyMat);
+
+            // Small shoulder caps close the visible gap/hard edge where the
+            // arm's rotation joint meets the chest — cheap fix for the
+            // "stiff shoulders" complaint without any real shoulder joint.
+            AddVisual(chest, PrimitiveType.Sphere, new Vector3(-0.19f, 0.14f, 0), new Vector3(0.13f, 0.13f, 0.13f), bodyMat);
+            AddVisual(chest, PrimitiveType.Sphere, new Vector3(0.19f, 0.14f, 0), new Vector3(0.13f, 0.13f, 0.13f), bodyMat);
+
+            BuildArm("Left", chest, new Vector3(-0.19f, 0.14f, 0), bodyMat);
+            BuildArm("Right", chest, new Vector3(0.19f, 0.14f, 0), bodyMat);
 
             BuildLeg("Left", hips, new Vector3(-0.11f, 0f, 0), bodyMat);
             BuildLeg("Right", hips, new Vector3(0.11f, 0f, 0), bodyMat);
@@ -373,28 +419,36 @@ namespace Caseline.CCTVEditor
         private static void BuildArm(string side, Transform parent, Vector3 localPos, Material mat)
         {
             var upper = CreateBone($"{side}UpperArm", parent, localPos);
-            AddVisual(upper, PrimitiveType.Cube, new Vector3(0, -0.13f, 0), new Vector3(0.09f, 0.26f, 0.09f), mat);
-            var lower = CreateBone($"{side}LowerArm", upper, new Vector3(0, -0.26f, 0));
-            AddVisual(lower, PrimitiveType.Cube, new Vector3(0, -0.12f, 0), new Vector3(0.08f, 0.24f, 0.08f), mat);
+            AddVisual(upper, PrimitiveType.Cube, new Vector3(0, -UpperArmLength / 2f, 0), new Vector3(0.09f, UpperArmLength, 0.09f), mat);
+            var lower = CreateBone($"{side}LowerArm", upper, new Vector3(0, -UpperArmLength, 0));
+            AddVisual(lower, PrimitiveType.Cube, new Vector3(0, -LowerArmLength / 2f, 0), new Vector3(0.075f, LowerArmLength, 0.075f), mat);
+            var hand = CreateBone($"{side}Hand", lower, new Vector3(0, -LowerArmLength, 0));
+            AddVisual(hand, PrimitiveType.Cube, new Vector3(0, -HandLength / 2f, 0), new Vector3(0.075f, HandLength, 0.06f), mat);
         }
 
         private static void BuildLeg(string side, Transform parent, Vector3 localPos, Material mat)
         {
             var upper = CreateBone($"{side}UpperLeg", parent, localPos);
-            AddVisual(upper, PrimitiveType.Cube, new Vector3(0, -0.2f, 0), new Vector3(0.14f, 0.4f, 0.14f), mat);
-            var lower = CreateBone($"{side}LowerLeg", upper, new Vector3(0, -0.4f, 0));
-            AddVisual(lower, PrimitiveType.Cube, new Vector3(0, -0.19f, 0), new Vector3(0.12f, 0.38f, 0.12f), mat);
-            var foot = CreateBone($"{side}Foot", lower, new Vector3(0, -0.38f, 0));
-            AddVisual(foot, PrimitiveType.Cube, new Vector3(0, -0.03f, 0.07f), new Vector3(0.14f, 0.06f, 0.24f), mat);
+            AddVisual(upper, PrimitiveType.Cube, new Vector3(0, -UpperLegLength / 2f, 0), new Vector3(0.16f, UpperLegLength, 0.16f), mat);
+            var lower = CreateBone($"{side}LowerLeg", upper, new Vector3(0, -UpperLegLength, 0));
+            AddVisual(lower, PrimitiveType.Cube, new Vector3(0, -LowerLegLength / 2f, 0), new Vector3(0.13f, LowerLegLength, 0.13f), mat);
+            var foot = CreateBone($"{side}Foot", lower, new Vector3(0, -LowerLegLength, 0));
+            AddVisual(foot, PrimitiveType.Cube, new Vector3(0, -0.03f, 0.08f), new Vector3(0.14f, 0.06f, 0.26f), mat);
         }
 
         private static (AnimationClip idle, AnimationClip walk) BuildAnimationClips()
         {
             var idle = new AnimationClip { legacy = false, name = "Idle" };
-            // A neutral standing pose — a single key is enough; the actor
-            // simply holds this stance whenever it isn't walking (before
-            // startTime, after endTime, or if a path has zero displacement).
-            idle.SetCurve("Hips", typeof(Transform), "localPosition.y", AnimationCurve.Constant(0, 1, 0f));
+            // A relaxed standing pose — still a handful of constant keys
+            // (no motion, no narrative gesture per req. 10), but wide
+            // enough to cover every channel the Walk clip animates so nothing
+            // is left mid-swing when Play() hard-cuts from Walk to Idle.
+            // writeDefaultValues on both states (see BuildAnimatorController)
+            // is the real guarantee of that; these curves just give idle its
+            // own deliberately relaxed values rather than the bind pose.
+            idle.SetCurve("Hips", typeof(Transform), "localPosition.y", AnimationCurve.Constant(0, 1, HipsHeight));
+            idle.SetCurve("Hips/Spine/Chest/LeftUpperArm", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 4f));
+            idle.SetCurve("Hips/Spine/Chest/RightUpperArm", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 4f));
             AssetDatabase.CreateAsset(idle, $"{AnimFolder}/CCTV_Idle.anim");
 
             var walk = new AnimationClip { legacy = false, name = "Walk", wrapMode = WrapMode.Loop };
@@ -402,39 +456,78 @@ namespace Caseline.CCTVEditor
             settings.loopTime = true;
             AnimationUtility.SetAnimationClipSettings(walk, settings);
 
-            const float legAmplitudeDeg = 26f;
-            const float kneeAmplitudeDeg = 34f;
-            const float armAmplitudeDeg = 22f;
-            const float hipBobMeters = 0.02f;
+            const float legAmplitudeDeg = 24f;
+            const float kneeAmplitudeDeg = 42f;
+            const float armAmplitudeDeg = 20f;
+            const float elbowAmplitudeDeg = 16f;
+            const float footRollAmplitudeDeg = 14f;
+            const float hipBobMeters = 0.025f;
+            const float hipSwayMeters = 0.012f;
+            const float pelvisTwistDeg = 6f;
+            const float chestTwistDeg = 5f;
+            const int samples = 24; // was 12 — smoother interpolation, still a handful of keys.
 
             // Legs swing in opposite phase; the lower leg "knee" bends only
             // during that leg's back-swing (a cheap standard trick for a
             // believable FK walk without full IK).
-            walk.SetCurve("Hips/LeftUpperLeg", typeof(Transform), "localEulerAngles.x", SineCurve(legAmplitudeDeg, 0f));
-            walk.SetCurve("Hips/RightUpperLeg", typeof(Transform), "localEulerAngles.x", SineCurve(legAmplitudeDeg, Mathf.PI));
-            walk.SetCurve("Hips/LeftUpperLeg/LeftLowerLeg", typeof(Transform), "localEulerAngles.x", KneeCurve(kneeAmplitudeDeg, 0f));
-            walk.SetCurve("Hips/RightUpperLeg/RightLowerLeg", typeof(Transform), "localEulerAngles.x", KneeCurve(kneeAmplitudeDeg, Mathf.PI));
+            walk.SetCurve("Hips/LeftUpperLeg", typeof(Transform), "localEulerAngles.x", SineCurve(legAmplitudeDeg, 0f, samples));
+            walk.SetCurve("Hips/RightUpperLeg", typeof(Transform), "localEulerAngles.x", SineCurve(legAmplitudeDeg, Mathf.PI, samples));
+            walk.SetCurve("Hips/LeftUpperLeg/LeftLowerLeg", typeof(Transform), "localEulerAngles.x", KneeCurve(kneeAmplitudeDeg, 0f, samples));
+            walk.SetCurve("Hips/RightUpperLeg/RightLowerLeg", typeof(Transform), "localEulerAngles.x", KneeCurve(kneeAmplitudeDeg, Mathf.PI, samples));
 
-            // Arms counter-swing relative to the same-side leg.
-            walk.SetCurve("Hips/Spine/Chest/LeftUpperArm", typeof(Transform), "localEulerAngles.x", SineCurve(armAmplitudeDeg, Mathf.PI));
-            walk.SetCurve("Hips/Spine/Chest/RightUpperArm", typeof(Transform), "localEulerAngles.x", SineCurve(armAmplitudeDeg, 0f));
+            // Feet: near-flat during stance, rolling toward toe-up during
+            // this leg's own swing half — removes the flat "skating" foot
+            // that never articulates relative to the ground contact.
+            walk.SetCurve("Hips/LeftUpperLeg/LeftLowerLeg/LeftFoot", typeof(Transform), "localEulerAngles.x", KneeCurve(footRollAmplitudeDeg, Mathf.PI, samples));
+            walk.SetCurve("Hips/RightUpperLeg/RightLowerLeg/RightFoot", typeof(Transform), "localEulerAngles.x", KneeCurve(footRollAmplitudeDeg, 0f, samples));
 
-            // Subtle vertical bob, twice per stride (two foot-falls per
-            // cycle) — cosmetic only.
-            walk.SetCurve("Hips", typeof(Transform), "localPosition.y", BobCurve(hipBobMeters, 0.95f));
+            // Arms counter-swing relative to the same-side leg, with a
+            // little elbow bend on the forward-swing half so the lower arm
+            // isn't a rigid stick.
+            walk.SetCurve("Hips/Spine/Chest/LeftUpperArm", typeof(Transform), "localEulerAngles.x", SineCurve(armAmplitudeDeg, Mathf.PI, samples));
+            walk.SetCurve("Hips/Spine/Chest/RightUpperArm", typeof(Transform), "localEulerAngles.x", SineCurve(armAmplitudeDeg, 0f, samples));
+            walk.SetCurve("Hips/Spine/Chest/LeftUpperArm/LeftLowerArm", typeof(Transform), "localEulerAngles.x", KneeCurve(elbowAmplitudeDeg, 0f, samples));
+            walk.SetCurve("Hips/Spine/Chest/RightUpperArm/RightLowerArm", typeof(Transform), "localEulerAngles.x", KneeCurve(elbowAmplitudeDeg, Mathf.PI, samples));
+
+            // Pelvis rotation + shoulder counter-rotation — two twists per
+            // stride cycle (matching the two footfalls the bob curve
+            // already assumes), chest twisting opposite the hips.
+            walk.SetCurve("Hips", typeof(Transform), "localEulerAngles.y", TwistCurve(pelvisTwistDeg, 0f, samples));
+            walk.SetCurve("Hips/Spine/Chest", typeof(Transform), "localEulerAngles.y", TwistCurve(chestTwistDeg, Mathf.PI, samples));
+
+            // Subtle vertical bob (twice per stride) and lateral weight
+            // shift (once per stride, toward whichever leg is planted) —
+            // both cosmetic only.
+            walk.SetCurve("Hips", typeof(Transform), "localPosition.y", BobCurve(hipBobMeters, HipsHeight, samples));
+            walk.SetCurve("Hips", typeof(Transform), "localPosition.x", SineCurve(hipSwayMeters, 0f, samples));
 
             AssetDatabase.CreateAsset(walk, $"{AnimFolder}/CCTV_Walk.anim");
 
             return (idle, walk);
         }
 
-        private static AnimationCurve SineCurve(float amplitudeDeg, float phase, int samples = 12)
+        private static AnimationCurve SineCurve(float amplitude, float phase, int samples = 12)
         {
             var curve = new AnimationCurve();
             for (var i = 0; i <= samples; i++)
             {
                 var t = (float)i / samples;
-                var value = amplitudeDeg * Mathf.Sin(2f * Mathf.PI * t + phase);
+                var value = amplitude * Mathf.Sin(2f * Mathf.PI * t + phase);
+                curve.AddKey(new Keyframe(t, value));
+            }
+            return curve;
+        }
+
+        /// <summary>Two full oscillations over t:0..1 instead of one — used
+        /// for pelvis/chest twist, which (like the vertical bob) alternates
+        /// once per footfall, i.e. twice per full stride cycle.</summary>
+        private static AnimationCurve TwistCurve(float amplitudeDeg, float phase, int samples = 12)
+        {
+            var curve = new AnimationCurve();
+            for (var i = 0; i <= samples; i++)
+            {
+                var t = (float)i / samples;
+                var value = amplitudeDeg * Mathf.Sin(4f * Mathf.PI * t + phase);
                 curve.AddKey(new Keyframe(t, value));
             }
             return curve;
@@ -447,7 +540,10 @@ namespace Caseline.CCTVEditor
             {
                 var t = (float)i / samples;
                 // Bends forward only on the back-swing half of this leg's
-                // own cycle — never a negative (backward) knee bend.
+                // own cycle — never a negative (backward) knee bend. Reused
+                // (with different phase/amplitude) for elbow bend and foot
+                // roll — same "only one half-cycle" shape reads correctly
+                // for all three joints.
                 var raw = -Mathf.Sin(2f * Mathf.PI * t + phase);
                 var value = Mathf.Max(0f, raw) * amplitudeDeg;
                 curve.AddKey(new Keyframe(t, value));
@@ -474,8 +570,17 @@ namespace Caseline.CCTVEditor
             var stateMachine = controller.layers[0].stateMachine;
             var idleState = stateMachine.AddState("Idle");
             idleState.motion = idle;
+            // Explicit on both states (Phase U4): with more channels now
+            // animated only by Walk (pelvis/chest twist, foot roll, elbow
+            // bend), a hard Play()-cut into Idle must reset every one of
+            // them to Idle's own value rather than freezing mid-swing —
+            // that's what Write Defaults guarantees, so this is made
+            // explicit rather than left to whatever the project template
+            // happened to default new states to.
+            idleState.writeDefaultValues = true;
             var walkState = stateMachine.AddState("Walk");
             walkState.motion = walk;
+            walkState.writeDefaultValues = true;
             stateMachine.defaultState = idleState;
             return controller;
         }
@@ -506,10 +611,17 @@ namespace Caseline.CCTVEditor
             return go;
         }
 
+        /// <summary>Phase U4 — actor material only. Standard's own default
+        /// (Glossiness=0.5, Metallic=0) already reads as noticeably shiny
+        /// under a single strong directional light; skin/fabric under cheap
+        /// CCTV lighting should look matte, not plastic.</summary>
         private static Material MakeMaterial(string name, Color color)
         {
             var shader = Shader.Find("Standard") ?? Shader.Find("Universal Render Pipeline/Lit");
             var mat = new Material(shader) { name = name, color = color };
+            if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", 0.12f);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.12f);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
             return mat;
         }
 

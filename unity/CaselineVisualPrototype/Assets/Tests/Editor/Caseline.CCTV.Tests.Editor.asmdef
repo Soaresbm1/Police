@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "Caseline.CCTV",
+        "Caseline.CCTV.Editor",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

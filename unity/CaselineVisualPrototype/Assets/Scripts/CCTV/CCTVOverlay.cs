@@ -35,7 +35,12 @@ namespace Caseline.CCTV
 
         private void Awake()
         {
-            vignetteTexture = BuildVignetteTexture(128);
+            // 512 (Phase U4, was 128) — the scanline bands this now bakes
+            // in need enough resolution that they read as thin lines once
+            // stretched over the screen, not a handful of thick blocky
+            // stripes. Still a single one-time Awake-time cost, never
+            // rebuilt or animated.
+            vignetteTexture = BuildVignetteTexture(512);
         }
 
         public void SetCameraId(string id) => cameraId = id;
@@ -155,25 +160,42 @@ namespace Caseline.CCTV
             return $"{hh:00}:{mm:00}:{ss:00}";
         }
 
-        /// <summary>A small radial-alpha texture, corners darker than the
-        /// center — sampled once at startup and stretched over the screen
-        /// every frame, far cheaper than a per-pixel shader for a
-        /// proof-of-concept's "restrained vignette" requirement.</summary>
+        /// <summary>A vignette + very mild sensor-grain + scanline texture
+        /// — sampled once at startup (deterministic: a fixed seed, never
+        /// re-rolled or animated, so this never flickers or costs anything
+        /// per frame) and stretched over the screen every frame via the
+        /// same single DrawTexture call the vignette always used. Phase U4
+        /// (req. 16) adds the grain/scanline layers to this one texture
+        /// rather than a shader, keeping the "cheapest possible CCTV
+        /// treatment" approach this prototype has used from the start —
+        /// filter set to Point (not Bilinear) so the scanlines stay crisp
+        /// 1px-equivalent bands instead of blurring away.</summary>
         private static Texture2D BuildVignetteTexture(int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Point,
             };
             var center = new Vector2(size / 2f, size / 2f);
             var maxDist = center.magnitude;
+            var rng = new System.Random(20260914); // fixed seed — grain must never differ run to run.
             for (var y = 0; y < size; y++)
             {
+                // Faint horizontal scanline: every third row darkens
+                // slightly, mimicking cheap CCTV interlace without any
+                // per-frame cost or unreadable heaviness.
+                var scanline = (y % 3 == 0) ? 0.05f : 0f;
                 for (var x = 0; x < size; x++)
                 {
                     var dist = Vector2.Distance(new Vector2(x, y), center) / maxDist;
-                    var alpha = Mathf.Clamp01(Mathf.InverseLerp(0.55f, 1f, dist)) * 0.35f;
+                    var vignetteAlpha = Mathf.Clamp01(Mathf.InverseLerp(0.55f, 1f, dist)) * 0.35f;
+                    // Low-level sensor noise — tiny per-pixel alpha jitter,
+                    // deliberately subtle (max ~4%) so evidence stays fully
+                    // readable per req. 16's own "must still be able to
+                    // inspect evidence" rule.
+                    var grain = (float)rng.NextDouble() * 0.04f;
+                    var alpha = Mathf.Clamp01(vignetteAlpha + scanline + grain);
                     tex.SetPixel(x, y, new Color(0f, 0f, 0f, alpha));
                 }
             }
