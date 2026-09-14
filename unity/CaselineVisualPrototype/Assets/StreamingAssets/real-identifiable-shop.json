@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "scene": "shop",
+  "camera": {
+    "id": "CAM-28D9",
+    "position": [
+      -7,
+      4,
+      -7
+    ],
+    "rotation": [
+      24,
+      35,
+      0
+    ]
+  },
+  "durationSeconds": 14,
+  "actors": [
+    {
+      "visualId": "actor-0",
+      "identified": true,
+      "startTime": 0,
+      "endTime": 6,
+      "startPosition": [
+        -5.22,
+        0,
+        6
+      ],
+      "endPosition": [
+        5.76,
+        0,
+        6
+      ],
+      "walkSpeed": 1.83
+    }
+  ]
+}

@@ -7,23 +7,20 @@ namespace Caseline.CCTV
 {
     /// <summary>
     /// Top-level orchestrator: JSON → parser → scene controller → actor
-    /// motion → CCTV rendering (Phase U1, req. 4). Loads
-    /// <see cref="jsonFileName"/> from StreamingAssets at Start, positions
-    /// the fixed CCTV camera from it, matches each JSON actor entry to a
-    /// pre-placed scene actor by `visualId`, and re-applies every actor's
-    /// state whenever <see cref="CCTVPlaybackController"/> reports a new
-    /// time. Deliberately thin — every actual decision (where an actor is,
-    /// how it walks, what the HUD shows) lives in its own component;
-    /// see the class list in the module's own report ("architecture for
-    /// future CASELINE integration").
+    /// motion → CCTV rendering (Phase U1, req. 4). Loads a scenario file
+    /// from StreamingAssets, positions the fixed CCTV camera from it,
+    /// rebuilds the environment for the loaded `scene` kind (Phase U2, req.
+    /// 6/14), assigns each JSON actor entry to a scene actor slot by
+    /// POSITION (not name — different CASELINE-exported scenarios use
+    /// whatever `visualId` convention the real sequence descriptor already
+    /// had, e.g. `actor-0`, so coupling to a specific name would be
+    /// brittle), and re-applies every actor's state whenever
+    /// <see cref="CCTVPlaybackController"/> reports a new time.
     ///
     /// StreamingAssets is read via <see cref="UnityWebRequest"/> rather than
     /// <c>System.IO.File</c> — the latter works in the Editor and a desktop
     /// standalone build but silently fails on WebGL, where StreamingAssets
     /// is served over HTTP rather than exposed as a real filesystem path.
-    /// `UnityWebRequest` is the one loading method that works identically
-    /// on every platform this prototype targets (found and fixed during
-    /// this phase's own WebGL build verification).
     /// </summary>
     public class CCTVSceneController : MonoBehaviour
     {
@@ -31,11 +28,27 @@ namespace Caseline.CCTV
         [SerializeField] private CCTVPlaybackController playback;
         [SerializeField] private CCTVOverlay overlay;
         [SerializeField] private Camera cctvCamera;
+        [SerializeField] private CCTVEnvironmentController environment;
         [SerializeField] private List<CCTVActorController> sceneActors = new();
+
+        private Coroutine loadRoutine;
 
         private void Start()
         {
-            StartCoroutine(LoadAndStart());
+            LoadScenario(jsonFileName);
+        }
+
+        /// <summary>Loads (or reloads) a named scenario file from
+        /// StreamingAssets — used both for the initial load and by the
+        /// visual-QA scenario switcher (Phase U2, req. 22) to swap between
+        /// several exported real CASELINE cases without restarting Play
+        /// Mode.</summary>
+        public void LoadScenario(string fileName)
+        {
+            if (loadRoutine != null) StopCoroutine(loadRoutine);
+            playback.TimeChanged -= OnTimeChanged;
+            jsonFileName = fileName;
+            loadRoutine = StartCoroutine(LoadAndStart());
         }
 
         private IEnumerator LoadAndStart()
@@ -57,28 +70,29 @@ namespace Caseline.CCTV
             }
 
             ApplyCamera(scenario.camera);
+            if (environment != null) environment.Build(scenario.scene);
 
-            var byId = new Dictionary<string, CCTVActorData>();
-            foreach (var actorData in scenario.actors)
+            if (scenario.actors.Length > sceneActors.Count)
             {
-                byId[actorData.visualId] = actorData;
+                Debug.LogWarning($"[CCTV] Scenario has {scenario.actors.Length} actors but only {sceneActors.Count} scene actor slot(s) exist — extra actors will not render.");
             }
 
-            foreach (var actorController in sceneActors)
+            for (var i = 0; i < sceneActors.Count; i++)
             {
+                var actorController = sceneActors[i];
                 if (actorController == null) continue;
-                if (byId.TryGetValue(actorController.name, out var data))
+                if (i < scenario.actors.Length)
                 {
-                    actorController.Configure(data);
+                    actorController.gameObject.SetActive(true);
+                    actorController.Configure(scenario.actors[i]);
                 }
                 else
                 {
-                    Debug.LogWarning($"[CCTV] No scenario data for scene actor '{actorController.name}' — hiding it.");
                     actorController.gameObject.SetActive(false);
                 }
             }
 
-            if (overlay != null && scenario.actors.Length > 0)
+            if (overlay != null)
             {
                 overlay.SetCameraId(scenario.camera.id);
             }

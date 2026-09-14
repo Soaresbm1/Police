@@ -59,6 +59,13 @@ namespace Caseline.CCTV
     [Serializable]
     public class CCTVScenarioData
     {
+        /// <summary>Explicit schema version (Phase U2, req. 4) — validated
+        /// by <see cref="CCTVJsonLoader"/> against
+        /// <see cref="CCTVJsonLoader.SupportedVersion"/>; an unknown version
+        /// fails validation cleanly rather than silently misreading a future
+        /// schema change.</summary>
+        public int version;
+
         public string scene;
         public CCTVCameraData camera;
         public float durationSeconds;

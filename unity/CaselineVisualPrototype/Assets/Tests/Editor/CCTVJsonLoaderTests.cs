@@ -6,6 +6,7 @@ namespace Caseline.CCTV.Tests
     public class CCTVJsonLoaderTests
     {
         private const string ValidJson = @"{
+            ""version"": 1,
             ""scene"": ""parking"",
             ""camera"": { ""id"": ""CAM-01"", ""position"": [0,4.5,-6], ""rotation"": [20,0,0] },
             ""durationSeconds"": 15,
@@ -46,9 +47,41 @@ namespace Caseline.CCTV.Tests
         }
 
         [Test]
+        public void MissingVersion_FailsValidation()
+        {
+            // version defaults to 0 (C# int default) when the field is
+            // absent from the JSON — must be rejected, not silently
+            // treated as version 1 (Phase U2, req. 4).
+            const string json = @"{
+                ""camera"": { ""id"":""CAM-01"", ""position"":[0,0,0], ""rotation"":[0,0,0] },
+                ""durationSeconds"": 10,
+                ""actors"": []
+            }";
+            var ok = CCTVJsonLoader.TryLoad(json, out _, out var error);
+            Assert.IsFalse(ok);
+            StringAssert.Contains("version", error);
+        }
+
+        [Test]
+        public void UnknownFutureVersion_FailsValidationCleanly()
+        {
+            const string json = @"{
+                ""version"": 99,
+                ""camera"": { ""id"":""CAM-01"", ""position"":[0,0,0], ""rotation"":[0,0,0] },
+                ""durationSeconds"": 10,
+                ""actors"": []
+            }";
+            var ok = CCTVJsonLoader.TryLoad(json, out var data, out var error);
+            Assert.IsFalse(ok);
+            Assert.IsNull(data);
+            StringAssert.Contains("version", error);
+            StringAssert.Contains("99", error);
+        }
+
+        [Test]
         public void MissingCamera_FailsValidation()
         {
-            const string json = @"{ ""scene"":""parking"", ""durationSeconds"": 10, ""actors"": [] }";
+            const string json = @"{ ""version"": 1, ""scene"":""parking"", ""durationSeconds"": 10, ""actors"": [] }";
             var ok = CCTVJsonLoader.TryLoad(json, out _, out var error);
             Assert.IsFalse(ok);
             StringAssert.Contains("camera", error);
@@ -58,6 +91,7 @@ namespace Caseline.CCTV.Tests
         public void ZeroDuration_FailsValidation()
         {
             const string json = @"{
+                ""version"": 1,
                 ""camera"": { ""id"":""CAM-01"", ""position"":[0,0,0], ""rotation"":[0,0,0] },
                 ""durationSeconds"": 0,
                 ""actors"": []
@@ -71,6 +105,7 @@ namespace Caseline.CCTV.Tests
         public void ActorEndTimeBeforeStartTime_FailsValidation()
         {
             const string json = @"{
+                ""version"": 1,
                 ""camera"": { ""id"":""CAM-01"", ""position"":[0,0,0], ""rotation"":[0,0,0] },
                 ""durationSeconds"": 10,
                 ""actors"": [
@@ -87,6 +122,7 @@ namespace Caseline.CCTV.Tests
         public void ActorMissingVisualId_FailsValidation()
         {
             const string json = @"{
+                ""version"": 1,
                 ""camera"": { ""id"":""CAM-01"", ""position"":[0,0,0], ""rotation"":[0,0,0] },
                 ""durationSeconds"": 10,
                 ""actors"": [

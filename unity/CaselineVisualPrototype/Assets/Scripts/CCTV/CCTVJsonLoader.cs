@@ -20,6 +20,12 @@ namespace Caseline.CCTV
     /// </summary>
     public static class CCTVJsonLoader
     {
+        /// <summary>The only scenario schema version this loader accepts
+        /// (Phase U2, req. 4). A scenario from a future/unknown schema
+        /// fails validation with a clear message rather than being
+        /// silently misread field-by-field.</summary>
+        public const int SupportedVersion = 1;
+
         public static bool TryLoad(string json, out CCTVScenarioData data, out string error)
         {
             data = null;
@@ -59,6 +65,7 @@ namespace Caseline.CCTV
         public static string Validate(CCTVScenarioData data)
         {
             if (data == null) return "Scenario is null.";
+            if (data.version != SupportedVersion) return $"Unsupported scenario version {data.version} (expected {SupportedVersion}).";
             if (data.camera == null) return "Scenario.camera is required.";
             if (!IsVec3(data.camera.position)) return "Scenario.camera.position must have exactly 3 components.";
             if (!IsVec3(data.camera.rotation)) return "Scenario.camera.rotation must have exactly 3 components.";

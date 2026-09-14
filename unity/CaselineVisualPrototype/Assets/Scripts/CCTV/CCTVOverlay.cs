@@ -20,6 +20,15 @@ namespace Caseline.CCTV
         [SerializeField] private CCTVPlaybackController playback;
         [SerializeField] private string cameraId = "CAM-01";
 
+        /// <summary>Visual-QA-only scenario switcher (Phase U2, req. 22) —
+        /// a fixed list of StreamingAssets filenames with a short on-screen
+        /// label each, so several exported real CASELINE cases can be
+        /// inspected without leaving Play Mode. Empty by default (the
+        /// baseline Phase U1 demo has nothing to switch between).</summary>
+        [SerializeField] private CCTVSceneController sceneController;
+        [SerializeField] private string[] scenarioFiles = System.Array.Empty<string>();
+        [SerializeField] private string[] scenarioLabels = System.Array.Empty<string>();
+
         private Texture2D vignetteTexture;
         private GUIStyle labelStyle;
         private GUIStyle buttonStyle;
@@ -30,6 +39,16 @@ namespace Caseline.CCTV
         }
 
         public void SetCameraId(string id) => cameraId = id;
+
+        /// <summary>Configures the scenario switcher row — called by
+        /// whatever sets up the visual-QA scene, never by production
+        /// scenario data itself.</summary>
+        public void SetScenarioSwitcher(CCTVSceneController controller, string[] files, string[] labels)
+        {
+            sceneController = controller;
+            scenarioFiles = files ?? System.Array.Empty<string>();
+            scenarioLabels = labels ?? System.Array.Empty<string>();
+        }
 
         private void OnGUI()
         {
@@ -56,6 +75,26 @@ namespace Caseline.CCTV
             GUI.Label(new Rect(12, Screen.height - 34, 200, 24), FormatClock(currentTime), labelStyle);
 
             DrawControls();
+            DrawScenarioSwitcher();
+        }
+
+        private void DrawScenarioSwitcher()
+        {
+            if (sceneController == null || scenarioFiles.Length == 0) return;
+
+            const float w = 130f;
+            const float h = 22f;
+            var x = 12f;
+            var y = 42f;
+            for (var i = 0; i < scenarioFiles.Length; i++)
+            {
+                var label = i < scenarioLabels.Length ? scenarioLabels[i] : scenarioFiles[i];
+                if (GUI.Button(new Rect(x, y, w, h), label, buttonStyle))
+                {
+                    sceneController.LoadScenario(scenarioFiles[i]);
+                }
+                x += w + 6f;
+            }
         }
 
         private void DrawControls()

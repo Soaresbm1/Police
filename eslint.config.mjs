@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone Unity prototype (Phase U1+) — its own separate project
+    // (C# source + generated WebGL build output), not part of the Next.js
+    // app; never meant to be linted by this config.
+    "unity/**",
   ]),
   // Living Investigation System hardening: MandateRecord.granted is the
   // real, deterministic bank/search-warrant decision, computed and

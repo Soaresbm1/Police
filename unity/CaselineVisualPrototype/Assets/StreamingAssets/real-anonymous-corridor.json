@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "scene": "corridor",
+  "camera": {
+    "id": "CAM-1A6D",
+    "position": [
+      0,
+      4.6,
+      -13
+    ],
+    "rotation": [
+      22,
+      0,
+      0
+    ]
+  },
+  "durationSeconds": 16,
+  "actors": [
+    {
+      "visualId": "actor-0",
+      "identified": false,
+      "startTime": 0,
+      "endTime": 14,
+      "startPosition": [
+        -6.66,
+        0,
+        0
+      ],
+      "endPosition": [
+        7.92,
+        0,
+        0
+      ],
+      "walkSpeed": 1.041
+    }
+  ]
+}

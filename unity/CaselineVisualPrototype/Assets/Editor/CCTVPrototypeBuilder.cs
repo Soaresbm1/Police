@@ -28,11 +28,12 @@ namespace Caseline.CCTVEditor
             EnsureFolder("Assets/Scenes");
             EnsureFolder("Assets/Animations");
             EnsureFolder(AnimFolder);
+            BakePrimitiveMeshes();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             BuildLighting();
-            BuildEnvironment();
+            var environment = BuildEnvironment();
             var camera = BuildCamera();
             var actor = BuildActor();
 
@@ -44,6 +45,7 @@ namespace Caseline.CCTVEditor
             SetPrivateField(sceneController, "playback", playback);
             SetPrivateField(sceneController, "overlay", overlay);
             SetPrivateField(sceneController, "cctvCamera", camera);
+            SetPrivateField(sceneController, "environment", environment);
             SetPrivateListField(sceneController, "sceneActors", new[] { actor.GetComponent<CCTVActorController>() });
             SetPrivateField(overlay, "playback", playback);
 
@@ -60,6 +62,34 @@ namespace Caseline.CCTVEditor
         {
             EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
             EditorApplication.isPlaying = true;
+        }
+
+        /// <summary>Wires the visual-QA scenario switcher (Phase U2, req.
+        /// 22) onto the already-built scene's <see cref="CCTVOverlay"/> —
+        /// a fixed, hardcoded list of StreamingAssets filenames exported
+        /// from real CASELINE cases, each with a short on-screen label.
+        /// Re-saves the scene. Safe to call as its own `-executeMethod`
+        /// step after `BuildScene`, or from the menu once the export
+        /// helper has produced the JSON files it references.</summary>
+        [MenuItem("Tools/CASELINE/Wire Real-Case Scenario Switcher")]
+        public static void SetupScenarioSwitcher()
+        {
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var sceneController = Object.FindFirstObjectByType<CCTVSceneController>();
+            var overlay = Object.FindFirstObjectByType<CCTVOverlay>();
+            if (sceneController == null || overlay == null)
+            {
+                Debug.LogError("[CCTV] SetupScenarioSwitcher: scene is missing CCTVSceneController/CCTVOverlay — run Build CCTV Prototype Scene first.");
+                return;
+            }
+
+            var files = new[] { "cctv-demo.json", "real-identifiable-parking.json", "real-anonymous-corridor.json", "real-identifiable-shop.json" };
+            var labels = new[] { "DEMO", "A: IDENTIFIABLE", "B: ANONYME", "C: SHOP" };
+            overlay.SetScenarioSwitcher(sceneController, files, labels);
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            Debug.Log("[CCTV] Scenario switcher wired and scene saved.");
         }
 
         /// <summary>Development WebGL build of just the CCTVPrototype scene
@@ -83,6 +113,38 @@ namespace Caseline.CCTVEditor
             Debug.Log($"[CCTV] WebGL build result: {report.summary.result}, size={report.summary.totalSize} bytes, errors={report.summary.totalErrors}");
         }
 
+        /// <summary>Extracts Unity's built-in Cube/Plane meshes into real
+        /// mesh assets under a <c>Resources</c> folder (idempotent — skips
+        /// any mesh that already exists). <see cref="CCTVEnvironmentController"/>
+        /// loads these at runtime via <c>Resources.Load</c> and builds its
+        /// geometry from `MeshFilter`/`MeshRenderer` directly, deliberately
+        /// never calling `GameObject.CreatePrimitive` itself — that method's
+        /// own internal "also attach a Collider" step is what breaks on
+        /// WebGL, where managed-code stripping removes the concrete
+        /// Collider subclasses nothing else in this project references,
+        /// and `CreatePrimitive` then fails with "Can't add component
+        /// because class 'BoxCollider' doesn't exist!" at runtime (found via
+        /// this phase's own console-log verification of a real WebGL
+        /// build). Resources-folder assets are never stripped, so this
+        /// sidesteps the problem entirely rather than fighting the
+        /// linker.</summary>
+        private static void BakePrimitiveMeshes()
+        {
+            EnsureFolder("Assets/Resources");
+            EnsureFolder("Assets/Resources/CCTVMeshes");
+            BakeMeshIfMissing(PrimitiveType.Cube, "Assets/Resources/CCTVMeshes/Cube.asset");
+            BakeMeshIfMissing(PrimitiveType.Plane, "Assets/Resources/CCTVMeshes/Plane.asset");
+        }
+
+        private static void BakeMeshIfMissing(PrimitiveType type, string assetPath)
+        {
+            if (AssetDatabase.LoadAssetAtPath<Mesh>(assetPath) != null) return;
+            var temp = GameObject.CreatePrimitive(type);
+            var mesh = Object.Instantiate(temp.GetComponent<MeshFilter>().sharedMesh);
+            Object.DestroyImmediate(temp);
+            AssetDatabase.CreateAsset(mesh, assetPath);
+        }
+
         private static void BuildLighting()
         {
             var lightGo = new GameObject("Directional Light");
@@ -96,59 +158,19 @@ namespace Caseline.CCTVEditor
             RenderSettings.ambientLight = new Color(0.24f, 0.24f, 0.26f);
         }
 
-        private static void BuildEnvironment()
+        /// <summary>Creates the environment root and gives it its one-time
+        /// default "parking" look via <see cref="CCTVEnvironmentController"/>
+        /// (Phase U2, req. 6/14) — the same component
+        /// <see cref="CCTVSceneController"/> calls again at runtime to
+        /// rebuild for whichever `scene` kind the loaded scenario actually
+        /// asks for, so there is exactly one place this geometry is
+        /// authored.</summary>
+        private static CCTVEnvironmentController BuildEnvironment()
         {
             var env = new GameObject("Environment");
-
-            var floorMat = MakeMaterial("CCTV_Concrete", new Color(0.42f, 0.42f, 0.42f));
-            var wallMat = MakeMaterial("CCTV_Wall", new Color(0.55f, 0.55f, 0.57f));
-            var pillarMat = MakeMaterial("CCTV_Pillar", new Color(0.35f, 0.35f, 0.36f));
-            var lineMat = MakeMaterial("CCTV_ParkingLine", new Color(0.85f, 0.78f, 0.35f));
-
-            var floor = CreatePrimitiveNoCollider(PrimitiveType.Plane, "Floor", env.transform);
-            floor.transform.localScale = new Vector3(3f, 1f, 3f); // Unity's Plane primitive is 10x10 units
-            floor.GetComponent<MeshRenderer>().sharedMaterial = floorMat;
-
-            // Four boundary walls around a ~30x30 garage footprint.
-            AddWall(env.transform, wallMat, new Vector3(0, 2.5f, 15f), new Vector3(30f, 5f, 0.5f));
-            AddWall(env.transform, wallMat, new Vector3(0, 2.5f, -15f), new Vector3(30f, 5f, 0.5f));
-            AddWall(env.transform, wallMat, new Vector3(15f, 2.5f, 0), new Vector3(0.5f, 5f, 30f));
-            AddWall(env.transform, wallMat, new Vector3(-15f, 2.5f, 0), new Vector3(0.5f, 5f, 30f));
-
-            // Support pillars — also give the walk path something to read
-            // as a real garage rather than an empty box.
-            var pillarPositions = new[]
-            {
-                new Vector3(-6f, 1.5f, 6f),
-                new Vector3(6f, 1.5f, 6f),
-                new Vector3(-6f, 1.5f, -3f),
-            };
-            foreach (var pos in pillarPositions)
-            {
-                var pillar = CreatePrimitiveNoCollider(PrimitiveType.Cube, "Pillar", env.transform);
-                pillar.transform.position = pos;
-                pillar.transform.localScale = new Vector3(0.8f, 3f, 0.8f);
-                pillar.GetComponent<MeshRenderer>().sharedMaterial = pillarMat;
-            }
-
-            // A couple of flat parking-bay lines — thin cubes, purely
-            // cosmetic ground markings, never an object of evidentiary
-            // interest.
-            for (var i = 0; i < 4; i++)
-            {
-                var line = CreatePrimitiveNoCollider(PrimitiveType.Cube, "ParkingLine", env.transform);
-                line.transform.position = new Vector3(-9f + i * 3f, 0.01f, 2f);
-                line.transform.localScale = new Vector3(0.08f, 0.01f, 6f);
-                line.GetComponent<MeshRenderer>().sharedMaterial = lineMat;
-            }
-        }
-
-        private static void AddWall(Transform parent, Material mat, Vector3 pos, Vector3 scale)
-        {
-            var wall = CreatePrimitiveNoCollider(PrimitiveType.Cube, "Wall", parent);
-            wall.transform.position = pos;
-            wall.transform.localScale = scale;
-            wall.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            var controller = env.AddComponent<CCTVEnvironmentController>();
+            controller.Build("parking");
+            return controller;
         }
 
         private static Camera BuildCamera()
@@ -170,7 +192,11 @@ namespace Caseline.CCTVEditor
         private static GameObject BuildActor()
         {
             var actorsRoot = new GameObject("Actors");
-            var root = new GameObject("actor-1"); // name MUST match the JSON `visualId`
+            // Name is cosmetic only — CCTVSceneController assigns JSON actor
+            // entries to scene actor slots by POSITION, not by name, since
+            // different CASELINE scenarios use whatever `visualId` the real
+            // sequence descriptor already had (e.g. "actor-0").
+            var root = new GameObject("Actor");
             root.transform.SetParent(actorsRoot.transform);
 
             var bodyMat = MakeMaterial("CCTV_Actor", new Color(0.08f, 0.08f, 0.08f));
