@@ -5,9 +5,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
-  // Phase U3.6 (test/unity-brotli-preview branch only) — the Unity WebGL
-  // runtime under public/unity/cctv/Build/ is pre-compressed with Brotli
-  // for this validation phase (see unity-cctv-host.ts). Next.js's static
+  // Phase U3.6 — the Unity WebGL runtime under public/unity/cctv/Build/ is
+  // pre-compressed with Brotli (see unity-cctv-host.ts). Next.js's static
   // file serving has no notion of pre-compressed assets: it would otherwise
   // serve these .br files as opaque bytes with no Content-Encoding header,
   // leaving the browser to treat them as raw (garbage) data instead of
@@ -18,7 +17,9 @@ const nextConfig: NextConfig = {
   // of the same files (verified in WebBuildBrotli/index.html and the
   // loader's own MIME-mismatch error messages), since Content-Encoding
   // alone does not change what content the browser expects underneath it.
-  // Must be removed before this branch ever merges to master.
+  // Inert until NEXT_PUBLIC_UNITY_CCTV_ENABLED is true for a given
+  // environment — these headers only ever affect requests for the Unity
+  // build files themselves, never triggered unless the flag is on.
   async headers() {
     return [
       {

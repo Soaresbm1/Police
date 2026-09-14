@@ -159,16 +159,13 @@ class UnityCctvHost {
         if (typeof window.createUnityInstance !== "function") throw new Error("createUnityInstance unavailable");
         const canvas = this.ensureCanvas();
         return window.createUnityInstance(canvas, {
-          // Phase U3.6 (test/unity-brotli-preview branch only) — the
-          // shipped runtime under public/unity/cctv/Build/ is the Brotli
-          // build for this validation phase, so the URLs must point at the
-          // exact .br-suffixed filenames, matching what Unity's own
-          // generated index.html does for a Brotli build (verified by
-          // inspecting WebBuildBrotli/index.html directly rather than
-          // guessing). The server must answer these exact paths with
-          // Content-Encoding: br — see next.config.ts headers(). Must be
-          // reverted to the plain filenames before this ever merges to
-          // master, where the shipped build is uncompressed again.
+          // Phase U3.6 — the shipped runtime under public/unity/cctv/Build/
+          // is the Brotli build, so the URLs point at the exact
+          // .br-suffixed filenames, matching what Unity's own generated
+          // index.html does for a Brotli build (verified by inspecting
+          // WebBuildBrotli/index.html directly rather than guessing). The
+          // server answers these exact paths with Content-Encoding: br —
+          // see next.config.ts headers().
           dataUrl: `${BUILD_BASE}/WebBuild.data.br`,
           frameworkUrl: `${BUILD_BASE}/WebBuild.framework.js.br`,
           codeUrl: `${BUILD_BASE}/WebBuild.wasm.br`,
