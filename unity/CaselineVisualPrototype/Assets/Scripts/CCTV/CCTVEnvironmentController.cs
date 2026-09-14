@@ -37,6 +37,7 @@ namespace Caseline.CCTV
 
             BuildFloor();
             BuildPerimeterWalls();
+            BuildCeiling();
 
             switch (environmentKind)
             {
@@ -152,6 +153,26 @@ namespace Caseline.CCTV
             AddWall(new Vector3(0, WallHeight / 2f, -half), new Vector3(FloorSize, WallHeight, 0.5f));
             AddWall(new Vector3(half, WallHeight / 2f, 0), new Vector3(0.5f, WallHeight, FloorSize));
             AddWall(new Vector3(-half, WallHeight / 2f, 0), new Vector3(0.5f, WallHeight, FloorSize));
+        }
+
+        /// <summary>Phase U4.2 — the U4.2 camera retune brought every
+        /// preset noticeably closer/lower to raise actor frame occupancy,
+        /// and the steeper resulting angles put the top of frame above
+        /// the far wall's silhouette for several presets — with no
+        /// ceiling, that meant looking straight into the empty
+        /// background/skybox instead of an enclosed space (a "floating
+        /// room" look no real indoor CCTV camera would ever show). A
+        /// plain flat ceiling at wall height closes that gap. Rotated 180°
+        /// on X so its visible face (a Plane's front, by default facing
+        /// +Y and culled from below) points down into the room, since the
+        /// camera only ever looks up at its underside.</summary>
+        private void BuildCeiling()
+        {
+            var ceiling = CreatePrimitive(PrimitiveType.Plane, "Ceiling");
+            ceiling.transform.position = new Vector3(0, WallHeight, 0);
+            ceiling.transform.rotation = Quaternion.Euler(180f, 0f, 0f);
+            ceiling.transform.localScale = new Vector3(FloorSize / 10f, 1f, FloorSize / 10f);
+            ceiling.GetComponent<MeshRenderer>().sharedMaterial = detailMat;
         }
 
         private void AddWall(Vector3 position, Vector3 scale)

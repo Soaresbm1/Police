@@ -102,7 +102,7 @@ namespace Caseline.CCTV
             }
             playback.TimeChanged -= OnTimeChanged;
 
-            ApplyCamera(scenario.camera);
+            ApplyCamera(scenario.camera, scenario.scene);
             if (environment != null) environment.Build(scenario.scene);
 
             if (scenario.actors.Length > sceneActors.Count)
@@ -151,12 +151,21 @@ namespace Caseline.CCTV
             }
         }
 
-        private void ApplyCamera(CCTVCameraData cameraData)
+        /// <summary>Position/rotation come straight from the JSON (a fixed
+        /// cosmetic preset, see <c>CAMERA_PRESETS</c> in
+        /// <c>unity-cctv-bridge.ts</c>). Field of view is the one camera
+        /// parameter Unity decides for itself (Phase U4.2, req. 6) — the
+        /// bridge schema carries no FOV field, so it's derived purely from
+        /// the already-received `environmentKind` via
+        /// <see cref="CCTVCameraFraming.FieldOfViewForKind"/>, never from
+        /// anything time-, actor-, or truth-related.</summary>
+        private void ApplyCamera(CCTVCameraData cameraData, string environmentKind)
         {
             if (cctvCamera == null || cameraData == null) return;
             cctvCamera.transform.position = CCTVVectorUtil.ToVector3(cameraData.position);
             var rot = CCTVVectorUtil.ToVector3(cameraData.rotation);
             cctvCamera.transform.rotation = Quaternion.Euler(rot);
+            cctvCamera.fieldOfView = CCTVCameraFraming.FieldOfViewForKind(environmentKind);
         }
     }
 }

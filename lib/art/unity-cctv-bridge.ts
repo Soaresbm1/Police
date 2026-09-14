@@ -58,13 +58,32 @@ export interface UnityCCTVScenario {
  * same way the 2D renderer picks a background "genre" — it cannot imply
  * new evidence, since it never varies by anything but the (already
  * non-secret) environment kind.
+ *
+ * Phase U4.2 — retuned from the original U1 placements, which sat the
+ * camera 13-15m from the walking path and made the actor read as a tiny
+ * speck (the flagged U4/U4.1 weakness). Every position here targets the
+ * SAME fixed reference point every environment's actor path is centered
+ * on — (x=0, y=0.9, z=3), the geometric middle of the ±9m walking line
+ * (`WORLD_HALF_WIDTH`) at the middle lane (`LANE_DEPTH[1]`), at roughly
+ * hip height on the ~1.8m actor — chosen so a single static preset per
+ * kind reads reasonably across the actor's whole path, not just its
+ * exact center. `rotation` for each entry is the exact Euler angles
+ * Unity's own `Quaternion.LookRotation(target - position)` computes for
+ * that position/target pair (verified in-editor, not hand-derived), so
+ * the camera is guaranteed to be pointed correctly rather than
+ * approximately. Distances (6.8-8.8m) were chosen together with the
+ * per-environment FOV in `CCTVCameraFraming.cs` so the actor occupies
+ * roughly 15-30% of the frame height — see that file's doc comment for
+ * the exact math. The camera remains a fixed, static surveillance shot:
+ * no pan/tilt/zoom, no actor tracking — this is still just a constant
+ * per environment kind.
  */
 const CAMERA_PRESETS: Record<CCTVEnvironmentKind, { position: [number, number, number]; rotation: [number, number, number] }> = {
-  parking: { position: [-9, 4.2, -9], rotation: [28, 40, 0] },
-  corridor: { position: [0, 4.6, -13], rotation: [22, 0, 0] },
-  shop: { position: [-7, 4, -7], rotation: [24, 35, 0] },
-  street: { position: [0, 4.5, -14], rotation: [18, 0, 0] },
-  generic: { position: [-6, 4.2, -6], rotation: [26, 38, 0] },
+  corridor: { position: [0, 3.6, -5.4], rotation: [17.819, 0, 0] },
+  parking: { position: [-4.28, 4, -1.28], rotation: [27.12, 45, 0] },
+  shop: { position: [-5.17, 3.8, -2.17], rotation: [21.635, 45, 0] },
+  street: { position: [0, 4.5, -5.06], rotation: [24.068, 0, 0] },
+  generic: { position: [-4.89, 3.9, -1.89], rotation: [23.452, 45, 0] },
 };
 
 /** World-space half-width (meters) the mapped walking line spans — kept
