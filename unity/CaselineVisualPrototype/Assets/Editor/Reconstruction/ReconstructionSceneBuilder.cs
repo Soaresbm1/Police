@@ -43,7 +43,23 @@ namespace Caseline.ReconstructionEditor
             EnsureFolder(AnimFolder);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = AmbientLight;
 
+            PopulateReconstruction(developerHud: true);
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            Debug.Log($"[Reconstruction] Prototype scene built and saved to {ScenePath}");
+        }
+
+        public static readonly Color AmbientLight = new(0.2f, 0.2f, 0.22f);
+
+        /// <summary>Builds every reconstruction object (light, environment, actor template, cameras, controllers,
+        /// overlay) at the root of the currently open scene. The shared embed scene reparents them under its
+        /// reconstruction root.</summary>
+        public static (ReconstructionSceneController scene, ReconstructionPlaybackController playback, ReconstructionOverlay overlay) PopulateReconstruction(bool developerHud)
+        {
             BuildLighting();
 
             var floorMat = MakeMaterial("Reconstruction_Floor", new Color(0.22f, 0.22f, 0.24f));
@@ -78,10 +94,9 @@ namespace Caseline.ReconstructionEditor
             var overlay = overlayGo.AddComponent<ReconstructionOverlay>();
             SetPrivateField(overlay, "playback", playbackController);
             overlay.SetScene(sceneController);
+            overlay.SetDeveloperHud(developerHud);
 
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene, ScenePath);
-            Debug.Log($"[Reconstruction] Prototype scene built and saved to {ScenePath}");
+            return (sceneController, playbackController, overlay);
         }
 
         /// <summary>Dev/Editor-only QA scenario switcher (req. 24): A is the
@@ -191,8 +206,6 @@ namespace Caseline.ReconstructionEditor
             light.intensity = 1.1f;
             light.color = new Color(0.98f, 0.96f, 0.9f);
             lightGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.2f, 0.2f, 0.22f);
         }
 
         private static (AnimationClip idle, AnimationClip walk, AnimationClip attackStrike, AnimationClip attackStrangle, AnimationClip collapse) BuildAnimationClips()

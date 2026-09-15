@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { ambience, playSound } from "@/lib/sound/sound-manager";
 import { endCurrentCase } from "@/lib/game-session/actions";
+import type { ReconstructionScenario } from "@/lib/game-engine/reconstruction/reconstruction-types";
 import type { DisplayNarrativeSection } from "@/lib/game-session/narrative-reconstruction";
 import { CharacterPortrait } from "./CharacterPortrait";
+import { ReconstructionLauncher } from "./reconstruction/ReconstructionLauncher";
 
 const GRADE_COLOR: Record<string, string> = {
   S: "text-accent-strong",
@@ -48,7 +50,7 @@ export interface TruthRevealData {
 
 const STEP_COUNT = 5;
 
-export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
+export function TruthRevealSequence({ data, reconstruction = null }: { data: TruthRevealData; reconstruction?: ReconstructionScenario | null }) {
   const [step, setStep] = useState(0);
 
   const advance = () => {
@@ -177,6 +179,7 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
               ))}
             </div>
           </div>
+          <ReconstructionLauncher scenario={reconstruction} />
           <div className="text-center">
             <button type="button" onClick={advance} className="btn btn-primary !px-8">
               Clore le dossier
@@ -186,15 +189,18 @@ export function TruthRevealSequence({ data }: { data: TruthRevealData }) {
       )}
 
       {step === STEP_COUNT - 1 && (
-        <div className="fade-up panel panel-bracketed flex flex-col items-center gap-3 p-5 text-center sm:p-8">
-          <p className={`font-data text-5xl font-bold ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
-          <p className="text-sm text-muted">{data.overallPercent}% — {data.culpritCorrect ? "Affaire résolue" : "Erreur judiciaire"}</p>
-          <p className="mt-2 text-sm text-foreground">Dossier {data.caseRef} classé.</p>
-          <form action={endCurrentCase}>
-            <button type="submit" className="btn btn-primary mt-4 !px-8">
-              Retour au commissariat
-            </button>
-          </form>
+        <div className="fade-up flex flex-col gap-5">
+          <div className="panel panel-bracketed flex flex-col items-center gap-3 p-5 text-center sm:p-8">
+            <p className={`font-data text-5xl font-bold ${GRADE_COLOR[data.grade]}`}>{data.grade}</p>
+            <p className="text-sm text-muted">{data.overallPercent}% — {data.culpritCorrect ? "Affaire résolue" : "Erreur judiciaire"}</p>
+            <p className="mt-2 text-sm text-foreground">Dossier {data.caseRef} classé.</p>
+            <form action={endCurrentCase}>
+              <button type="submit" className="btn btn-primary mt-4 !px-8">
+                Retour au commissariat
+              </button>
+            </form>
+          </div>
+          <ReconstructionLauncher scenario={reconstruction} />
         </div>
       )}
     </div>

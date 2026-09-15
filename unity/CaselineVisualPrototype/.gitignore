@@ -45,3 +45,4 @@ WebBuildRelease/
 # copied to public/unity/ — there is no production embed for
 # Reconstruction yet.
 ReconstructionWebBuild/
+SharedEmbedBrotli/

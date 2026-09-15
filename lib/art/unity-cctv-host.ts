@@ -1,4 +1,6 @@
 import type { UnityCCTVScenario } from "./unity-cctv-bridge";
+import type { ReconstructionHostPort } from "./reconstruction-player";
+import { EMBED_MODE_OBJECT } from "./reconstruction-session";
 
 /**
  * Phase U3.5 — page-level singleton owning the Unity WebGL instance.
@@ -22,6 +24,13 @@ import type { UnityCCTVScenario } from "./unity-cctv-bridge";
  * hide it from) whichever viewer currently wants to show it — moving a
  * `<canvas>` between DOM parents does not lose its WebGL context, unlike
  * destroying and recreating the element.
+ *
+ * Phase U5.3 — the same runtime also serves the crime reconstruction viewer
+ * (see ReconstructionPlayer). The Unity build hosts both under one scene and
+ * switches with its "EmbedMode" object, so CCTV activates its mode before
+ * every scenario. After `disposeHost()` the host returns to "idle" once the
+ * previous engine's `Quit()` has resolved — never before, so a later viewer
+ * boots a fresh engine without ever overlapping the old one.
  */
 
 const LOADER_SRC = "/unity/cctv/Build/WebBuild.loader.js";
@@ -54,6 +63,8 @@ interface UnityInstanceHandle {
   Quit: () => Promise<void>;
 }
 
+type UnityEventListener = (type: string, token: number, detail: string) => void;
+
 declare global {
   interface Window {
     createUnityInstance?: (
@@ -61,17 +72,20 @@ declare global {
       config: Record<string, string>,
       onProgress?: (progress: number) => void,
     ) => Promise<UnityInstanceHandle>;
+    /** Called by Unity's CaselineReconstructionBridge.jslib. */
+    caselineReconstructionEmit?: UnityEventListener;
   }
 }
 
 type Listener = () => void;
 type ConsumerId = symbol;
 
-class UnityCctvHost {
+class UnityCctvHost implements ReconstructionHostPort {
   private canvas: HTMLCanvasElement | null = null;
   private instance: UnityInstanceHandle | null = null;
   private state: UnityCctvHostState = "idle";
   private listeners = new Set<Listener>();
+  private unityEventListeners = new Set<UnityEventListener>();
   private loaderPromise: Promise<void> | null = null;
   private bootStarted = false;
   /** Bumped on dispose so a late-resolving createUnityInstance() from a prior
@@ -80,6 +94,7 @@ class UnityCctvHost {
   private activeConsumerId: ConsumerId | null = null;
   private pendingScenarioJson: string | null = null;
   private pendingFallbacks = new Set<() => void>();
+  private bootWhenIdle = false;
 
   getState = (): UnityCctvHostState => this.state;
 
@@ -148,6 +163,9 @@ class UnityCctvHost {
     if (this.bootStarted) return;
     this.bootStarted = true;
     this.setState("loading");
+    window.caselineReconstructionEmit = (type, token, detail) => {
+      this.unityEventListeners.forEach((listener) => listener(type, token, detail));
+    };
     const generation = this.generation;
     const timeoutId = setTimeout(() => {
       if (generation === this.generation && this.state === "loading") this.fail();
@@ -197,6 +215,7 @@ class UnityCctvHost {
   private sendScenario(json: string) {
     if (!this.instance) return;
     this.pendingScenarioJson = json;
+    this.instance.SendMessage(EMBED_MODE_OBJECT, "ActivateCctv", "");
     this.instance.SendMessage(BRIDGE_GAME_OBJECT, "LoadScenarioJson", json);
   }
 
@@ -231,6 +250,55 @@ class UnityCctvHost {
     this.boot();
   }
 
+  /** A viewer that drives Unity through its own messages (the reconstruction) wants the canvas in `container`.
+   * Boots if needed; while a previous engine is still quitting, the boot waits for it. */
+  attachSurface(consumerId: ConsumerId, container: HTMLElement, onFailure: () => void): void {
+    this.activeConsumerId = consumerId;
+    this.pendingScenarioJson = null;
+    if (this.state === "failed") {
+      onFailure();
+      return;
+    }
+
+    const canvas = this.ensureCanvas();
+    if (canvas.parentElement !== container) container.appendChild(canvas);
+    canvas.style.display = "block";
+    if (this.state === "ready") return;
+
+    this.pendingFallbacks.add(onFailure);
+    if (this.state === "disposed") {
+      this.bootWhenIdle = true;
+      return;
+    }
+    this.boot();
+  }
+
+  sendMessage(gameObject: string, method: string, value: string): boolean {
+    if (this.state !== "ready" || !this.instance) return false;
+    this.instance.SendMessage(gameObject, method, value);
+    return true;
+  }
+
+  onUnityEvent(listener: UnityEventListener): () => void {
+    this.unityEventListeners.add(listener);
+    return () => {
+      this.unityEventListeners.delete(listener);
+    };
+  }
+
+  /** Lets a viewer retry after a failed boot, instead of the host staying failed for the page's lifetime. */
+  resetAfterFailure(): void {
+    if (this.state !== "failed") return;
+    this.generation += 1;
+    this.bootStarted = false;
+    this.instance = null;
+    if (typeof window.createUnityInstance !== "function") {
+      this.loaderPromise = null;
+      document.querySelector(`script[src="${LOADER_SRC}"]`)?.remove();
+    }
+    this.setState("idle");
+  }
+
   /** Viewer no longer wants to show Unity (toggled to Canvas, or closed).
    * Hides the canvas but keeps the instance alive — this is the entire fix:
    * no Quit(), no createUnityInstance() happens here. */
@@ -244,17 +312,35 @@ class UnityCctvHost {
    * place Quit() is called. */
   disposeHost(): void {
     this.generation += 1;
+    const generation = this.generation;
     this.bootStarted = false;
+    this.bootWhenIdle = false;
     this.pendingFallbacks.clear();
     this.pendingScenarioJson = null;
     this.activeConsumerId = null;
-    if (this.instance) {
-      this.instance.Quit().catch(() => {});
-      this.instance = null;
-    }
     this.canvas?.remove();
     this.canvas = null;
     this.setState("disposed");
+
+    const instance = this.instance;
+    this.instance = null;
+    if (!instance) {
+      this.finishDispose(generation);
+      return;
+    }
+    instance.Quit().then(
+      () => this.finishDispose(generation),
+      () => {},
+    );
+  }
+
+  private finishDispose(generation: number) {
+    if (generation !== this.generation) return;
+    this.setState("idle");
+    if (this.bootWhenIdle) {
+      this.bootWhenIdle = false;
+      this.boot();
+    }
   }
 
   private disposeTimer: ReturnType<typeof setTimeout> | null = null;

@@ -8,6 +8,7 @@ import { TruthRevealSequence, type TruthRevealData } from "@/components/investig
 import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
 import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 import { importantPeopleForPortraits } from "@/lib/art/generation/pilot-scope";
+import { getArchivedCaseReconstruction } from "@/lib/game-session/reconstruction-release";
 
 export default async function DossierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -64,10 +65,11 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   };
 
   const pending = hasMissingPortraits(importantPeopleForPortraits(truth).map((p) => p.id), portraitUrls);
+  const reconstruction = await getArchivedCaseReconstruction(id);
   return (
     <>
       <ArtRefreshWatcher pending={pending} />
-      <TruthRevealSequence data={data} />
+      <TruthRevealSequence data={data} reconstruction={reconstruction.available ? reconstruction.scenario : null} />
     </>
   );
 }

@@ -9,6 +9,7 @@ import { TruthRevealSequence, type TruthRevealData } from "@/components/investig
 import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
 import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
 import { importantPeopleForPortraits } from "@/lib/art/generation/pilot-scope";
+import { getActiveCaseReconstruction } from "@/lib/game-session/reconstruction-release";
 
 export default async function RapportPage() {
   const game = await getCurrentGame();
@@ -61,10 +62,11 @@ export default async function RapportPage() {
   };
 
   const pending = hasMissingPortraits(importantPeopleForPortraits(truth).map((p) => p.id), portraitUrls);
+  const reconstruction = await getActiveCaseReconstruction();
   return (
     <>
       <ArtRefreshWatcher pending={pending} />
-      <TruthRevealSequence data={data} />
+      <TruthRevealSequence data={data} reconstruction={reconstruction.available ? reconstruction.scenario : null} />
     </>
   );
 }

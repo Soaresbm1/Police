@@ -55,9 +55,11 @@ const eslintConfig = defineConfig([
   // lint error immediately, before a build is even attempted. Only
   // `reconstruction-types.ts` (pure, CaseTruth-free) is meant to ever be
   // imported from outside this folder.
+  // Phase U5.3 — lib/game-session/reconstruction-release.ts is the one server-only module outside the subsystem
+  // allowed to call the projector: it enforces the accusation/ownership release gate before doing so.
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["lib/game-engine/reconstruction/**"],
+    ignores: ["lib/game-engine/reconstruction/**", "lib/game-session/reconstruction-release.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

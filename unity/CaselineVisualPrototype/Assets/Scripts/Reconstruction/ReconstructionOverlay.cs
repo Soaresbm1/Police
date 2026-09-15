@@ -4,16 +4,18 @@ using UnityEngine;
 namespace Caseline.Reconstruction
 {
     /// <summary>
-    /// Phase U5.2 — the standalone POC's on-screen HUD: title, elapsed/total
-    /// time, the current semantic event in neutral French, playback
-    /// controls, a scrubber, and the mandatory visual disclaimer (req. 21).
-    /// IMGUI, same cheap-and-simple choice `CCTVOverlay` already made for
-    /// its own prototype — independently written, not shared code.
+    /// Phase U5.2 — the reconstruction's in-canvas HUD (IMGUI). In the standalone QA scene it shows the full
+    /// developer HUD: title, clock, current event, scrubber, playback buttons and the scenario switcher. In the
+    /// player-facing embed those belong to the host page, so only the role labels and the mandatory disclaimer are
+    /// drawn (req. 21).
     /// </summary>
     public class ReconstructionOverlay : MonoBehaviour
     {
+        private const string Disclaimer = "Reconstitution visuelle — positions spatiales indicatives";
+
         [SerializeField] private ReconstructionPlaybackController playback;
         [SerializeField] private ReconstructionSceneController scene;
+        [SerializeField] private bool showDeveloperHud = true;
 
         /// <summary>Dev/Editor-only scenario switcher (req. 24) — never
         /// wired onto a production embed scene.</summary>
@@ -29,8 +31,6 @@ namespace Caseline.Reconstruction
             ["unnamed"] = "PERSONNE",
         };
 
-        public void SetScene(ReconstructionSceneController sceneController) => scene = sceneController;
-
         private static readonly Dictionary<string, string> EventLabelsFrench = new()
         {
             ["meet"] = "RENCONTRE",
@@ -44,9 +44,17 @@ namespace Caseline.Reconstruction
         };
 
         private GUIStyle labelStyle;
+        private GUIStyle labelShadowStyle;
         private GUIStyle titleStyle;
         private GUIStyle buttonStyle;
         private GUIStyle disclaimerStyle;
+
+        private readonly List<ReconstructionLabelLayout.LabelRequest> labelRequests = new();
+        private readonly List<string> labelTexts = new();
+
+        public void SetScene(ReconstructionSceneController sceneController) => scene = sceneController;
+
+        public void SetDeveloperHud(bool show) => showDeveloperHud = show;
 
         public void SetScenarioSwitcher(ReconstructionSceneController controller, ReconstructionPlaybackController playbackController, string[] files, string[] labels)
         {
@@ -60,24 +68,29 @@ namespace Caseline.Reconstruction
         {
             EnsureStyles();
 
-            GUI.Label(new Rect(12, 8, 300, 28), "RECONSTITUTION", titleStyle);
-
-            var total = playback != null && playback.Scenario != null ? playback.Scenario.durationSeconds : 0f;
-            var current = playback != null ? playback.CurrentTime : 0f;
-            GUI.Label(new Rect(12, 34, 300, 22), $"{FormatClock(current)} / {FormatClock(total)}", labelStyle);
-
-            var currentEvent = playback != null ? playback.CurrentEvent() : null;
-            if (currentEvent != null && EventLabelsFrench.TryGetValue(currentEvent.type, out var label))
+            if (showDeveloperHud)
             {
-                GUI.Label(new Rect(12, 56, 300, 22), label, labelStyle);
+                GUI.Label(new Rect(12, 8, 300, 28), "RECONSTITUTION", titleStyle);
+
+                var total = playback != null && playback.Scenario != null ? playback.Scenario.durationSeconds : 0f;
+                var current = playback != null ? playback.CurrentTime : 0f;
+                GUI.Label(new Rect(12, 34, 300, 22), $"{FormatClock(current)} / {FormatClock(total)}", labelStyle);
+
+                var currentEvent = playback != null ? playback.CurrentEvent() : null;
+                if (currentEvent != null && EventLabelsFrench.TryGetValue(currentEvent.type, out var label))
+                {
+                    GUI.Label(new Rect(12, 56, 300, 22), label, labelStyle);
+                }
             }
 
             // Req. 21 — makes the truth/cosmetic spatial boundary explicit
             // to whoever is watching, always visible, never hidden behind
             // an interaction.
-            GUI.Label(new Rect(12, Screen.height - 96, 460, 20), "Reconstitution visuelle — positions spatiales indicatives", disclaimerStyle);
+            GUI.Label(new Rect(12, Screen.height - (showDeveloperHud ? 96 : 28), 460, 20), Disclaimer, disclaimerStyle);
 
             DrawActorLabels();
+
+            if (!showDeveloperHud) return;
             DrawScrubber();
             DrawControls();
             DrawScenarioSwitcher();
@@ -94,6 +107,8 @@ namespace Caseline.Reconstruction
             var camera = scene.CurrentActiveCamera();
             if (camera == null) return;
 
+            labelRequests.Clear();
+            labelTexts.Clear();
             foreach (var actor in scene.SpawnedActors)
             {
                 if (actor == null || !actor.gameObject.activeInHierarchy) continue;
@@ -101,10 +116,22 @@ namespace Caseline.Reconstruction
                 var screenPos = camera.WorldToScreenPoint(worldPos);
                 if (screenPos.z <= 0f) continue; // behind the camera — never draw
 
+                var text = RoleLabelsFrench.TryGetValue(actor.Data.roleForReconstruction, out var roleLabel) ? roleLabel : "PERSONNE";
+                var size = labelStyle.CalcSize(new GUIContent(text));
                 var guiY = Screen.height - screenPos.y;
-                var label = RoleLabelsFrench.TryGetValue(actor.Data.roleForReconstruction, out var text) ? text : "PERSONNE";
-                var rect = new Rect(screenPos.x - 50f, guiY - 12f, 100f, 20f);
-                GUI.Label(rect, label, labelStyle);
+                labelRequests.Add(new ReconstructionLabelLayout.LabelRequest(actor.Data.visualId, new Rect(screenPos.x - size.x / 2f, guiY - size.y, size.x, size.y)));
+                labelTexts.Add(text);
+            }
+
+            var placed = ReconstructionLabelLayout.Resolve(labelRequests, labelStyle.lineHeight + 2f);
+            for (var i = 0; i < placed.Length; i++)
+            {
+                // Dark offset copy first, so a label stacked up against the sky stays readable.
+                var shadow = placed[i];
+                shadow.x += 1f;
+                shadow.y += 1f;
+                GUI.Label(shadow, labelTexts[i], labelShadowStyle);
+                GUI.Label(placed[i], labelTexts[i], labelStyle);
             }
         }
 
@@ -194,6 +221,10 @@ namespace Caseline.Reconstruction
             if (labelStyle == null)
             {
                 labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, normal = { textColor = new Color(0.85f, 0.85f, 0.85f) } };
+            }
+            if (labelShadowStyle == null)
+            {
+                labelShadowStyle = new GUIStyle(labelStyle) { normal = { textColor = new Color(0f, 0f, 0f, 0.85f) } };
             }
             if (titleStyle == null)
             {
