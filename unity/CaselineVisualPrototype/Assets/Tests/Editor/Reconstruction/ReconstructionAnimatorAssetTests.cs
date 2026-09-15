@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Animations;
+using UnityEngine;
 
 namespace Caseline.Reconstruction.Tests
 {
@@ -33,6 +34,9 @@ namespace Caseline.Reconstruction.Tests
                 Assert.IsNotNull(match.state, $"animator has no '{expected}' state");
                 Assert.IsNotNull(match.state.motion, $"'{expected}' state has no motion — the clip was never saved as an asset, so the player would render nothing for it");
                 Assert.IsTrue(AssetDatabase.Contains(match.state.motion), $"'{expected}' motion is not a persisted asset and will be lost outside the building Editor session");
+                var clip = match.state.motion as AnimationClip;
+                Assert.IsNotNull(clip, $"'{expected}' motion is not an AnimationClip");
+                Assert.Greater(AnimationUtility.GetCurveBindings(clip).Length, 0, $"'{expected}' clip animates nothing");
             }
         }
     }

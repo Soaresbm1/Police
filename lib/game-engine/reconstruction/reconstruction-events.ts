@@ -96,13 +96,15 @@ export function selectReconstructionEventChain(truth: CaseTruth): CrimeEventChai
   );
   const fleeEvent = fleeCandidates.length > 0 ? fleeCandidates.reduce((a, b) => (b.timestamp < a.timestamp ? b : a)) : null;
 
-  // The discovery: an "observe" at the crime location, after the attack —
-  // earliest such event (there should be exactly one per generator design,
-  // but earliest-first keeps this robust rather than assuming uniqueness).
+  // Anchored to caseOpenedAt (the recorded body-discovery instant): "earliest observe after the attack" also caught accomplice lookouts.
   const discoverCandidates = truth.timeline.filter(
-    (e) => e.action === "observe" && e.locationId === crimeLocationId && e.timestamp > attackEvent.timestamp,
+    (e) =>
+      e.action === "observe" &&
+      e.locationId === crimeLocationId &&
+      e.timestamp === truth.caseOpenedAt &&
+      e.timestamp > attackEvent.timestamp,
   );
-  const discoverEvent = discoverCandidates.length > 0 ? discoverCandidates.reduce((a, b) => (b.timestamp < a.timestamp ? b : a)) : null;
+  const discoverEvent = discoverCandidates.length === 1 ? discoverCandidates[0] : null;
 
   // Staging, only if CaseTruth actually recorded a staging attempt.
   let stageEvent: TimelineEvent | null = null;

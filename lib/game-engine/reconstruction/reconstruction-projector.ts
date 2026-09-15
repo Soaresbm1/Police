@@ -2,7 +2,14 @@ import "server-only";
 
 import type { CaseTruth } from "../types/case";
 import type { PersonId } from "../types/person";
-import { selectReconstructionEventChain, safeVisualActionForMethod, STAGE_SCENE_SAFE_VISUAL_ACTION, type SelectedReconstructionEvent } from "./reconstruction-events";
+import type { TimelineEvent } from "../types/timeline";
+import {
+  selectReconstructionEventChain,
+  safeVisualActionForMethod,
+  STAGE_SCENE_SAFE_VISUAL_ACTION,
+  type CrimeEventChainResult,
+  type SelectedReconstructionEvent,
+} from "./reconstruction-events";
 import { mapLocationTypeToEnvironment, slotForEventType, deriveActorVisualId, deriveGenericAppearance } from "./reconstruction-layout";
 import {
   RECONSTRUCTION_SCHEMA_VERSION,
@@ -48,6 +55,18 @@ interface Participation {
   durationMinutes: number;
 }
 
+// Body stays at the scene only when truth establishes it: case-opening discovery there, death before it, no later victim record.
+function bodyPresenceEndMinutes(truth: CaseTruth, chain: CrimeEventChainResult): number | null {
+  const discovery = chain.discover?.event;
+  if (!discovery || discovery.locationId !== truth.crimeLocationId || discovery.timestamp !== truth.caseOpenedAt) return null;
+  if (truth.autopsy.estimatedDeathWindowEnd > discovery.timestamp) return null;
+  const attackEnd = chain.attack.event.timestamp + chain.attack.event.durationMinutes;
+  const victimRecordedLater = (e: TimelineEvent) =>
+    e.timestamp >= attackEnd && (e.actorId === truth.victimId || e.presentPersonIds.includes(truth.victimId));
+  if (truth.timeline.some(victimRecordedLater) || truth.postCrimeMovements.some(victimRecordedLater)) return null;
+  return discovery.timestamp + discovery.durationMinutes;
+}
+
 function roleFor(truth: CaseTruth, accompliceIds: ReadonlySet<PersonId>, personId: PersonId): ReconstructionActorRole {
   if (personId === truth.culpritId) return "culprit";
   if (personId === truth.victimId) return "victim";
@@ -89,6 +108,7 @@ export function projectReconstruction(truth: CaseTruth, caseId: string): Project
   const toSeconds = (gameMinutes: number): number => (gameMinutes - t0) * 60;
 
   const accompliceIdSet = new Set(chain.accompliceAppearances.keys());
+  const bodyPresenceEnd = bodyPresenceEndMinutes(truth, chain);
 
   // Collect every person's participation across the anchored events —
   // as the event's actor, its counterparty, or merely present.
@@ -123,12 +143,15 @@ export function projectReconstruction(truth: CaseTruth, caseId: string): Project
     );
 
     const lastPart = parts[parts.length - 1];
+    const lastParticipationEnd = lastPart.time + lastPart.durationMinutes;
+    const despawnMinutes =
+      personId === truth.victimId && bodyPresenceEnd !== null ? Math.max(lastParticipationEnd, bodyPresenceEnd) : lastParticipationEnd;
     actors.push({
       visualId,
       roleForReconstruction: roleFor(truth, accompliceIdSet, personId),
       genericAppearance: deriveGenericAppearance(caseId, personId),
       spawnTime: waypoints[0].time,
-      despawnTime: toSeconds(lastPart.time + lastPart.durationMinutes),
+      despawnTime: toSeconds(despawnMinutes),
       waypoints,
     });
   }

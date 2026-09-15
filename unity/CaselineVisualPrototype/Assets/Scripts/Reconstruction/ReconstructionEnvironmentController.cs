@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Caseline.Reconstruction
@@ -58,18 +59,24 @@ namespace Caseline.Reconstruction
 
         private void BuildBoundaryWalls(Material mat)
         {
-            AddWall(mat, new Vector3(0, WallHeight / 2f, -FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f));
-            AddWall(mat, new Vector3(0, WallHeight / 2f, FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f));
-            AddWall(mat, new Vector3(-FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f));
-            AddWall(mat, new Vector3(FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f));
+            foreach (var bounds in WallBounds) AddBox("Wall", bounds, mat);
         }
 
-        private void AddWall(Material mat, Vector3 localPos, Vector3 scale)
+        private static readonly Bounds[] WallBounds =
         {
-            var wall = CreateMeshObject("Wall", GetCubeMesh(), mat);
-            wall.transform.SetParent(transform, false);
-            wall.transform.localPosition = localPos;
-            wall.transform.localScale = scale;
+            new(new Vector3(0, WallHeight / 2f, -FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f)),
+            new(new Vector3(0, WallHeight / 2f, FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f)),
+            new(new Vector3(-FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
+            new(new Vector3(FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
+        };
+
+        /// <summary>Every solid box this environment renders (walls and props), in the environment's local space —
+        /// the same data <see cref="Build"/> uses, exposed so occlusion can be measured rather than eyeballed.</summary>
+        public static List<Bounds> OccluderBounds(string environment)
+        {
+            var all = new List<Bounds>(WallBounds);
+            all.AddRange(PropBounds(environment));
+            return all;
         }
 
         /// <summary>Small flat markers at each semantic slot — a
@@ -95,35 +102,33 @@ namespace Caseline.Reconstruction
         /// support (req. 7/20).</summary>
         private void BuildEnvironmentProps(string environment, Material mat)
         {
-            switch (environment)
-            {
-                case "parking":
-                    AddProp(mat, new Vector3(-3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)); // pillar
-                    AddProp(mat, new Vector3(3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)); // pillar
-                    break;
-                case "shop":
-                    AddProp(mat, new Vector3(-2.5f, 0.5f, -2f), new Vector3(2.5f, 1f, 0.6f)); // counter
-                    break;
-                case "corridor":
-                    AddProp(mat, new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)); // doorway frame hint
-                    break;
-                case "street":
-                    AddProp(mat, new Vector3(-6f, 2f, 6f), new Vector3(2f, 4f, 2f)); // building silhouette
-                    AddProp(mat, new Vector3(6f, 2.5f, 6f), new Vector3(2f, 5f, 2f)); // building silhouette
-                    break;
-                case "generic":
-                default:
-                    AddProp(mat, new Vector3(0f, 1f, -2f), new Vector3(0.2f, 2f, 3f)); // partition wall
-                    break;
-            }
+            foreach (var bounds in PropBounds(environment)) AddBox("EnvironmentProp", bounds, mat);
         }
 
-        private void AddProp(Material mat, Vector3 localPos, Vector3 scale)
+        // Scenery yields to semantic slots: the shop counter and generic partition sit behind every slot, off all camera sightlines and walking paths.
+        private static Bounds[] PropBounds(string environment) => environment switch
         {
-            var prop = CreateMeshObject("EnvironmentProp", GetCubeMesh(), mat);
-            prop.transform.SetParent(transform, false);
-            prop.transform.localPosition = localPos;
-            prop.transform.localScale = scale;
+            "parking" => new[]
+            {
+                new Bounds(new Vector3(-3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)), // pillar
+                new Bounds(new Vector3(3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)), // pillar
+            },
+            "shop" => new[] { new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)) }, // counter
+            "corridor" => new[] { new Bounds(new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)) }, // doorway frame hint
+            "street" => new[]
+            {
+                new Bounds(new Vector3(-6f, 2f, 6f), new Vector3(2f, 4f, 2f)), // building silhouette
+                new Bounds(new Vector3(6f, 2.5f, 6f), new Vector3(2f, 5f, 2f)), // building silhouette
+            },
+            _ => new[] { new Bounds(new Vector3(-5f, 1f, 4.5f), new Vector3(0.2f, 2f, 3f)) }, // partition wall
+        };
+
+        private void AddBox(string name, Bounds bounds, Material mat)
+        {
+            var box = CreateMeshObject(name, GetCubeMesh(), mat);
+            box.transform.SetParent(transform, false);
+            box.transform.localPosition = bounds.center;
+            box.transform.localScale = bounds.size;
         }
 
         private static GameObject CreateMeshObject(string name, Mesh mesh, Material mat)

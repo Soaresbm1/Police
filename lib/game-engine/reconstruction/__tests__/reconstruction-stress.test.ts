@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateCase } from "../../case-generator/case-truth";
 import { generateCaseSeed } from "../../random/rng";
-import { isTaxonomyRelevantAction } from "../reconstruction-events";
+import { isTaxonomyRelevantAction, selectReconstructionEventChain } from "../reconstruction-events";
 import { projectReconstruction } from "../reconstruction-projector";
 
 /**
@@ -37,6 +37,11 @@ describe("reconstruction stress batch (2,000 cases)", () => {
       let discovererOverlapsCrime = 0;
       let accompliceWithoutPresence = 0;
       let exactlyOneAttackEvent = 0;
+      let discoverNotAtCaseOpenedAt = 0;
+      let victimDespawnsBeforeDiscovery = 0;
+      let bodyPersistedThroughDiscovery = 0;
+      let victimActiveAfterAttack = 0;
+      let culpritPersistsToDiscovery = 0;
 
       const unsupportedActionFrequency = new Map<string, number>();
 
@@ -97,6 +102,30 @@ describe("reconstruction stress batch (2,000 cases)", () => {
         const discoverEvent = scenario.events.find((e) => e.type === "discover");
         if (attackEvent && discoverEvent && discoverEvent.time <= attackEvent.time) discovererOverlapsCrime++;
 
+        const chain = selectReconstructionEventChain(truth);
+        if (chain.ok && attackEvent && discoverEvent) {
+          const t0 = Math.min(
+            ...[chain.meet, chain.attack, chain.leaveScene, chain.discover, chain.stageScene].flatMap((s) => (s ? [s.event.timestamp] : [])),
+          );
+          if (discoverEvent.time !== (truth.caseOpenedAt - t0) * 60) discoverNotAtCaseOpenedAt++;
+
+          const victim = scenario.actors.find((a) => a.roleForReconstruction === "victim");
+          const culprit = scenario.actors.find((a) => a.roleForReconstruction === "culprit");
+          if (victim) {
+            if (victim.despawnTime < discoverEvent.time) victimDespawnsBeforeDiscovery++;
+            else bodyPersistedThroughDiscovery++;
+            const activeLater =
+              victim.waypoints.some((wp) => wp.time > attackEvent.time) ||
+              scenario.events.some(
+                (e) => e.time > attackEvent.time && (e.actorVisualId === victim.visualId || e.counterpartyVisualId === victim.visualId),
+              );
+            if (activeLater) victimActiveAfterAttack++;
+          }
+          if (culprit && culprit.visualId !== discoverEvent.actorVisualId && culprit.despawnTime >= discoverEvent.time) {
+            culpritPersistsToDiscovery++;
+          }
+        }
+
         for (const actor of scenario.actors) {
           if (actor.roleForReconstruction !== "accomplice") continue;
           // Every accomplice-labeled actor must genuinely appear as a
@@ -137,6 +166,11 @@ describe("reconstruction stress batch (2,000 cases)", () => {
         seedLeaks,
         discovererOverlapsCrime,
         accompliceWithoutPresence,
+        discoverNotAtCaseOpenedAt,
+        victimDespawnsBeforeDiscovery,
+        bodyPersistedThroughDiscovery,
+        victimActiveAfterAttack,
+        culpritPersistsToDiscovery,
         nondeterministicCount,
         unsupportedActionFrequency: [...unsupportedActionFrequency.entries()].sort((a, b) => b[1] - a[1]),
       });
@@ -152,6 +186,10 @@ describe("reconstruction stress batch (2,000 cases)", () => {
       expect(emptyActorSets).toBe(0);
       expect(discovererOverlapsCrime).toBe(0);
       expect(accompliceWithoutPresence).toBe(0);
+      expect(discoverNotAtCaseOpenedAt).toBe(0);
+      expect(victimDespawnsBeforeDiscovery).toBe(0);
+      expect(victimActiveAfterAttack).toBe(0);
+      expect(culpritPersistsToDiscovery).toBe(0);
       expect(nondeterministicCount).toBe(0);
 
       // Rare procedural generation dead-ends are an accepted, low-frequency

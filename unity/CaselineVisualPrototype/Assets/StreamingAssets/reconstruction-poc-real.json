@@ -22,7 +22,7 @@
       "roleForReconstruction": "victim",
       "genericAppearance": "formal_dark",
       "spawnTime": 0,
-      "despawnTime": 720,
+      "despawnTime": 40440,
       "waypoints": [
         {
           "time": 0,

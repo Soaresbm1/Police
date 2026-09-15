@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Caseline.Reconstruction
@@ -42,6 +43,35 @@ namespace Caseline.Reconstruction
         private static bool IsOutsideFrame(Vector3 viewportPoint)
         {
             return viewportPoint.z <= 0f || viewportPoint.x < 0f || viewportPoint.x > 1f || viewportPoint.y < 0f || viewportPoint.y > 1f;
+        }
+
+        public static readonly float[] StandingSampleHeights = { 0.3f, 1.0f, 1.7f };
+        public static readonly float[] LyingSampleHeights = { 0.2f };
+
+        /// <summary>How many of the actor's sample points (feet, torso, head by default) have scenery between them and
+        /// the camera. Geometric, not a raycast, so it needs no colliders and works on the same boxes the scene renders.</summary>
+        public static int OccludedSampleCount(Vector3 cameraPosition, Vector3 actorRootWorld, IReadOnlyList<Bounds> occluders, IReadOnlyList<float> sampleHeights = null)
+        {
+            var occluded = 0;
+            foreach (var height in sampleHeights ?? StandingSampleHeights)
+            {
+                var target = actorRootWorld + Vector3.up * height;
+                foreach (var box in occluders)
+                {
+                    if (!SegmentIntersects(cameraPosition, target, box)) continue;
+                    occluded++;
+                    break;
+                }
+            }
+            return occluded;
+        }
+
+        public static bool SegmentIntersects(Vector3 from, Vector3 to, Bounds box)
+        {
+            var delta = to - from;
+            var length = delta.magnitude;
+            if (length < 1e-5f) return box.Contains(from);
+            return box.IntersectRay(new Ray(from, delta / length), out var distance) && distance <= length;
         }
     }
 }

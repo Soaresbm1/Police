@@ -29,6 +29,7 @@ function minimalTruth(overrides: {
   crimeLocationId: string;
   staged?: boolean;
   accompliceIds?: string[];
+  caseOpenedAt?: number;
 }): CaseTruth {
   return {
     timeline: overrides.timeline,
@@ -37,6 +38,7 @@ function minimalTruth(overrides: {
     crimeLocationId: overrides.crimeLocationId,
     staging: { type: overrides.staged ? "accident" : "none", staged: overrides.staged ?? false, tellEvidenceIds: [], description: "" },
     accompliceIds: overrides.accompliceIds ?? [],
+    caseOpenedAt: overrides.caseOpenedAt ?? -1,
   } as unknown as CaseTruth;
 }
 
@@ -139,7 +141,7 @@ describe("selectReconstructionEventChain", () => {
     if (result.ok) expect(result.leaveScene).toBeNull();
   });
 
-  it("selects the earliest post-attack observe at the crime location as discover", () => {
+  it("selects the observe at the crime location at caseOpenedAt as discover", () => {
     const truth = minimalTruth({
       timeline: [
         ev({ id: "attack", timestamp: 200, actorId: "culprit", locationId: "loc1", action: "attack", isCrimeEvent: true, counterpartyId: "victim", presentPersonIds: ["culprit", "victim"] }),
@@ -148,10 +150,45 @@ describe("selectReconstructionEventChain", () => {
       culpritId: "culprit",
       victimId: "victim",
       crimeLocationId: "loc1",
+      caseOpenedAt: 800,
     });
     const result = selectReconstructionEventChain(truth);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.discover?.event.id).toBe("found");
+  });
+
+  it("never selects an accomplice lookout's post-attack observe as the discovery", () => {
+    const truth = minimalTruth({
+      timeline: [
+        ev({ id: "attack", timestamp: 200, actorId: "culprit", locationId: "loc1", action: "attack", isCrimeEvent: true, counterpartyId: "victim", presentPersonIds: ["culprit", "victim"] }),
+        ev({ id: "lookout_watch", timestamp: 202, actorId: "lookout", locationId: "loc1", action: "observe" }),
+        ev({ id: "found", timestamp: 800, actorId: "discoverer", locationId: "loc1", action: "observe" }),
+      ],
+      culpritId: "culprit",
+      victimId: "victim",
+      crimeLocationId: "loc1",
+      accompliceIds: ["lookout"],
+      caseOpenedAt: 800,
+    });
+    const result = selectReconstructionEventChain(truth);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.discover?.event.id).toBe("found");
+  });
+
+  it("selects no discovery rather than guessing when no observe matches caseOpenedAt", () => {
+    const truth = minimalTruth({
+      timeline: [
+        ev({ id: "attack", timestamp: 200, actorId: "culprit", locationId: "loc1", action: "attack", isCrimeEvent: true, counterpartyId: "victim", presentPersonIds: ["culprit", "victim"] }),
+        ev({ id: "some_observe", timestamp: 500, actorId: "someone", locationId: "loc1", action: "observe" }),
+      ],
+      culpritId: "culprit",
+      victimId: "victim",
+      crimeLocationId: "loc1",
+      caseOpenedAt: 800,
+    });
+    const result = selectReconstructionEventChain(truth);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.discover).toBeNull();
   });
 
   it("only includes staging when CaseTruth.staging.staged is true", () => {

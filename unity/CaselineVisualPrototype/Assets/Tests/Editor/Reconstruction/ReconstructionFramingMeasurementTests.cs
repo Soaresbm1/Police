@@ -1,4 +1,5 @@
 using Caseline.Reconstruction;
+using Caseline.ReconstructionEditor;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -16,6 +17,15 @@ namespace Caseline.Reconstruction.Tests
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 100f;
             return cam;
+        }
+
+        private static (Camera overview, Camera close) MakeSceneCameras()
+        {
+            var overview = new GameObject("TestOverview").AddComponent<Camera>();
+            ReconstructionCameraController.ApplyOverviewSpec(overview);
+            var close = new GameObject("TestClose").AddComponent<Camera>();
+            ReconstructionCameraController.ApplyCloseSpec(close);
+            return (overview, close);
         }
 
         [Test]
@@ -43,9 +53,7 @@ namespace Caseline.Reconstruction.Tests
         public void VerticalOccupancy_IsZero_ForAnActorFullyBehindTheCamera()
         {
             var cam = MakeCamera(new Vector3(0, 3, -6), new Vector3(0, -0.3f, 1f), 50f);
-            // Far behind the camera's own forward direction.
-            var actorPos = new Vector3(0, 0, -20f);
-            var occupancy = ReconstructionFramingMeasurement.VerticalOccupancy(cam, actorPos);
+            var occupancy = ReconstructionFramingMeasurement.VerticalOccupancy(cam, new Vector3(0, 0, -20f));
             Assert.AreEqual(0f, occupancy);
             Object.DestroyImmediate(cam.gameObject);
         }
@@ -85,33 +93,87 @@ namespace Caseline.Reconstruction.Tests
         [Test]
         public void ActorHeightConstant_MatchesTheReusedU4RigHeight_NeverMutatedToHitTargets()
         {
-            // This phase must fix framing via camera geometry, never by
-            // scaling the actor (req. 5) — the constant itself is the
-            // enforcement: if a future change ever adjusted this away from
-            // the real rig height to "cheat" an occupancy target, this
-            // test documents and catches that.
             Assert.AreEqual(1.78f, ReconstructionFramingMeasurement.ActorHeightMeters);
         }
 
         [Test]
-        public void ActiveCameraSlotCombinations_ForRealPocLayout_AreNotClipped()
+        public void SegmentIntersects_DetectsABoxInBetween_AndIgnoresBoxesBeyondOrBeside()
         {
-            // The real POC scenario's environment is "generic"; its actors
-            // only ever occupy interaction/crime_point/exit — reproduces
-            // the same fixed camera specs ReconstructionSceneBuilder uses.
-            var overview = MakeCamera(new Vector3(0f, 6.75f, -9.78f), new Vector3(0f, -0.7f, 1f), 55f);
-            var close = MakeCamera(new Vector3(0f, 2.5f, -6.5f), new Vector3(0f, -0.25f, 1f), 50f);
+            var from = new Vector3(0, 1, 0);
+            var between = new Bounds(new Vector3(0, 1, 5), Vector3.one);
+            Assert.IsTrue(ReconstructionFramingMeasurement.SegmentIntersects(from, new Vector3(0, 1, 10), between));
+            Assert.IsFalse(ReconstructionFramingMeasurement.SegmentIntersects(from, new Vector3(0, 1, 3), between), "box beyond the target");
+            Assert.IsFalse(ReconstructionFramingMeasurement.SegmentIntersects(from, new Vector3(0, 1, 10), new Bounds(new Vector3(5, 1, 5), Vector3.one)), "box beside the segment");
+        }
 
-            var interaction = ReconstructionZoneLayout.GetZonePosition("generic", "interaction");
-            var crimePoint = ReconstructionZoneLayout.GetZonePosition("generic", "crime_point");
-            var exit = ReconstructionZoneLayout.GetZonePosition("generic", "exit");
+        [Test]
+        public void OccludedSampleCount_CountsOnlyTheSampleHeightsActuallyBlocked()
+        {
+            var lowWall = new[] { new Bounds(new Vector3(0, 0.5f, 5), new Vector3(4, 1, 0.2f)) };
+            var cameraAtActorHeight = new Vector3(0, 1.2f, 0);
+            var actor = new Vector3(0, 0, 10);
+            Assert.AreEqual(1, ReconstructionFramingMeasurement.OccludedSampleCount(cameraAtActorHeight, actor, lowWall), "a 1 m wall hides the feet sample only");
+            Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(cameraAtActorHeight, actor, System.Array.Empty<Bounds>()));
+        }
 
-            Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(close, interaction));
-            Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(close, crimePoint));
-            Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(overview, exit));
+        [Test]
+        public void EveryReachableActorPlacement_InAllFiveEnvironments_IsFramedAndUnoccluded()
+        {
+            var (overview, close) = MakeSceneCameras();
+            try
+            {
+                foreach (var env in ReconstructionFramingReport.Environments)
+                {
+                    var occluders = ReconstructionEnvironmentController.OccluderBounds(env);
+                    foreach (var (slot, roles) in ReconstructionFramingReport.ReachableRolesBySlot)
+                    {
+                        foreach (var role in roles)
+                        {
+                            var pos = ReconstructionZoneLayout.GetActorZonePosition(env, slot, role);
+                            foreach (var cam in ReconstructionFramingReport.CamerasThatMustSee(slot, role, overview, close))
+                            {
+                                var label = $"{env}/{slot}/{role}/{(cam == close ? "close" : "overview")}";
+                                Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(cam, pos), $"{label} clipped");
+                                Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(cam.transform.position, pos, occluders), $"{label} occluded by scenery");
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(overview.gameObject);
+                Object.DestroyImmediate(close.gameObject);
+            }
+        }
 
-            Object.DestroyImmediate(overview.gameObject);
-            Object.DestroyImmediate(close.gameObject);
+        [Test]
+        public void GenericCrimePoint_IsVisibleFromBothCameras()
+        {
+            var (overview, close) = MakeSceneCameras();
+            try
+            {
+                var occluders = ReconstructionEnvironmentController.OccluderBounds("generic");
+                var crimePoint = ReconstructionZoneLayout.GetZonePosition("generic", "crime_point");
+                foreach (var cam in new[] { overview, close })
+                {
+                    Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(cam, crimePoint));
+                    Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(cam.transform.position, crimePoint, occluders));
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(overview.gameObject);
+                Object.DestroyImmediate(close.gameObject);
+            }
+        }
+
+        [Test]
+        public void CloseCamera_LooksAcrossTheAttack_NotAlongTheActorsForwardAxis()
+        {
+            var horizontal = new Vector3(ReconstructionCameraController.CloseDirection.x, 0f, ReconstructionCameraController.CloseDirection.z);
+            var yaw = Vector3.Angle(Vector3.forward, horizontal);
+            Assert.That(yaw, Is.InRange(20f, 40f), "a modest off-axis yaw, so a forward strike is not foreshortened along the view direction");
         }
     }
 }

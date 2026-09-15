@@ -173,38 +173,11 @@ namespace Caseline.ReconstructionEditor
 
         private static (Camera overview, Camera close) BuildCameras()
         {
-            // Framing derived the same way U4's CCTV camera work validated:
-            // occupancy ~= actorHeight / (2*distance*tan(FOV/2)), with
-            // actorHeight=1.78m (matches CCTVFramingMeasurement's own
-            // constant). Overview targets ~13% (within the 12-25% band),
-            // close targets ~29% (within the 20-35% band), both measured by
-            // ReconstructionFramingReport (added in U5.2.1).
-            var overviewGo = new GameObject("OverviewCamera");
-            var overview = overviewGo.AddComponent<Camera>();
-            // Phase U5.2.1 — U4.3's own measurement tooling found the
-            // original (0,9,-13)/55° overview read at only ~9.2-10.7%
-            // actor occupancy across all 5 environments, under the 12-25%
-            // target floor. Moved 25% closer along the EXACT SAME viewing
-            // ray toward the same ground-plane aim point (~(0,0,-0.13)) —
-            // a pure dolly, so rotation is mathematically unchanged (see
-            // U4.3's own CCTV camera work for why scaling a position along
-            // a ray to a fixed target preserves direction) — verified
-            // empirically afterward with ReconstructionFramingReport, not
-            // assumed from the formula alone: raised the whole band to
-            // ~12.3-14.3%, comfortably inside target with FOV untouched.
-            overview.transform.position = new Vector3(0f, 6.75f, -9.78f);
-            overview.transform.rotation = Quaternion.LookRotation(new Vector3(0f, -0.7f, 1f).normalized, Vector3.up);
-            overview.fieldOfView = 55f;
-            overview.nearClipPlane = 0.1f;
-            overview.farClipPlane = 100f;
+            var overview = new GameObject("OverviewCamera").AddComponent<Camera>();
+            ReconstructionCameraController.ApplyOverviewSpec(overview);
 
-            var closeGo = new GameObject("CloseCamera");
-            var close = closeGo.AddComponent<Camera>();
-            close.transform.position = new Vector3(0f, 2.5f, -6.5f);
-            close.transform.rotation = Quaternion.LookRotation(new Vector3(0f, -0.25f, 1f).normalized, Vector3.up);
-            close.fieldOfView = 50f;
-            close.nearClipPlane = 0.1f;
-            close.farClipPlane = 100f;
+            var close = new GameObject("CloseCamera").AddComponent<Camera>();
+            ReconstructionCameraController.ApplyCloseSpec(close);
             close.gameObject.SetActive(false); // overview is the default; ReconstructionCameraController switches deterministically
 
             return (overview, close);

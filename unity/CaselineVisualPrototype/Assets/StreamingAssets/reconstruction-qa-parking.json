@@ -4,8 +4,8 @@
   "environment": "parking",
   "durationSeconds": 45,
   "actors": [
-    { "visualId": "qa_culprit", "roleForReconstruction": "culprit", "genericAppearance": "outerwear_dark", "spawnTime": 0, "despawnTime": 45, "waypoints": [{ "time": 0, "slot": "entrance" }, { "time": 8, "slot": "interaction" }, { "time": 15, "slot": "crime_point" }, { "time": 25, "slot": "exit" }] },
-    { "visualId": "qa_victim", "roleForReconstruction": "victim", "genericAppearance": "casual_neutral", "spawnTime": 8, "despawnTime": 20, "waypoints": [{ "time": 8, "slot": "interaction" }, { "time": 15, "slot": "crime_point" }] },
+    { "visualId": "qa_culprit", "roleForReconstruction": "culprit", "genericAppearance": "outerwear_dark", "spawnTime": 0, "despawnTime": 30, "waypoints": [{ "time": 0, "slot": "entrance" }, { "time": 8, "slot": "interaction" }, { "time": 15, "slot": "crime_point" }, { "time": 25, "slot": "exit" }] },
+    { "visualId": "qa_victim", "roleForReconstruction": "victim", "genericAppearance": "casual_neutral", "spawnTime": 8, "despawnTime": 45, "waypoints": [{ "time": 8, "slot": "interaction" }, { "time": 15, "slot": "crime_point" }] },
     { "visualId": "qa_witness", "roleForReconstruction": "unnamed", "genericAppearance": "workwear_light", "spawnTime": 40, "despawnTime": 45, "waypoints": [{ "time": 40, "slot": "crime_point" }] }
   ],
   "events": [

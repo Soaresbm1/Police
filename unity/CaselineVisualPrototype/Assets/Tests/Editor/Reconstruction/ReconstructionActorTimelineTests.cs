@@ -211,6 +211,41 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
+        public void Victim_AfterTheAttack_HoldsTheCollapsedBodyUntilDespawn_NeverIdleOrWalkAgain()
+        {
+            var victim = MakeActor("victim", "victim", 0f, 600f, (0, "interaction"), (10, "crime_point"));
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(10f, "culprit", "victim") };
+            var settled = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 20f);
+
+            foreach (var t in new[] { 20f, 100f, 400f, 599f, 600f })
+            {
+                var pose = ReconstructionActorTimeline.Evaluate(victim, events, "generic", t);
+                Assert.IsTrue(pose.visible, $"the body stays present at t={t}");
+                Assert.AreEqual("Collapse", pose.animState, $"t={t}");
+                Assert.AreEqual(1f, pose.normalizedTime, $"fully collapsed, never re-animating, t={t}");
+                Assert.IsFalse(pose.isWalking, $"t={t}");
+                Assert.AreEqual(settled.position, pose.position, $"the body never moves, t={t}");
+            }
+            Assert.IsFalse(ReconstructionActorTimeline.Evaluate(victim, events, "generic", 600.1f).visible);
+        }
+
+        [Test]
+        public void SeekingAcrossTheAttack_RestoresTheLivingPoseBefore_AndTheIdenticalBodyAfter()
+        {
+            var victim = MakeActor("victim", "victim", 0f, 600f, (0, "interaction"), (10, "crime_point"));
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(10f, "culprit", "victim") };
+
+            var bodyFirst = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 400f);
+            var beforeAttack = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 5f);
+            var bodyAgain = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 400f);
+
+            Assert.AreNotEqual("Collapse", beforeAttack.animState);
+            Assert.AreEqual(bodyFirst.animState, bodyAgain.animState);
+            Assert.AreEqual(bodyFirst.position, bodyAgain.position);
+            Assert.AreEqual(bodyFirst.normalizedTime, bodyAgain.normalizedTime);
+        }
+
+        [Test]
         public void Culprit_ShowsAttackAnimState_DuringBeat_ThenResumesWaypoints()
         {
             var culprit = MakeActor("culprit", "culprit", 0f, 40f, (0, "interaction"), (10, "crime_point"), (20, "exit"));
