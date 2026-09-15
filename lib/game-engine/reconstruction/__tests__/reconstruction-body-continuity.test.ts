@@ -9,6 +9,8 @@ import { findPocCase } from "./poc-case-finder";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
 const CASE_ID = "body-continuity";
+/** These tests generate hundreds of cases; give them the same headroom as the other batch tests. */
+const BATCH_TIMEOUT_MS = 2 * 60 * 1000;
 
 function seedFor(i: number): string {
   return `CASE-${(i + 70000).toString(36).toUpperCase().padStart(6, "0").slice(-6)}`;
@@ -75,7 +77,7 @@ describe("CaseTruth invariants the body-presence rule relies on", () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(380);
-  });
+  }, BATCH_TIMEOUT_MS);
 });
 
 describe("projectReconstruction — body presence through discovery", () => {
@@ -142,7 +144,7 @@ describe("projectReconstruction — body presence through discovery", () => {
       }
     }
     expect(bodiesPersisted).toBeGreaterThan(0);
-  });
+  }, BATCH_TIMEOUT_MS);
 
   it("does not persist the body when the autopsy does not place death before the discovery", () => {
     const truth = structuredClone(poc.truth);
@@ -197,5 +199,5 @@ describe("projectReconstruction — discovery anchoring regression", () => {
       return;
     }
     throw new Error("no generated case in range had a post-attack lookout observe to regress against");
-  });
+  }, BATCH_TIMEOUT_MS);
 });
