@@ -1,28 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { ReconstructionPlayer, type PlayerSnapshot } from "@/lib/art/reconstruction-player";
 import { detectUnityCctvCapability, shouldAttemptUnityCctv } from "@/lib/art/unity-cctv-config";
 import { unityCctvHost } from "@/lib/art/unity-cctv-host";
 import { currentMarker, formatElapsed, truthToBar, type PresentationTimeline } from "@/lib/game-engine/reconstruction/reconstruction-presentation";
 import type { ReconstructionScenario } from "@/lib/game-engine/reconstruction/reconstruction-types";
 import { playSound } from "@/lib/sound/sound-manager";
+import { layoutTimelineLabels, timelineLabelInputs } from "./timeline-label-layout";
 
 const SPEEDS = [0.5, 1, 2] as const;
-
-/** Labels closer than this (in % of the bar) to the previous label on the same row drop to a second row. */
-const MIN_LABEL_SPACING_PERCENT = 14;
-
-function labelRows(positions: number[]): number[] {
-  let lastOnFirstRow = -Infinity;
-  return positions.map((position) => {
-    if (position - lastOnFirstRow >= MIN_LABEL_SPACING_PERCENT) {
-      lastOnFirstRow = position;
-      return 0;
-    }
-    return 1;
-  });
-}
 
 export function ReconstructionViewer({ scenario, onClose }: { scenario: ReconstructionScenario; onClose: () => void }) {
   // Checked once, when the player opens the viewer; an unsupported browser never loads the Unity runtime.
@@ -198,6 +185,19 @@ function SemanticTimeline({
 }) {
   const percent = (bar: number) => (timeline.barDuration > 0 ? (bar / timeline.barDuration) * 100 : 0);
 
+  const labelRowRef = useRef<HTMLDivElement>(null);
+  const [labelRowWidth, setLabelRowWidth] = useState(0);
+  useLayoutEffect(() => {
+    const row = labelRowRef.current;
+    if (!row) return;
+    const measure = () => setLabelRowWidth(row.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, []);
+  const labels = useMemo(() => layoutTimelineLabels(timelineLabelInputs(timeline), labelRowWidth), [timeline, labelRowWidth]);
+
   const onTrackClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!enabled) return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -235,21 +235,20 @@ function SemanticTimeline({
           />
         ))}
       </div>
-      <div className="relative h-8">
-        {labelRows(timeline.markers.map((marker) => percent(marker.barPosition))).map((row, index) => {
-          const marker = timeline.markers[index];
-          const left = percent(marker.barPosition);
-          const align = left < 6 ? "translate-x-0" : left > 94 ? "-translate-x-full" : "-translate-x-1/2";
-          return (
+      {/* Visual labels only: every marker above already carries its event name as accessible name and tooltip, so a
+          label left out for lack of room never removes the event from the timeline. */}
+      <div ref={labelRowRef} className="relative h-8" aria-hidden="true">
+        {labels.map((label) =>
+          label.row === null ? null : (
             <span
-              key={`${marker.type}-label-${index}`}
-              className={`absolute whitespace-nowrap font-data text-[10px] uppercase tracking-wide text-muted ${align} ${row === 0 ? "top-0" : "top-4"}`}
-              style={{ left: `${left}%` }}
+              key={label.key}
+              className={`absolute whitespace-nowrap text-center font-data text-[10px] uppercase tracking-wide text-muted ${label.row === 0 ? "top-0" : "top-4"}`}
+              style={{ left: label.leftPx, width: label.widthPx }}
             >
-              {marker.label}
+              {label.text}
             </span>
-          );
-        })}
+          ),
+        )}
       </div>
     </div>
   );
