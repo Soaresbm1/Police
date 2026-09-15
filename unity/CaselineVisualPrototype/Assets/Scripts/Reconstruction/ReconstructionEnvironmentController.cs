@@ -39,9 +39,12 @@ namespace Caseline.Reconstruction
 
         public void Build(string environment, Material floorMat, Material wallMat, Material propMat, Material zoneMarkerMat)
         {
-            foreach (Transform child in transform)
+            var children = new List<GameObject>();
+            foreach (Transform child in transform) children.Add(child.gameObject);
+            foreach (var child in children)
             {
-                Object.Destroy(child.gameObject);
+                if (Application.isPlaying) Object.Destroy(child);
+                else Object.DestroyImmediate(child);
             }
 
             BuildFloor(floorMat);

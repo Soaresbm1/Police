@@ -113,6 +113,37 @@ namespace Caseline.Reconstruction
             Evaluate(0f);
         }
 
+        /// <summary>Removes the loaded scenario's actors and environment geometry and forgets the scenario.</summary>
+        public void ClearScenario()
+        {
+            if (_loadRoutine != null)
+            {
+                StopCoroutine(_loadRoutine);
+                _loadRoutine = null;
+            }
+
+            foreach (var actor in _spawnedActors)
+            {
+                if (actor != null) DestroyObject(actor.gameObject);
+            }
+            _spawnedActors.Clear();
+
+            if (environmentController != null)
+            {
+                var children = new List<GameObject>();
+                foreach (Transform child in environmentController.transform) children.Add(child.gameObject);
+                foreach (var child in children) DestroyObject(child);
+            }
+
+            _scenario = null;
+        }
+
+        private static void DestroyObject(GameObject target)
+        {
+            if (Application.isPlaying) Destroy(target);
+            else DestroyImmediate(target);
+        }
+
         /// <summary>The single entry point every deterministic system in
         /// this scene is evaluated from — see
         /// `ReconstructionPlaybackController`, the only caller.</summary>
