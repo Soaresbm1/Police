@@ -52,6 +52,28 @@ namespace Caseline.Reconstruction
         private readonly List<ReconstructionLabelLayout.LabelRequest> labelRequests = new();
         private readonly List<string> labelTexts = new();
 
+        /// <summary>Every role label the overlay can draw.</summary>
+        public static IReadOnlyCollection<string> RoleLabelTexts => RoleLabelsFrench.Values;
+
+        /// <summary>
+        /// Role label style. Never wrapped and never clipped: a label is a single word sized from its own measured
+        /// text, so there is nothing to wrap, and any sub-pixel excess must stay visible rather than cut the last
+        /// letter (U5.3 drew COMPLICE as "COMPLIC" with the skin's default wordWrap + Clip).
+        /// </summary>
+        public static GUIStyle CreateLabelStyle(GUIStyle baseLabel) => new GUIStyle(baseLabel)
+        {
+            fontSize = 15,
+            wordWrap = false,
+            clipping = TextClipping.Overflow,
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = new Color(0.85f, 0.85f, 0.85f) },
+        };
+
+        public static GUIStyle CreateLabelShadowStyle(GUIStyle labelStyle) => new GUIStyle(labelStyle)
+        {
+            normal = { textColor = new Color(0f, 0f, 0f, 0.85f) },
+        };
+
         public void SetScene(ReconstructionSceneController sceneController) => scene = sceneController;
 
         public void SetDeveloperHud(bool show) => showDeveloperHud = show;
@@ -119,17 +141,17 @@ namespace Caseline.Reconstruction
                 var text = RoleLabelsFrench.TryGetValue(actor.Data.roleForReconstruction, out var roleLabel) ? roleLabel : "PERSONNE";
                 var size = labelStyle.CalcSize(new GUIContent(text));
                 var guiY = Screen.height - screenPos.y;
-                labelRequests.Add(new ReconstructionLabelLayout.LabelRequest(actor.Data.visualId, new Rect(screenPos.x - size.x / 2f, guiY - size.y, size.x, size.y)));
+                labelRequests.Add(new ReconstructionLabelLayout.LabelRequest(actor.Data.visualId, ReconstructionLabelLayout.LabelRect(size, screenPos.x, guiY)));
                 labelTexts.Add(text);
             }
 
-            var placed = ReconstructionLabelLayout.Resolve(labelRequests, labelStyle.lineHeight + 2f);
+            var placed = ReconstructionLabelLayout.Resolve(labelRequests, ReconstructionLabelLayout.LaneStep(labelRequests));
             for (var i = 0; i < placed.Length; i++)
             {
                 // Dark offset copy first, so a label stacked up against the sky stays readable.
                 var shadow = placed[i];
-                shadow.x += 1f;
-                shadow.y += 1f;
+                shadow.x += ReconstructionLabelLayout.ShadowOffset;
+                shadow.y += ReconstructionLabelLayout.ShadowOffset;
                 GUI.Label(shadow, labelTexts[i], labelShadowStyle);
                 GUI.Label(placed[i], labelTexts[i], labelStyle);
             }
@@ -220,11 +242,11 @@ namespace Caseline.Reconstruction
         {
             if (labelStyle == null)
             {
-                labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, normal = { textColor = new Color(0.85f, 0.85f, 0.85f) } };
+                labelStyle = CreateLabelStyle(GUI.skin.label);
             }
             if (labelShadowStyle == null)
             {
-                labelShadowStyle = new GUIStyle(labelStyle) { normal = { textColor = new Color(0f, 0f, 0f, 0.85f) } };
+                labelShadowStyle = CreateLabelShadowStyle(labelStyle);
             }
             if (titleStyle == null)
             {

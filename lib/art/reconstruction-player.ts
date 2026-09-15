@@ -7,6 +7,7 @@ import {
   type PresentationTimeline,
 } from "@/lib/game-engine/reconstruction/reconstruction-presentation";
 import type { ReconstructionScenario } from "@/lib/game-engine/reconstruction/reconstruction-types";
+import { browserPageActivity, type PageActivityPort } from "./page-activity";
 import {
   allocateReconstructionToken,
   beginLoad,
@@ -46,7 +47,7 @@ export interface PlayerSnapshot {
   ended: boolean;
 }
 
-/** A load that never reports back is a failure, not a guess at readiness. */
+/** A load that never reports back is a failure, not a guess at readiness. Counted in active page time only. */
 export const SCENARIO_LOAD_TIMEOUT_MS = 20_000;
 
 /**
@@ -67,10 +68,15 @@ export class ReconstructionPlayer {
   private unsubscribeEvents: (() => void) | null = null;
   private transitionTimer: ReturnType<typeof setTimeout> | null = null;
   private loadTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Active page time the current load may still take, and when the running stretch of it started. */
+  private loadBudgetMs = 0;
+  private loadBudgetSince = 0;
+  private unsubscribeActivity: (() => void) | null = null;
 
   constructor(
     scenario: ReconstructionScenario,
     private readonly host: ReconstructionHostPort,
+    private readonly activity: PageActivityPort = browserPageActivity,
   ) {
     this.timeline = buildPresentationTimeline(scenario);
     this.scenarioJson = JSON.stringify(scenario);
@@ -188,12 +194,34 @@ export class ReconstructionPlayer {
     this.queue({ kind: "setSpeed", speed: this.snapshot.speed });
     this.queue({ kind: "play" });
     this.update({ status: "loading", errorKind: null, playing: false, truthTime: 0, transitioning: false, ended: false });
+    this.startLoadTimeout(this.session.token);
+  }
 
-    const token = this.session.token;
-    this.loadTimer = setTimeout(() => {
+  /**
+   * Unity cannot progress while the page is hidden or unfocused (runInBackground is off), so the deadline counts
+   * active page time only: it pauses with the page and resumes with whatever budget was left, never a fresh one.
+   */
+  private startLoadTimeout(token: number): void {
+    this.clearLoadTimer();
+    this.loadBudgetMs = SCENARIO_LOAD_TIMEOUT_MS;
+    this.unsubscribeActivity = this.activity.subscribe(() => this.syncLoadTimeout(token));
+    this.syncLoadTimeout(token);
+  }
+
+  private syncLoadTimeout(token: number): void {
+    if (this.session.token !== token || this.session.phase !== "loading") return;
+    const active = this.activity.isActive();
+    if (active && this.loadTimer === null) {
+      this.loadBudgetSince = Date.now();
+      this.loadTimer = setTimeout(() => {
+        this.loadTimer = null;
+        if (this.session.token === token && this.session.phase === "loading") this.failLoad();
+      }, this.loadBudgetMs);
+    } else if (!active && this.loadTimer !== null) {
+      clearTimeout(this.loadTimer);
       this.loadTimer = null;
-      if (this.session.token === token && this.session.phase === "loading") this.failLoad();
-    }, SCENARIO_LOAD_TIMEOUT_MS);
+      this.loadBudgetMs = Math.max(0, this.loadBudgetMs - (Date.now() - this.loadBudgetSince));
+    }
   }
 
   private failLoad(): void {
@@ -264,6 +292,8 @@ export class ReconstructionPlayer {
   private clearLoadTimer(): void {
     if (this.loadTimer) clearTimeout(this.loadTimer);
     this.loadTimer = null;
+    this.unsubscribeActivity?.();
+    this.unsubscribeActivity = null;
   }
 
   private clearTransitionTimer(): void {

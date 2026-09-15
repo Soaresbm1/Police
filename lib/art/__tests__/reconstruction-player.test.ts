@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GAP_TRANSITION_MS } from "@/lib/game-engine/reconstruction/reconstruction-presentation";
 import type { ReconstructionScenario } from "@/lib/game-engine/reconstruction/reconstruction-types";
+import type { PageActivityPort } from "../page-activity";
 import { ReconstructionPlayer, SCENARIO_LOAD_TIMEOUT_MS, type HostLifecycleState, type ReconstructionHostPort } from "../reconstruction-player";
 import type { UnityMessage } from "../reconstruction-session";
 
@@ -257,5 +258,202 @@ describe("ReconstructionPlayer — Plus tard… transition", () => {
     const before = host.sent.length;
     player.unmount();
     expect(host.methodsAfter(before)).toEqual([`Pause(${token})`]);
+  });
+});
+
+class FakePageActivity implements PageActivityPort {
+  active = true;
+  private listeners = new Set<() => void>();
+
+  isActive = () => this.active;
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  set(active: boolean) {
+    this.active = active;
+    this.listeners.forEach((listener) => listener());
+  }
+  get listenerCount() {
+    return this.listeners.size;
+  }
+}
+
+describe("ReconstructionPlayer — the load timeout only counts time the page is active", () => {
+  const SECOND = 1000;
+  let host: FakeHost;
+  let page: FakePageActivity;
+  let statuses: string[];
+
+  const mountPlayer = (scenario: ReconstructionScenario = poc) => {
+    const player = new ReconstructionPlayer(scenario, host, page);
+    player.subscribe(() => statuses.push(player.getSnapshot().status));
+    player.mount(container);
+    return player;
+  };
+  const timeouts = () => statuses.filter((status, i) => status === "error" && statuses[i - 1] !== "error").length;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = new FakeHost();
+    host.state = "ready";
+    page = new FakePageActivity();
+    statuses = [];
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("A: 20 s of visible loading without a reply times out", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(SCENARIO_LOAD_TIMEOUT_MS - 1);
+    expect(player.getSnapshot().status).toBe("loading");
+
+    vi.advanceTimersByTime(1);
+    expect(player.getSnapshot()).toMatchObject({ status: "error", errorKind: "load" });
+    expect(timeouts()).toBe(1);
+  });
+
+  it("B: time spent hidden does not count — 10 s visible, 30 s hidden, 9 s visible is still loading", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(10 * SECOND);
+    page.set(false);
+    vi.advanceTimersByTime(30 * SECOND);
+    page.set(true);
+    vi.advanceTimersByTime(9 * SECOND);
+    expect(player.getSnapshot().status).toBe("loading");
+  });
+
+  it("C: the remaining visible budget then expires, exactly once, leaving nothing behind", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(10 * SECOND);
+    page.set(false);
+    vi.advanceTimersByTime(30 * SECOND);
+    page.set(true);
+    vi.advanceTimersByTime(10 * SECOND - 1);
+    expect(player.getSnapshot().status).toBe("loading");
+
+    vi.advanceTimersByTime(1);
+    expect(player.getSnapshot()).toMatchObject({ status: "error", errorKind: "load" });
+
+    page.set(false);
+    page.set(true);
+    vi.advanceTimersByTime(60 * SECOND);
+    expect(timeouts()).toBe(1);
+    expect(page.listenerCount).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("visibility changes never restart the budget", () => {
+    const player = mountPlayer();
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(5 * SECOND);
+      page.set(false);
+      page.set(true);
+    }
+    vi.advanceTimersByTime(5 * SECOND);
+    expect(player.getSnapshot().status).toBe("error");
+    expect(timeouts()).toBe(1);
+  });
+
+  it("a load that starts while the page is inactive waits for it before counting", () => {
+    page.active = false;
+    const player = mountPlayer();
+    vi.advanceTimersByTime(120 * SECOND);
+    expect(player.getSnapshot().status).toBe("loading");
+
+    page.set(true);
+    vi.advanceTimersByTime(SCENARIO_LOAD_TIMEOUT_MS);
+    expect(player.getSnapshot().status).toBe("error");
+  });
+
+  it("D: ready while visible cancels the timeout", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(15 * SECOND);
+    host.emit("ready", host.loadToken());
+    expect(page.listenerCount).toBe(0);
+
+    page.set(false);
+    page.set(true);
+    vi.advanceTimersByTime(60 * SECOND);
+    expect(player.getSnapshot().status).toBe("ready");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("E: closing while hidden leaves no timeout or listener behind", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(5 * SECOND);
+    page.set(false);
+    player.unmount();
+
+    page.set(true);
+    vi.advanceTimersByTime(60 * SECOND);
+    expect(statuses).not.toContain("error");
+    expect(page.listenerCount).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("F: retry starts a fresh 20 s active budget", () => {
+    const player = mountPlayer();
+    vi.advanceTimersByTime(15 * SECOND);
+    page.set(false);
+    host.emit("load_failed", host.loadToken(), "invalid_scenario");
+    expect(page.listenerCount).toBe(0);
+
+    page.set(true);
+    player.retry();
+    expect(player.getSnapshot().status).toBe("loading");
+    expect(page.listenerCount).toBe(1);
+    vi.advanceTimersByTime(SCENARIO_LOAD_TIMEOUT_MS - 1);
+    expect(player.getSnapshot().status).toBe("loading");
+
+    vi.advanceTimersByTime(1);
+    expect(player.getSnapshot()).toMatchObject({ status: "error", errorKind: "load" });
+  });
+
+  it("G: a replaced hidden load can neither time out nor listen on behalf of the next one", () => {
+    const playerA = mountPlayer();
+    vi.advanceTimersByTime(15 * SECOND);
+    page.set(false);
+    playerA.unmount();
+
+    const playerB = new ReconstructionPlayer(other, host, page);
+    playerB.mount(container);
+    expect(page.listenerCount).toBe(1);
+
+    page.set(true);
+    vi.advanceTimersByTime(19 * SECOND);
+    expect(playerB.getSnapshot().status).toBe("loading");
+    expect(playerA.getSnapshot().status).toBe("loading");
+
+    vi.advanceTimersByTime(SECOND);
+    expect(playerB.getSnapshot()).toMatchObject({ status: "error", errorKind: "load" });
+    expect(playerA.getSnapshot().status).toBe("loading");
+    expect(page.listenerCount).toBe(0);
+  });
+
+  it("H: stale ready and error events stay ignored around a timeout and a retry", () => {
+    const player = mountPlayer();
+    const first = host.loadToken();
+    vi.advanceTimersByTime(SCENARIO_LOAD_TIMEOUT_MS);
+
+    const before = host.sent.length;
+    host.emit("ready", first);
+    expect(player.getSnapshot().status).toBe("error");
+    expect(host.sent.length).toBe(before);
+
+    player.retry();
+    const second = host.loadToken();
+    host.emit("load_failed", first, "invalid_scenario");
+    host.emit("ready", first);
+    expect(player.getSnapshot().status).toBe("loading");
+
+    host.emit("ready", second);
+    vi.advanceTimersByTime(60 * SECOND);
+    expect(player.getSnapshot().status).toBe("ready");
+    expect(timeouts()).toBe(1);
   });
 });

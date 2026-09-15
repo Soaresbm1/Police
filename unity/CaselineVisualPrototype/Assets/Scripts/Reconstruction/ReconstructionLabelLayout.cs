@@ -24,6 +24,37 @@ namespace Caseline.Reconstruction
 
         private const int MaxLanes = 8;
 
+        /// <summary>Horizontal room added on each side of a label's measured text.</summary>
+        public const float LabelPaddingX = 4f;
+
+        /// <summary>How far the dark copy drawn under each label is offset, right and down.</summary>
+        public const float ShadowOffset = 1f;
+
+        private const float LaneGap = 2f;
+
+        /// <summary>
+        /// The rect for a role label whose text measures <paramref name="textSize"/>, centred on
+        /// <paramref name="anchorX"/> with its bottom edge at <paramref name="bottomY"/>. IMGUI lays text out in
+        /// whole pixels, so a rect exactly as wide as the fractional measured width (78.34 px for COMPLICE) can come
+        /// out a fraction narrower than the text, which wraps the last letter onto a clipped second line. The width
+        /// is rounded up, padded on both sides and leaves room for the shadow copy; the position is snapped to whole
+        /// pixels so placement is deterministic.
+        /// </summary>
+        public static Rect LabelRect(Vector2 textSize, float anchorX, float bottomY)
+        {
+            var width = Mathf.Ceil(textSize.x) + 2f * LabelPaddingX + ShadowOffset;
+            var height = Mathf.Ceil(textSize.y) + ShadowOffset;
+            return new Rect(Mathf.Round(anchorX - width / 2f), Mathf.Round(bottomY - height), width, height);
+        }
+
+        /// <summary>Vertical step between lanes: one lane always clears the tallest label.</summary>
+        public static float LaneStep(IReadOnlyList<LabelRequest> requests)
+        {
+            var tallest = 0f;
+            foreach (var request in requests) tallest = Mathf.Max(tallest, request.Rect.height);
+            return tallest + LaneGap;
+        }
+
         public static Rect[] Resolve(IReadOnlyList<LabelRequest> requests, float laneStep)
         {
             var order = new List<int>(requests.Count);
