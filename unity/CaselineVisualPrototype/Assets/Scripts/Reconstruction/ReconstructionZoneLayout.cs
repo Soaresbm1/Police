@@ -76,5 +76,37 @@ namespace Caseline.Reconstruction
             }
             return DefaultLayout.TryGetValue(slot, out var fallback) ? fallback : Vector3.zero;
         }
+
+        /// <summary>Fixed lateral standing offsets, in metres, so that two
+        /// actors sharing one slot (which every `talk` and every `attack`
+        /// does by construction — attacker and target are both staged at the
+        /// event's slot) do not render at identical coordinates and merge
+        /// into a single silhouette. Found by U5.2.1's visual QA: before
+        /// this, the attack beat showed one body, not two.
+        ///
+        /// SAME PRESENTATION-ONLY STATUS AS THE SLOT TABLE ABOVE. This is
+        /// not a claim that the people stood one metre apart, or on those
+        /// sides of each other — CaseTruth carries no sub-location spatial
+        /// data at all. It is a fixed, RNG-free staging table whose only
+        /// purpose is that each actor stays separately readable on screen.
+        /// Keyed on the role the scenario already states, so it infers
+        /// nothing the viewer is not already told by the on-screen label.</summary>
+        private static readonly Dictionary<string, float> LateralOffsetByRole = new()
+        {
+            ["culprit"] = -0.55f,
+            ["victim"] = 0.55f,
+            ["accomplice"] = -1.35f,
+            ["unnamed"] = 1.35f,
+        };
+
+        /// <summary>The staging position for one actor at one slot: the
+        /// slot's own coordinate plus that actor's fixed lateral offset.
+        /// Deterministic — same role and slot always give the same point.</summary>
+        public static Vector3 GetActorZonePosition(string environment, string slot, string roleForReconstruction)
+        {
+            var basePosition = GetZonePosition(environment, slot);
+            var offset = roleForReconstruction != null && LateralOffsetByRole.TryGetValue(roleForReconstruction, out var x) ? x : 0f;
+            return basePosition + new Vector3(offset, 0f, 0f);
+        }
     }
 }

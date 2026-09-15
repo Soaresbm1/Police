@@ -177,13 +177,22 @@ namespace Caseline.ReconstructionEditor
             // occupancy ~= actorHeight / (2*distance*tan(FOV/2)), with
             // actorHeight=1.78m (matches CCTVFramingMeasurement's own
             // constant). Overview targets ~13% (within the 12-25% band),
-            // close targets ~29% (within the 20-35% band) — see this
-            // phase's report for the visual-inspection confirmation; no
-            // dedicated measurement tool was built for Reconstruction in
-            // this phase (documented limitation).
+            // close targets ~29% (within the 20-35% band), both measured by
+            // ReconstructionFramingReport (added in U5.2.1).
             var overviewGo = new GameObject("OverviewCamera");
             var overview = overviewGo.AddComponent<Camera>();
-            overview.transform.position = new Vector3(0f, 9f, -13f);
+            // Phase U5.2.1 — U4.3's own measurement tooling found the
+            // original (0,9,-13)/55° overview read at only ~9.2-10.7%
+            // actor occupancy across all 5 environments, under the 12-25%
+            // target floor. Moved 25% closer along the EXACT SAME viewing
+            // ray toward the same ground-plane aim point (~(0,0,-0.13)) —
+            // a pure dolly, so rotation is mathematically unchanged (see
+            // U4.3's own CCTV camera work for why scaling a position along
+            // a ray to a fixed target preserves direction) — verified
+            // empirically afterward with ReconstructionFramingReport, not
+            // assumed from the formula alone: raised the whole band to
+            // ~12.3-14.3%, comfortably inside target with FOV untouched.
+            overview.transform.position = new Vector3(0f, 6.75f, -9.78f);
             overview.transform.rotation = Quaternion.LookRotation(new Vector3(0f, -0.7f, 1f).normalized, Vector3.up);
             overview.fieldOfView = 55f;
             overview.nearClipPlane = 0.1f;
@@ -247,6 +256,21 @@ namespace Caseline.ReconstructionEditor
             // randomness, no wound/blood simulation (req. 13).
             collapse.SetCurve("Hips", typeof(Transform), "localPosition.y", HoldCurve(HipsStandingHeight, 0.22f));
             collapse.SetCurve("Hips", typeof(Transform), "localEulerAngles.x", HoldCurve(0f, 82f));
+
+            // Persist every clip as an asset. Without this the clips exist
+            // only for the lifetime of the building Editor session, the
+            // controller's states serialize with m_Motion: {fileID: 0}, and
+            // the built player animates nothing at all — actors hold the
+            // rig's static bind pose, which happens to resemble Idle, so the
+            // attack beat and the victim's collapse never render. Found by
+            // U5.2.1's visual QA; the EditMode tests could not see it
+            // because they assert which state the timeline selects, never
+            // that the state carries a motion.
+            foreach (var clip in new[] { idle, walk, attackStrike, attackStrangle, collapse })
+            {
+                AssetDatabase.CreateAsset(clip, $"{AnimFolder}/Reconstruction_{clip.name}.anim");
+            }
+            AssetDatabase.SaveAssets();
 
             return (idle, walk, attackStrike, attackStrangle, collapse);
         }

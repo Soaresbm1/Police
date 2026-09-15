@@ -39,6 +39,53 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
+        public void AttackerAndTarget_DuringTheAttackBeat_AreStagedApart_NotMergedIntoOneBody()
+        {
+            var culprit = MakeActor("c", "culprit", 0, 100, (0, "interaction"), (10, "crime_point"));
+            var victim = MakeActor("v", "victim", 0, 100, (0, "interaction"), (10, "crime_point"));
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(10f, "c", "v") };
+
+            var attacker = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 11f);
+            var target = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 11f);
+
+            Assert.IsTrue(attacker.visible && target.visible);
+            Assert.Greater(Vector3.Distance(attacker.position, target.position), 0.5f, "attacker and target must not render at the same point during the attack beat");
+        }
+
+        [Test]
+        public void TwoActorsSharingTheTalkSlot_AreStagedApart()
+        {
+            var culprit = MakeActor("c", "culprit", 0, 100, (0, "interaction"));
+            var victim = MakeActor("v", "victim", 0, 100, (0, "interaction"));
+            var events = new List<ReconstructionEventData>();
+
+            var a = ReconstructionActorTimeline.Evaluate(culprit, events, "corridor", 0f);
+            var b = ReconstructionActorTimeline.Evaluate(victim, events, "corridor", 0f);
+
+            Assert.Greater(Vector3.Distance(a.position, b.position), 0.5f);
+        }
+
+        [Test]
+        public void StagingOffset_IsDeterministic_AndOnlyLateral()
+        {
+            var basePos = ReconstructionZoneLayout.GetZonePosition("street", "crime_point");
+            var first = ReconstructionZoneLayout.GetActorZonePosition("street", "crime_point", "victim");
+            var second = ReconstructionZoneLayout.GetActorZonePosition("street", "crime_point", "victim");
+
+            Assert.AreEqual(first, second, "same role and slot must always stage to the same point");
+            Assert.AreEqual(basePos.y, first.y, "staging offsets never lift an actor off the floor");
+            Assert.AreEqual(basePos.z, first.z, "staging offsets are lateral only");
+        }
+
+        [Test]
+        public void UnknownRole_StagesOnTheSlotItself_NeverThrows()
+        {
+            var slot = ReconstructionZoneLayout.GetZonePosition("shop", "exit");
+            Assert.AreEqual(slot, ReconstructionZoneLayout.GetActorZonePosition("shop", "exit", "some_unmapped_role"));
+            Assert.AreEqual(slot, ReconstructionZoneLayout.GetActorZonePosition("shop", "exit", null));
+        }
+
+        [Test]
         public void SameInputs_ProduceIdenticalPose_RepeatedCalls()
         {
             var actor = MakeActor("a", "culprit", 0, 100, (0, "interaction"), (20, "crime_point"), (60, "exit"));
@@ -107,7 +154,7 @@ namespace Caseline.Reconstruction.Tests
             var events = new List<ReconstructionEventData>();
             var pose = ReconstructionActorTimeline.Evaluate(actor, events, "generic", 0f);
             Assert.IsTrue(pose.visible);
-            Assert.AreEqual(ReconstructionZoneLayout.GetZonePosition("generic", "interaction"), pose.position);
+            Assert.AreEqual(ReconstructionZoneLayout.GetActorZonePosition("generic", "interaction", "culprit"), pose.position);
         }
 
         [Test]

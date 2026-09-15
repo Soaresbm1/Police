@@ -71,7 +71,7 @@ namespace Caseline.Reconstruction
                 {
                     var attackStart = attackEvent.time;
                     var attackEnd = attackStart + AttackBeatSeconds;
-                    var scenePos = ReconstructionZoneLayout.GetZonePosition(environment, attackEvent.locationSlot);
+                    var scenePos = ReconstructionZoneLayout.GetActorZonePosition(environment, attackEvent.locationSlot, actor.roleForReconstruction);
 
                     if (t >= attackStart && t < attackEnd)
                     {
@@ -120,7 +120,7 @@ namespace Caseline.Reconstruction
 
             if (t <= waypoints[0].time)
             {
-                var pos = ReconstructionZoneLayout.GetZonePosition(environment, waypoints[0].slot);
+                var pos = ReconstructionZoneLayout.GetActorZonePosition(environment, waypoints[0].slot, actor.roleForReconstruction);
                 return new ReconstructionActorPose { visible = true, position = pos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
             }
 
@@ -130,8 +130,8 @@ namespace Caseline.Reconstruction
                 var b = waypoints[i + 1];
                 if (t < a.time || t > b.time) continue;
 
-                var posA = ReconstructionZoneLayout.GetZonePosition(environment, a.slot);
-                var posB = ReconstructionZoneLayout.GetZonePosition(environment, b.slot);
+                var posA = ReconstructionZoneLayout.GetActorZonePosition(environment, a.slot, actor.roleForReconstruction);
+                var posB = ReconstructionZoneLayout.GetActorZonePosition(environment, b.slot, actor.roleForReconstruction);
                 if (Mathf.Approximately(a.time, b.time) || posA == posB)
                 {
                     return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
@@ -144,7 +144,7 @@ namespace Caseline.Reconstruction
             }
 
             var last = waypoints[waypoints.Count - 1];
-            var lastPos = ReconstructionZoneLayout.GetZonePosition(environment, last.slot);
+            var lastPos = ReconstructionZoneLayout.GetActorZonePosition(environment, last.slot, actor.roleForReconstruction);
             return new ReconstructionActorPose { visible = true, position = lastPos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
         }
 

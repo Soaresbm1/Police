@@ -39,8 +39,12 @@ namespace Caseline.Reconstruction
             _closeCameraForLabels = close;
         }
 
-        private Camera _overviewCameraForLabels;
-        private Camera _closeCameraForLabels;
+        // Serialized so the Editor-time wiring survives into the player:
+        // without this the references are null at runtime, CurrentActiveCamera()
+        // falls back to a Camera.main that no camera here is tagged as, and the
+        // role labels silently never draw (found by U5.2.1's visual QA).
+        [SerializeField] private Camera _overviewCameraForLabels;
+        [SerializeField] private Camera _closeCameraForLabels;
 
         /// <summary>Whichever of the two fixed cameras is currently active
         /// — same deterministic selection `ReconstructionCameraController`
