@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8765", "--directory", "unity/CaselineVisualPrototype/WebBuild"],
       "port": 8765
+    },
+    {
+      "name": "unity-reconstruction-webgl-qa",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8766", "--directory", "unity/CaselineVisualPrototype/ReconstructionWebBuild"],
+      "port": 8766
     }
   ]
 }

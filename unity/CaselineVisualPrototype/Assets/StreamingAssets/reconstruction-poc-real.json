@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "caseId": "poc-fixture-u5-2",
+  "environment": "generic",
+  "durationSeconds": 40440,
+  "actors": [
+    {
+      "visualId": "actor_1oi9h9r",
+      "roleForReconstruction": "unnamed",
+      "genericAppearance": "workwear_neutral",
+      "spawnTime": 39840,
+      "despawnTime": 40440,
+      "waypoints": [
+        {
+          "time": 39840,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_1qnut80",
+      "roleForReconstruction": "victim",
+      "genericAppearance": "formal_dark",
+      "spawnTime": 0,
+      "despawnTime": 720,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 540,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_rdufnu",
+      "roleForReconstruction": "culprit",
+      "genericAppearance": "workwear_dark",
+      "spawnTime": 0,
+      "despawnTime": 1560,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 540,
+          "slot": "crime_point"
+        },
+        {
+          "time": 1140,
+          "slot": "exit"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "talk",
+      "actorVisualId": "actor_rdufnu",
+      "counterpartyVisualId": "actor_1qnut80",
+      "locationSlot": "interaction"
+    },
+    {
+      "time": 540,
+      "type": "attack",
+      "actorVisualId": "actor_rdufnu",
+      "counterpartyVisualId": "actor_1qnut80",
+      "locationSlot": "crime_point",
+      "safeVisualAction": "attack_strike"
+    },
+    {
+      "time": 1140,
+      "type": "leave_scene",
+      "actorVisualId": "actor_rdufnu",
+      "locationSlot": "exit"
+    },
+    {
+      "time": 39840,
+      "type": "discover",
+      "actorVisualId": "actor_1oi9h9r",
+      "locationSlot": "crime_point"
+    }
+  ]
+}

@@ -40,3 +40,8 @@ WebBuild/
 WebBuildBrotli/
 WebBuildGzip/
 WebBuildRelease/
+
+# Phase U5.2 — standalone Reconstruction POC WebGL, local QA only. Never
+# copied to public/unity/ — there is no production embed for
+# Reconstruction yet.
+ReconstructionWebBuild/

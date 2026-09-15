@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "caseId": "qa-synthetic-shop",
+  "environment": "shop",
+  "durationSeconds": 38,
+  "actors": [
+    { "visualId": "qa_culprit", "roleForReconstruction": "culprit", "genericAppearance": "formal_dark", "spawnTime": 0, "despawnTime": 38, "waypoints": [{ "time": 0, "slot": "interaction" }, { "time": 9, "slot": "crime_point" }, { "time": 18, "slot": "exit" }] },
+    { "visualId": "qa_victim", "roleForReconstruction": "victim", "genericAppearance": "casual_light", "spawnTime": 0, "despawnTime": 13, "waypoints": [{ "time": 0, "slot": "interaction" }, { "time": 9, "slot": "crime_point" }] }
+  ],
+  "events": [
+    { "time": 0, "type": "talk", "actorVisualId": "qa_culprit", "counterpartyVisualId": "qa_victim", "locationSlot": "interaction" },
+    { "time": 9, "type": "attack", "actorVisualId": "qa_culprit", "counterpartyVisualId": "qa_victim", "locationSlot": "crime_point", "safeVisualAction": "attack_strike" },
+    { "time": 18, "type": "leave_scene", "actorVisualId": "qa_culprit", "locationSlot": "exit" }
+  ]
+}

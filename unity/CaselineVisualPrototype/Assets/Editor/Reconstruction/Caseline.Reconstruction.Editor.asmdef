@@ -1,0 +1,20 @@
+{
+    "name": "Caseline.Reconstruction.Editor",
+    "rootNamespace": "",
+    "references": [
+        "Caseline.Reconstruction",
+        "Caseline.CCTV",
+        "Caseline.CCTV.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

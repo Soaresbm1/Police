@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "caseId": "qa-synthetic-generic",
+  "environment": "generic",
+  "durationSeconds": 36,
+  "actors": [
+    { "visualId": "qa_culprit", "roleForReconstruction": "culprit", "genericAppearance": "casual_dark", "spawnTime": 0, "despawnTime": 36, "waypoints": [{ "time": 0, "slot": "interaction" }, { "time": 8, "slot": "crime_point" }, { "time": 16, "slot": "exit" }] },
+    { "visualId": "qa_victim", "roleForReconstruction": "victim", "genericAppearance": "formal_neutral", "spawnTime": 0, "despawnTime": 12, "waypoints": [{ "time": 0, "slot": "interaction" }, { "time": 8, "slot": "crime_point" }] },
+    { "visualId": "qa_accomplice", "roleForReconstruction": "accomplice", "genericAppearance": "workwear_neutral", "spawnTime": 0, "despawnTime": 16, "waypoints": [{ "time": 0, "slot": "entrance" }, { "time": 8, "slot": "interior_center" }, { "time": 16, "slot": "exit" }] }
+  ],
+  "events": [
+    { "time": 0, "type": "talk", "actorVisualId": "qa_culprit", "counterpartyVisualId": "qa_victim", "locationSlot": "interaction" },
+    { "time": 8, "type": "attack", "actorVisualId": "qa_culprit", "counterpartyVisualId": "qa_victim", "locationSlot": "crime_point", "safeVisualAction": "attack_strike" },
+    { "time": 16, "type": "leave_scene", "actorVisualId": "qa_culprit", "locationSlot": "exit" }
+  ]
+}
