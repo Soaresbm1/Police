@@ -47,6 +47,32 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // Phase U5.1 — the crime-reconstruction subsystem's server-only boundary.
+  // reconstruction-projector.ts/-layout.ts/-events.ts all import CaseTruth
+  // (or CaseTruth-adjacent types) and are marked `import "server-only"`,
+  // but that only fails a *build* that actually bundles them into client
+  // code — this rule turns an accidental import of the wrong file into a
+  // lint error immediately, before a build is even attempted. Only
+  // `reconstruction-types.ts` (pure, CaseTruth-free) is meant to ever be
+  // imported from outside this folder.
+  {
+    files: ["**/*.{ts,tsx}"],
+    ignores: ["lib/game-engine/reconstruction/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/reconstruction/reconstruction-projector", "**/reconstruction/reconstruction-layout", "**/reconstruction/reconstruction-events"],
+              message:
+                "Import only lib/game-engine/reconstruction/reconstruction-types.ts outside the reconstruction subsystem itself — reconstruction-projector.ts/-layout.ts/-events.ts are server-only and must never be reachable from client code.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
