@@ -30,7 +30,11 @@ Three tables, all RLS-scoped to `auth.uid()`:
 - **`investigation_sessions`** — the player's one active, resumable case.
   A 1:1 table keyed by `user_id` (a player has at most one active
   investigation at a time, same as the pre-Phase-9 single-cookie-session
-  model). Every jsonb column mirrors a `GameSession` field 1:1 —
+  model). **Security S1:** `seed` holds an AES-256-GCM envelope
+  (`s1e.v1.…`), never the plaintext seed — a player can read this row
+  directly through the REST API, and the seed regenerates the hidden truth.
+  Pre-S1 plaintext rows are upgraded on first load; see `SECURITY.md` and the
+  required `CASELINE_S1_MASTER_SECRET`. Every jsonb column mirrors a `GameSession` field 1:1 —
   `evidence_status`, `lab_queue`, `notes`, `player_timeline`,
   `interrogated`, `mandates`, `board`, `accusation`,
   `crime_scene_inspected_zone_ids` — all player-produced play state, never

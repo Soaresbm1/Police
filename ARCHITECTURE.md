@@ -236,7 +236,11 @@ the final accusation) and is looked up from a cookie
 (`game-session/current.ts`). `CaseTruth` is **not** stored alongside it —
 it's regenerated on every request from `session.seed` via `generateCase()`,
 which is cheap and, by construction, always produces the identical case
-(see "Determinism" above).
+(see "Determinism" above). Because the seed alone regenerates the truth, it
+is a secret while the case is unresolved: it is stored encrypted, only
+decrypted server-side, and never passed to client components, image paths or
+browser storage — the opaque `caseRef` is used there instead (see
+`SECURITY.md`, Security S1).
 
 Gameplay pages are async Server Components that call `getCurrentGame()` and
 then a `player-view.ts` accessor to get a safe projection — e.g.

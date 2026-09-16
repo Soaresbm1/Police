@@ -95,11 +95,14 @@ binary branch is exercised only by tests, not (so far) by the real API.
 `supabase/migrations/0002_generated_assets.sql` adds:
 - `public.generated_assets` — one row per (user, descriptor, generation
   version, provider). Never stores anything from `CaseTruth` (no culprit
-  id, roles, motive, staging) — only `case_seed` + `descriptor_hash`, both
-  already safe to store elsewhere in this schema (`case_seed` is exactly
-  what `investigation_sessions`/`case_history` already persist).
+  id, roles, motive, staging) — only `case_seed` + `descriptor_hash`.
+  **Security S1:** despite its name, `case_seed` must never hold a seed
+  (a seed regenerates the whole hidden truth, and players can read their
+  own rows directly). New rows store the opaque keyed `caseRef`
+  (`cr1_…`); pre-S1 rows are lazily relabeled — see `SECURITY.md`.
 - A private Storage bucket, `generated-art` — the project's first. Objects
-  live at `{user_id}/{case_seed}/{descriptor_hash}.{ext}`; `storage.objects`
+  live at `{user_id}/{caseRef}/{descriptor_hash}.{ext}` (pre-S1 objects under
+  a plaintext seed folder are lazily moved); `storage.objects`
   RLS policies check that the leading path segment equals `auth.uid()`, so
   a guessed/predictable path for another user's asset is rejected at the
   Postgres/Storage layer, not merely hidden.
