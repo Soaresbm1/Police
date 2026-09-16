@@ -1,4 +1,4 @@
-import { createRootRng } from "../random/rng";
+import { createRootRng, isReservedNonSeedToken } from "../random/rng";
 import type { CaseSeed, CaseTruth, Difficulty, Motive } from "../types/case";
 import type { Person, PersonId } from "../types/person";
 import { Timeline } from "../types/timeline";
@@ -56,6 +56,12 @@ export interface GenerateCaseOptions {
 }
 
 export function generateCase(seed: CaseSeed, options: GenerateCaseOptions = {}): CaseTruth {
+  // Security S1: a case reference or an encrypted seed envelope is derived
+  // from a seed but is never one — generating from it would silently build
+  // an unrelated case instead of failing closed.
+  if (isReservedNonSeedToken(seed)) {
+    throw new Error("generateCase: refusing a reserved non-seed token (case reference or encrypted seed)");
+  }
   const difficulty = options.difficulty ?? "investigator";
   const config = DIFFICULTY_CONFIGS[difficulty];
   const rootRng = createRootRng(seed);

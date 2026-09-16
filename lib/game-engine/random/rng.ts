@@ -144,17 +144,68 @@ export class RNG {
 
 const SEED_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-/** Generates a fresh, human-shareable case seed, e.g. "CASE-8J2X91". */
+/** Security S1 — the original 6-character format (`CASE-8J2X91`, ~31 bits).
+ * Still valid forever: every case created before S1 (active or archived)
+ * keeps its seed and regenerates byte-identically. Never generated anew. */
+const LEGACY_CASE_SEED_PATTERN = /^CASE-[0-9A-Z]{6}$/;
+
+/** Security S1 — the format every NEW case uses: 25 uniformly-random
+ * base-36 characters in five groups (`CASE-7Q3K9-ZP0XA-…`). 25 × log2(36)
+ * ≈ 129.25 bits, so the visible-ID brute force that recovers a legacy seed
+ * in minutes (see SECURITY.md) is no longer an exhaustive-search option. */
+const STRONG_CASE_SEED_PATTERN = /^CASE-[0-9A-Z]{5}(?:-[0-9A-Z]{5}){4}$/;
+const STRONG_SEED_GROUPS = 5;
+const STRONG_SEED_GROUP_LENGTH = 5;
+export const STRONG_CASE_SEED_ENTROPY_BITS = STRONG_SEED_GROUPS * STRONG_SEED_GROUP_LENGTH * Math.log2(SEED_ALPHABET.length);
+
+/** Largest multiple of 36 that fits in a byte — bytes at or above it are
+ * rejected so every character is exactly uniform (no modulo bias). */
+const UNBIASED_BYTE_LIMIT = 256 - (256 % SEED_ALPHABET.length);
+
+/** Generates a fresh case seed in the strong S1 format from the platform
+ * CSPRNG (`crypto.getRandomValues`), with rejection sampling so each of the
+ * 25 characters is uniform over the 36-symbol alphabet. */
 export function generateCaseSeed(): string {
-  const bytes = new Uint32Array(6);
-  crypto.getRandomValues(bytes);
-  const code = Array.from(bytes, (b) => SEED_ALPHABET[b % SEED_ALPHABET.length]).join("");
-  return `CASE-${code}`;
+  const needed = STRONG_SEED_GROUPS * STRONG_SEED_GROUP_LENGTH;
+  const chars: string[] = [];
+  const buffer = new Uint8Array(64);
+  while (chars.length < needed) {
+    crypto.getRandomValues(buffer);
+    for (const byte of buffer) {
+      if (byte >= UNBIASED_BYTE_LIMIT) continue;
+      chars.push(SEED_ALPHABET[byte % SEED_ALPHABET.length]);
+      if (chars.length === needed) break;
+    }
+  }
+  const groups: string[] = [];
+  for (let g = 0; g < STRONG_SEED_GROUPS; g++) {
+    groups.push(chars.slice(g * STRONG_SEED_GROUP_LENGTH, (g + 1) * STRONG_SEED_GROUP_LENGTH).join(""));
+  }
+  return `CASE-${groups.join("-")}`;
 }
 
-/** Validates the canonical case seed format. */
+export function isLegacyCaseSeed(seed: string): boolean {
+  return LEGACY_CASE_SEED_PATTERN.test(seed);
+}
+
+export function isStrongCaseSeed(seed: string): boolean {
+  return STRONG_CASE_SEED_PATTERN.test(seed);
+}
+
+/** Validates a canonical case seed — legacy or strong format. */
 export function isValidCaseSeed(seed: string): boolean {
-  return /^CASE-[0-9A-Z]{6}$/.test(seed);
+  return isLegacyCaseSeed(seed) || isStrongCaseSeed(seed);
+}
+
+/** Security S1 — prefixes reserved for server-side tokens that are derived
+ * FROM a seed but are never a seed themselves: `cr<version>_` case
+ * references and `s1e.` encrypted seed envelopes (see lib/security/). */
+const RESERVED_NON_SEED_PATTERN = /^(?:cr\d+_|s1e\.)/;
+
+/** True for a string that must never be treated as seed material — a case
+ * reference or a stored ciphertext handed to generation by mistake. */
+export function isReservedNonSeedToken(value: string): boolean {
+  return RESERVED_NON_SEED_PATTERN.test(value);
 }
 
 /** Creates the root RNG for a given case seed. All case generation must derive from this. */
