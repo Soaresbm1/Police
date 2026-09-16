@@ -2,62 +2,98 @@
 
 ## Objectif
 
-Faire évoluer le système d'art généré (Generated Art) de CASELINE, en production, à travers plusieurs volets :
-- **Phase 5A** (avant ce volet Generated Art) : ajouter une couche d'observation post-crime immuable au moteur d'enquête (fondation pour une future mécanique de surveillance, Phase 5B — non commencée).
-- **Generated Art V1** : auditer puis activer en production les portraits et décors de scène de crime générés (Cloudflare Workers AI), avec repli procédural garanti.
-- **V2C-1** : corriger l'alignement visuel des hotspots de la scène de crime (bug de recadrage `object-cover`) + ancrage sémantique des zones.
-- **V2A** : accélérer la génération (parallélisme borné) et faire apparaître les images automatiquement sans rafraîchissement manuel.
-- **V2B** : créer un pool d'assets réutilisables **par utilisateur** (même portrait/décor réutilisé entre plusieurs affaires si compatible), avec garantie qu'aucune chaîne de réutilisation ne peut se former (source canonique unique).
+Rendre la reconstitution 3D post-enquête (Unity) lisible et juste, phase par phase, sans jamais toucher à la vérité du
+cas :
+
+- **U5.4** (terminé, en Production) : rythme de présentation (« Plus tard… », ~41 s médian au lieu de ~37 min) et un
+  geste abstrait par méthode de crime (7 méthodes).
+- **U5.5** (en cours, en attente d'approbation) : caméras déterministes « action-aware ». Limitation connue de U5.4 :
+  les attaques paraissaient trop petites dans les environnements larges.
+
+La série Generated Art (V1 → V2B) et la Phase 5A sont terminées depuis. Voir GENERATED_ART.md et l'historique git.
 
 ## État actuel
 
-- Tout est **commité et poussé** sur `origin/master`. Arbre de travail propre (`git status` vide).
-- Dernier commit : `161ec99` — *feat: add reusable generated art pool*.
-- Historique des commits de cette série :
-  - `8e2aff6` — Phase 5A (couche d'observation post-crime)
-  - `636051a` — V2C-1 (hotspots)
-  - `00442c6` — V2A (performance)
-  - `161ec99` — V2B (pool réutilisable + canonicalisation)
-- **La migration Supabase `0004_generated_assets_reuse.sql` n'a PAS été appliquée** — l'utilisateur l'appliquera lui-même manuellement. Le code tolère déjà son absence (tout chemin de réutilisation se dégrade proprement vers une génération fraîche si les colonnes n'existent pas encore).
-- 337 tests passent (1 skip pré-existant). Typecheck, lint et build de production sont propres à chaque étape validée.
-- Les deux flags `AUTO_GENERATED_PORTRAITS_ENABLED` / `AUTO_GENERATED_CRIME_SCENES_ENABLED` doivent être positionnés à `true` sur Vercel (Production) pour activer réellement la génération automatique — voir rapport V1 pour les valeurs exactes à définir.
+- **Production / master : `a46d5d6`** (U5.4). Non modifié pendant U5.5.
+- **Branche `unity/reconstruction-action-camera-u5-5`** poussée, **non mergée** :
+  - `93b53de` : feat: add deterministic reconstruction action cameras
+  - `f2e7ad7` : test: validate reconstruction camera framing matrix
+  - `b5e58fc` : chore: refresh shared Unity WebGL build (U5.5)
+  - un commit docs (ce fichier, UNITY_RECONSTRUCTION.md, ARCHITECTURE.md, ROADMAP.md, README.md)
+- **Preview Vercel (U5.5)** : https://police-6hdc661db-soares-2.vercel.app, QA complète faite.
+- **Tests Unity** : 235/235 (reconstruction 163/163, CCTV 72/72).
+- **Tests CASELINE** : 773 réussis, 1 ignoré. Tests TS de reconstruction : 153/153. Typecheck, lint et build propres.
+- **Build Brotli partagée** : 5 250 678 octets (U5.4 : 5 253 827). Hash décodés identiques entre le commit et le Preview.
+- **README.md** : un changement de formatage du tableau « Scripts », antérieur à la session et appartenant à
+  l'utilisateur, reste volontairement **non commité**.
 
-## Fichiers concernés
+## Fichiers concernés (U5.5)
 
-**Phase 5A**
-- `lib/game-engine/types/case.ts`, `lib/game-engine/case-generator/case-truth.ts`
-- `lib/game-engine/simulation/post-crime-observation.ts` (nouveau)
-- Tests : `lib/game-engine/simulation/__tests__/post-crime-observation.test.ts`, `lib/game-engine/case-generator/__tests__/post-crime-isolation.test.ts`
-
-**Generated Art (V1 → V2B)**
-- Pipeline cœur : `lib/art/generation/pipeline.ts`, `asset-store.ts`, `types.ts`, `concurrency.ts` (nouveau), `reusable-descriptor.ts` (nouveau)
-- Déclencheurs automatiques : `lib/art/generation/auto-portrait-trigger.ts`, `auto-scene-trigger.ts`
-- Lecture pour affichage : `lib/art/generation/portrait-lookup.ts`, `scene-lookup.ts`
-- Hotspots scène de crime : `lib/art/crime-scene-layouts.ts`, `lib/art/hotspot-layout.ts` (nouveau), `lib/game-session/crime-scene.ts`
-- UI : `components/investigation/CrimeSceneScreen.tsx`, `ArtRefreshWatcher.tsx` (nouveau), et 8 pages sous `app/investigation/*` + `app/dossiers/[id]/page.tsx`
-- Action serveur : `lib/game-session/actions.ts` (`startNewCase`)
-- Supabase : `lib/supabase/database.types.ts`, migration `supabase/migrations/0004_generated_assets_reuse.sql` (non appliquée)
-- Nombreux fichiers de tests sous `lib/art/generation/__tests__/`, `lib/art/__tests__/`, `lib/game-session/__tests__/`, `components/investigation/__tests__/`
+- Runtime Unity (`unity/CaselineVisualPrototype/Assets/Scripts/Reconstruction/`) :
+  - `ReconstructionCameraPresets.cs` (nouveau) : toutes les valeurs de caméra, en une table
+  - `ReconstructionCameraDirector.cs` (nouveau) : choix du plan et règle de coupe, fonction pure
+  - `ReconstructionCameraController.cs` : applique le plan et le réinitialise à chaque scénario
+  - `ReconstructionSceneController.cs`, `ReconstructionActorTimeline.cs` (`WalkStartTime`)
+  - `ReconstructionEnvironmentController.cs` : piliers du parking déplacés
+  - `ReconstructionFramingMeasurement.cs` : mesure multi-acteurs
+- Éditeur :
+  - `ReconstructionSceneBuilder.cs`, `ReconstructionFramingReport.cs`
+  - `ReconstructionCameraMatrix.cs` (nouveau) : matrice 7 × 5 et baseline U5.4 figée
+  - `ReconstructionCameraQaStills.cs` (nouveau) : planches contact rendues par Unity
+- Tests :
+  - `ReconstructionCameraControllerTests.cs`
+  - `ReconstructionActionCameraMatrixTests.cs` (nouveau)
+  - `ReconstructionFramingMeasurementTests.cs`
+  - `CaselineEmbedModeControllerTests.cs`
+- Scènes : `CaselineEmbed.unity`, `ReconstructionPrototype.unity`. Build : `public/unity/cctv/Build/*`.
+- Aucun fichier TypeScript, Supabase, projecteur, schéma de scénario ou CCTV n'a été modifié.
 
 ## Ce qui a changé
 
-- **Phase 5A** : nouvelle couche `postCrimeMovements` sur `CaseTruth` — activités ordinaires post-crime (réveil/travail/sommeil), RNG isolé, aucune influence sur la vérité de l'enquête, la solvabilité ou les preuves.
-- **V1** : flags d'activation vérifiés, sélection automatique des portraits (victime + suspects + témoins importants, plafonnée), audit complet des points d'affichage — tout était déjà branché correctement.
-- **V2C-1** : ajout d'ancres sémantiques (`SemanticAnchor`) sur chaque zone de décor, et transform mathématique `object-cover` pour garantir l'alignement des hotspots sur mobile (4:5) et desktop (16:9).
-- **V2A** : génération de portraits en parallélisme borné (3 simultanés), garde-fou contre le dépassement de `MAX_ASSETS_PER_CASE` sous concurrence, génération portrait+scène concurrente, et `ArtRefreshWatcher` (rafraîchissement client borné à 2 tentatives) pour faire apparaître les images sans action du joueur.
-- **V2B** : descripteurs "réutilisables" grossiers (traits visuels sans identité), clé de réutilisation par utilisateur, réutilisation same-user avec exclusion stricte de la même affaire, puis **durcissement** : `source_asset_id` garantit qu'une ligne réutilisée ne peut jamais elle-même redevenir une source (pas de chaîne A→B→C).
+- **4 plans fixes** :
+  - Overview : inchangé depuis U5.2.
+  - Interaction : discussion, empoisonnement, surdose mise en scène, mise en scène.
+  - PhysicalAttack : coup, arme blanche, strangulation, arme à feu, poussée.
+  - Discovery : le corps et la personne qui le découvre.
+
+  Chaque plan est visé sur le slot sémantique de l'événement dans l'environnement courant, avec une distance, un
+  angle et un FOV fixes. La caméra se place du côté éclairé : silhouettes éclairées sur murs éclairés, et le geste va
+  vers l'autre personne à l'écran.
+- **Entrées du choix** : uniquement l'environnement, le type d'événement, `safeVisualAction`, le slot, les horodatages
+  et le début de la marche de départ. Aucun rôle, identité, mobile ou preuve, aucun hasard, aucun champ ajouté au
+  scénario.
+- **Règle de coupe** :
+  - discussion et découverte coupent à l'horodatage ;
+  - attaque et mise en scène coupent 1 s avant, pour que le cadre soit posé avant le geste ;
+  - le départ coupe au début de la marche vers la sortie ;
+  - jamais pendant le geste ou la chute précédents.
+- **Mesures au moment de l'attaque** (projection, pas de captures d'écran) :
+  - la plus petite silhouette passe de 19,9–25,2 % à 30,5 % de la hauteur d'image ;
+  - les deux ensemble passent de 21,5–28,0 % à 34,3 % ;
+  - la largeur de décor visible passe de 10,6–13,7 m à 8,7 m.
+- **Matrice** : 945 échantillons synthétiques et 63 échantillons sur les fixtures réelles, 0 échec. Contrôles : rognage,
+  occultation, étiquettes, séparation des silhouettes, corps entier à la découverte.
+- **Parking** : piliers déplacés au fond. Au premier plan, l'un masquait une tierce personne pendant la discussion (déjà
+  vrai en U5.4).
 
 ## Ce qui a été tenté
 
-- Mesures de performance contrôlées (fournisseur simulé) pour objectiver les gains : ~10,5s → ~3,0s pour un lot de 6 portraits + 1 scène (V2A) ; réutilisation = 0 appel Cloudflare vs ~1,5s pour une génération réelle (V2B).
-- Un vrai appel Cloudflare a été testé une fois (script jetable, supprimé après usage) pour valider les identifiants et la latence réelle (~1,3–1,7s/image).
-- Piste de backfill pour les lignes générées avant V2B (`reuse_key = NULL`) explicitement écartée (risque de migration silencieuse à grande échelle) — décision : aucun backfill, le pool se construit uniquement à partir de la nouvelle activité.
-- Audit du cycle de vie du stockage (suppression) : confirmé qu'aucun code de suppression n'existe actuellement pour `generated_assets` — invariant documenté pour le futur plutôt qu'implémenté.
+- Première version côté ouest (comme U5.4) : conforme numériquement. Mais les planches contact montraient des
+  silhouettes sombres sur le mur non éclairé, et des gestes pointant à l'opposé de la victime. Inversion vers l'est
+  retenue après comparaison visuelle.
+- La caméra d'attaque plus serrée filmait l'auteur marchant vers l'objectif en quittant la scène. Corrigé en faisant
+  commencer le plan de départ au début de la marche.
+- Dans le panneau navigateur intégré, le rendu tourne à ~2 fps : la durée réelle de lecture n'y est pas mesurable. Le
+  rythme a donc été vérifié par la séquence des « Plus tard… » (5 s, 665,5 s, 845 s, identiques à U5.4) et par les
+  tests. Les planches visuelles exactes sont rendues directement par Unity (`ReconstructionCameraQaStills`).
 
 ## Prochaines étapes
 
-1. **Appliquer manuellement** la migration `supabase/migrations/0004_generated_assets_reuse.sql` en production (action explicitement laissée à l'utilisateur).
-2. Sur Vercel : positionner `AUTO_GENERATED_PORTRAITS_ENABLED=true` et `AUTO_GENERATED_CRIME_SCENES_ENABLED=true` (Production), puis redéployer.
-3. Valider en conditions réelles : créer une nouvelle affaire et vérifier l'apparition des portraits/décor, le repli procédural, et l'absence de doublons visuels dans une même affaire.
-4. Décision à prendre plus tard (non commencée) : **Phase 5B** (mécanique de surveillance) et **V2C-2** (ajustement des hotspots par analyse visuelle) — les deux ont été explicitement mises en attente jusqu'à nouvel ordre.
-5. Surveiller le taux de réutilisation réel une fois en production (les chiffres actuels sont des projections, pas des mesures réelles).
+1. **Attendre l'approbation explicite** de U5.5 avant tout merge sur master ou tout déploiement Production.
+2. Si approuvé : merge (fast-forward si possible), attente du déploiement Production, vérification Brotli, smoke test
+   Production (comme pour U5.4).
+3. Limites restantes, non traitées volontairement :
+   - acteurs toujours côte à côte, face à +z ;
+   - bâtiment décoratif de la rue parfois derrière le plan de discussion ;
+   - redémarrage Unity (~5 s) en passant de Caméras au rapport.
+4. Ne pas commencer U5.6, ni refonte d'environnements ou de modèles d'acteurs, sans nouvelle demande.

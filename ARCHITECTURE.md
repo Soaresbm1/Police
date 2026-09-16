@@ -60,6 +60,9 @@ lib/
     validator/              validateCase() and the solvability scorer
     narrative/              NarrativeProvider abstraction (template impl today)
     portraits/              PersonPortraitService (deterministic avatar today)
+    reconstruction/         CaseTruth → truth-safe ReconstructionScenario for the
+                            post-resolution 3D reconstruction, plus its
+                            presentation-only pacing — see UNITY_RECONSTRUCTION.md
     __tests__/              Vitest suite for the engine
   game-session/            Play-state layer: sits between the engine and the
                             UI, still server-only but *not* part of the engine
@@ -162,10 +165,24 @@ components/investigation/  Small presentational + the handful of Client
                             by a thin server page; AppFrame/RecordTable/
                             PersonPicker are the shared chrome
 
+  reconstruction/           ReconstructionLauncher/ReconstructionViewer: the
+                            post-resolution 3D reconstruction player (Unity
+                            handshake, semantic timeline, mobile fallback)
+
 components/auth/           AuthForm.tsx — email/password sign in/up,
                             calling Supabase directly from the client
                             (every other read/write in the game goes
                             through a Server Action instead)
+
+unity/CaselineVisualPrototype/  The Unity project behind the shared WebGL
+                            runtime: CCTV (Assets/Scripts/CCTV) and the crime
+                            reconstruction (Assets/Scripts/Reconstruction),
+                            in separate assemblies, both in the
+                            CaselineEmbed scene. It never sees CaseTruth, only
+                            the JSON the server projects — see
+                            UNITY_RECONSTRUCTION.md
+
+public/unity/cctv/Build/    The committed Brotli release build of that runtime
 ```
 
 ## Data flow (case generation)

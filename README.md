@@ -11,7 +11,9 @@ player has found; it is fixed at generation time.
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the project layout,
 [GAME_ENGINE.md](./GAME_ENGINE.md) for how the simulation works,
 [CASE_GENERATION.md](./CASE_GENERATION.md) for the generation pipeline in
-detail, and [ROADMAP.md](./ROADMAP.md) for what's built vs. planned.
+detail, [UNITY_RECONSTRUCTION.md](./UNITY_RECONSTRUCTION.md) for the Unity CCTV
+renderer and the post-case 3D crime reconstruction, and
+[ROADMAP.md](./ROADMAP.md) for what's built vs. planned.
 
 ## Getting started
 
@@ -30,9 +32,10 @@ you've found (optionally pinning people/evidence/locations onto the
 accusation to the prosecutor and see the full reveal report.
 
 Session state (which evidence you've found, your notes, your own timeline
-hypotheses) currently lives in server memory for the life of the dev
-process — see `ROADMAP.md`'s "known limitation" note; there's no account
-system yet, so there's nothing to sign in with.
+hypotheses) is stored in Supabase when it is configured, with accounts and
+row-level security — see [DATABASE.md](./DATABASE.md). Without Supabase it
+falls back to server memory for the life of the dev process — see
+`ROADMAP.md`'s "known limitation" note.
 
 ## Case Lab (development only)
 
@@ -58,6 +61,11 @@ Phases 1–8 of the roadmap are implemented and tested: the core simulation
 engine, evidence and witness/knowledge engines, validator, Case Lab, and a
 fully playable gameplay loop (dashboard, case briefing, suspects/witnesses,
 evidence + lab, chronology, relations, interrogation, accusation, and the
-graded reveal report). Persistence (accounts, save/resume across server
-restarts) and further UI polish (a freeform evidence board, sound, career
-mode) are not yet built — see [ROADMAP.md](./ROADMAP.md).
+graded reveal report), persistence with accounts (Phase 9), and the polish
+layer built since: evidence board, sound and ambience, career ranks, generated
+art. What remains is listed in [ROADMAP.md](./ROADMAP.md).
+
+A shared Unity WebGL runtime renders CCTV footage during the investigation
+and, once a case is resolved, a truth-safe 3D reconstruction of what really
+happened (desktop only; the written reconstruction stays available on mobile).
+See [UNITY_RECONSTRUCTION.md](./UNITY_RECONSTRUCTION.md).

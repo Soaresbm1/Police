@@ -362,6 +362,33 @@ test). `npm run typecheck`, `npm run lint`, and `npm run build` all clean.
     rendered stacked together instead of as distinct steps. Fixed by
     bumping `STEP_COUNT` to 5.
 
+- **Unity CCTV (U1–U4.3).** A Unity WebGL renderer for camera footage,
+  fed by the same deterministic CCTV data as the 2D player, embedded behind
+  `NEXT_PUBLIC_UNITY_CCTV_ENABLED` with a persistent canvas host, Brotli
+  delivery and a 2D fallback on mobile or when WebGL is unavailable.
+  Actor/environment quality and camera framing were tuned by projection
+  measurement. See [UNITY_RECONSTRUCTION.md](./UNITY_RECONSTRUCTION.md).
+
+- **Unity crime reconstruction (U5.0–U5.5).** After a case is resolved,
+  the player can watch a 3D reconstruction of what really happened, in the
+  same shared Unity runtime as CCTV:
+  - U5.1: a truth-safe `ReconstructionScenario` projection
+    (`lib/game-engine/reconstruction/`) with no seed, PersonId, motive or
+    evidence in it, released only after an accusation or for an archived
+    case's owner.
+  - U5.2–U5.2.2: deterministic actor poses, environments, framing guards
+    and body continuity through the discovery.
+  - U5.3–U5.3.2: the player-facing viewer (load handshake, semantic
+    timeline with non-overlapping labels, close/reopen, CCTV interop,
+    mobile fallback).
+  - U5.4: presentation-only pacing ("Plus tard…" skips, ~41 s median
+    instead of ~37 min) and one abstract beat per crime method.
+  - U5.5: deterministic action-aware cameras (overview, interaction,
+    physical attack, discovery) chosen only from presentation data, with a
+    7-method × 5-environment framing matrix. At the attack beat the smaller
+    of the two figures went from 19.9–25.2% of the frame height to 30.5%.
+  Details in [UNITY_RECONSTRUCTION.md](./UNITY_RECONSTRUCTION.md).
+
 ## Known limitation: session storage falls back to in-memory
 
 Without Supabase configured, `lib/game-session/persistence/memory-store.ts`
