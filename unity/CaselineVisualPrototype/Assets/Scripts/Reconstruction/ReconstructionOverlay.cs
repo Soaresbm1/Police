@@ -11,7 +11,10 @@ namespace Caseline.Reconstruction
     /// </summary>
     public class ReconstructionOverlay : MonoBehaviour
     {
-        private const string Disclaimer = "Reconstitution visuelle — positions spatiales indicatives";
+        // U5.4 §28 — a plain hyphen, not the em dash the HTML disclaimer uses: the runtime's default font has no
+        // U+2014 glyph, so the em dash rendered as a blank gap in the built player. Same wording, same meaning,
+        // no font asset added for one character.
+        private const string Disclaimer = "Reconstitution visuelle - positions spatiales indicatives";
 
         [SerializeField] private ReconstructionPlaybackController playback;
         [SerializeField] private ReconstructionSceneController scene;
@@ -206,6 +209,14 @@ namespace Caseline.Reconstruction
             }
             x += 56f;
 
+            // Dev-only jumps (U5.4 §26): a real projected case puts its attack a few hundred seconds into a
+            // scenario that runs for hours, which the scrubber cannot land on. Never drawn in the embed.
+            if (GUI.Button(new Rect(x, y, 70f, h), "→AGR", buttonStyle)) SeekToEvent("attack");
+            x += 76f;
+
+            if (GUI.Button(new Rect(x, y, 70f, h), "→MES", buttonStyle)) SeekToEvent("stage_scene");
+            x += 76f;
+
             var speedLabel = playback != null ? $"{playback.PlaybackSpeed:0.0}×" : "1.0×";
             if (GUI.Button(new Rect(x, y, w, h), speedLabel, buttonStyle))
             {
@@ -216,6 +227,20 @@ namespace Caseline.Reconstruction
                         : 1f;
                     playback.SetSpeed(next);
                 }
+            }
+        }
+
+        /// <summary>Dev HUD helper: pause on the first event of a type, a moment into its beat.</summary>
+        private void SeekToEvent(string eventType)
+        {
+            var scenario = playback != null ? playback.Scenario : null;
+            if (scenario == null) return;
+            foreach (var e in scenario.events)
+            {
+                if (e.type != eventType) continue;
+                playback.Pause();
+                playback.Seek(e.time + 0.6f);
+                return;
             }
         }
 

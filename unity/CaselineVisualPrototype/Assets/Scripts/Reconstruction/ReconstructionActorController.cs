@@ -22,6 +22,11 @@ namespace Caseline.Reconstruction
         private static readonly int WalkState = Animator.StringToHash("Walk");
         private static readonly int AttackStrikeState = Animator.StringToHash("AttackStrike");
         private static readonly int AttackStrangleState = Animator.StringToHash("AttackStrangle");
+        private static readonly int AttackStabState = Animator.StringToHash("AttackStab");
+        private static readonly int AttackFirearmState = Animator.StringToHash("AttackFirearm");
+        private static readonly int AttackPushState = Animator.StringToHash("AttackPush");
+        private static readonly int NeutralInteractionState = Animator.StringToHash("NeutralInteraction");
+        private static readonly int ManipulateSceneState = Animator.StringToHash("ManipulateScene");
         private static readonly int CollapseState = Animator.StringToHash("Collapse");
 
         public ReconstructionActorData Data { get; private set; }
@@ -82,6 +87,11 @@ namespace Caseline.Reconstruction
                 "Walk" => WalkState,
                 "AttackStrike" => AttackStrikeState,
                 "AttackStrangle" => AttackStrangleState,
+                "AttackStab" => AttackStabState,
+                "AttackFirearm" => AttackFirearmState,
+                "AttackPush" => AttackPushState,
+                "NeutralInteraction" => NeutralInteractionState,
+                "ManipulateScene" => ManipulateSceneState,
                 "Collapse" => CollapseState,
                 _ => IdleState,
             };

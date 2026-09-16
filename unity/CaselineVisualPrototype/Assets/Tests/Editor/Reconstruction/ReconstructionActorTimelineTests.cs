@@ -258,14 +258,116 @@ namespace Caseline.Reconstruction.Tests
             Assert.AreEqual("Walk", afterBeat.animState, "culprit resumes ordinary waypoint travel toward exit after the beat");
         }
 
-        [Test]
-        public void UnrecognizedSafeVisualAction_FallsBackToAttackStrike_NeverThrows()
+        [TestCase("attack_strike", "AttackStrike")]
+        [TestCase("attack_strangle", "AttackStrangle")]
+        [TestCase("attack_stab", "AttackStab")]
+        [TestCase("attack_firearm", "AttackFirearm")]
+        [TestCase("attack_push", "AttackPush")]
+        [TestCase("attack_administer_substance", "NeutralInteraction")]
+        public void EverySafeVisualAction_ShowsItsOwnBeat(string safeVisualAction, string expectedState)
         {
             var culprit = MakeActor("culprit", "culprit", 0f, 40f, (0, "crime_point"));
-            var events = new List<ReconstructionEventData> { MakeAttackEvent(0f, "culprit", "victim", "attack_firearm") };
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(0f, "culprit", "victim", safeVisualAction) };
+
+            var pose = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 0.5f);
+            Assert.AreEqual(expectedState, pose.animState);
+            Assert.AreEqual(expectedState, ReconstructionActorTimeline.AnimStateForSafeVisualAction(safeVisualAction));
+        }
+
+        [Test]
+        public void UnknownSafeVisualAction_FallsBackToTheNeutralBeat_NeverToABlow()
+        {
+            var culprit = MakeActor("culprit", "culprit", 0f, 40f, (0, "crime_point"));
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(0f, "culprit", "victim", "attack_some_future_method") };
             ReconstructionActorPose pose = default;
             Assert.DoesNotThrow(() => pose = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 0.5f));
-            Assert.AreEqual("AttackStrike", pose.animState);
+            Assert.AreEqual("NeutralInteraction", pose.animState, "an action this build does not know must never be shown as a physical attack");
+        }
+
+        [Test]
+        public void EveryAttackBeat_IsShownExactlyOnce_AndOnlyToTheAttacker()
+        {
+            foreach (var action in new[] { "attack_strike", "attack_strangle", "attack_stab", "attack_firearm", "attack_push", "attack_administer_substance" })
+            {
+                var culprit = MakeActor("culprit", "culprit", 0f, 200f, (0, "crime_point"));
+                var victim = MakeActor("victim", "victim", 0f, 200f, (0, "crime_point"));
+                var events = new List<ReconstructionEventData> { MakeAttackEvent(10f, "culprit", "victim", action) };
+                var expected = ReconstructionActorTimeline.AnimStateForSafeVisualAction(action);
+
+                Assert.AreEqual("Idle", ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 9.9f).animState, action);
+                Assert.AreEqual(expected, ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 10.5f).animState, action);
+                Assert.AreEqual("Idle", ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 10f + ReconstructionActorTimeline.AttackBeatSeconds + 0.1f).animState, action);
+                Assert.AreEqual("Idle", ReconstructionActorTimeline.Evaluate(victim, events, "generic", 10.5f).animState, $"{action}: no invented struggle");
+            }
+        }
+
+        [Test]
+        public void StagingEvent_ShowsOneGenericManipulationBeat_ForItsOwnActorOnly()
+        {
+            var culprit = MakeActor("culprit", "culprit", 0f, 200f, (0, "crime_point"));
+            var other = MakeActor("other", "unnamed", 0f, 200f, (0, "crime_point"));
+            var staging = new ReconstructionEventData
+            {
+                time = 40f,
+                type = "stage_scene",
+                actorVisualId = "culprit",
+                locationSlot = "crime_point",
+                safeVisualAction = "manipulate_scene",
+            };
+            var events = new List<ReconstructionEventData> { MakeAttackEvent(10f, "culprit", "victim"), staging };
+
+            Assert.AreEqual("ManipulateScene", ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 40.5f).animState);
+            Assert.AreEqual("Idle", ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 40f + ReconstructionActorTimeline.StageBeatSeconds + 0.1f).animState);
+            Assert.AreEqual("Idle", ReconstructionActorTimeline.Evaluate(other, events, "generic", 40.5f).animState, "staging is never acted out by anyone else");
+        }
+
+        [Test]
+        public void ALongLeg_WaitsAtThePreviousSlot_ThenWalksItsLastSeconds_ArrivingExactlyOnTime()
+        {
+            var culprit = MakeActor("culprit", "culprit", 0f, 900f, (0, "interaction"), (600, "crime_point"));
+            var events = new List<ReconstructionEventData>();
+
+            var early = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 100f);
+            var justBeforeWalk = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 600f - ReconstructionActorTimeline.MaxWalkSeconds - 1f);
+            var walking = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 600f - 2f);
+            var arrived = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 600f);
+
+            Assert.AreEqual("Idle", early.animState, "an actor waits where truth last placed them instead of crawling across the scene");
+            Assert.AreEqual(early.position, justBeforeWalk.position);
+            Assert.AreEqual("Walk", walking.animState);
+            Assert.AreNotEqual(early.position, arrived.position);
+            Assert.AreEqual(ReconstructionZoneLayout.GetActorZonePosition("generic", "crime_point", "culprit"), arrived.position);
+        }
+
+        [Test]
+        public void ShortLegs_StillWalkTheWholeInterval()
+        {
+            var culprit = MakeActor("culprit", "culprit", 0f, 900f, (0, "interaction"), (4, "crime_point"));
+            var walking = ReconstructionActorTimeline.Evaluate(culprit, new List<ReconstructionEventData>(), "generic", 2f);
+            Assert.AreEqual("Walk", walking.animState);
+        }
+
+        [Test]
+        public void NewBeats_AreDeterministic_ForwardAndBackward_AtEverySpeed()
+        {
+            var culprit = MakeActor("culprit", "culprit", 0f, 200f, (0, "interaction"), (60, "crime_point"), (120, "exit"));
+            var events = new List<ReconstructionEventData>
+            {
+                MakeAttackEvent(60f, "culprit", "victim", "attack_stab"),
+                new ReconstructionEventData { time = 90f, type = "stage_scene", actorVisualId = "culprit", locationSlot = "crime_point", safeVisualAction = "manipulate_scene" },
+            };
+            var times = new[] { 0f, 30f, 55f, 60.5f, 62.5f, 90.5f, 100f, 119f, 150f };
+
+            var forward = new List<ReconstructionActorPose>();
+            foreach (var t in times) forward.Add(ReconstructionActorTimeline.Evaluate(culprit, events, "generic", t));
+
+            for (var i = times.Length - 1; i >= 0; i--)
+            {
+                var again = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", times[i]);
+                Assert.AreEqual(forward[i].animState, again.animState, $"t={times[i]}");
+                Assert.AreEqual(forward[i].position, again.position, $"t={times[i]}");
+                Assert.AreEqual(forward[i].normalizedTime, again.normalizedTime, $"t={times[i]}");
+            }
         }
     }
 }

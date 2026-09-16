@@ -22,6 +22,10 @@ namespace Caseline.Reconstruction
         public const float OverviewFieldOfView = 55f;
 
         // U5.2.1's frontal close camera yawed 30° about the crime-area pivot (0, 0.65, 0.91) toward the attacker's side, same distance and pitch.
+        // U5.4 §21 — left where U5.2.2 measured it. Pulling it 2.5 m closer along its own axis made the attack
+        // beats read better but clipped the unnamed placement at the street crime point, which the framing guard
+        // caught: one camera that frames every reachable placement in all five environments beats a nearer one
+        // that loses an actor, and no method gets an angle of its own.
         public static readonly Vector3 ClosePosition = new(-3.71f, 2.5f, -5.51f);
         public static readonly Vector3 CloseDirection = new Vector3(3.71f, -1.85f, 6.42f).normalized;
         public const float CloseFieldOfView = 50f;

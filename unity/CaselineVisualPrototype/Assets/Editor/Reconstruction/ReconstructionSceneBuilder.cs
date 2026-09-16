@@ -117,16 +117,41 @@ namespace Caseline.ReconstructionEditor
                 Debug.LogError("[Reconstruction] WireQaSwitcher: scene is missing required components — run Build Reconstruction Prototype Scene first.");
                 return;
             }
+            // The method fixtures are REAL PROJECTED cases (one generated case per CrimeMethod, exported by
+            // lib/game-engine/reconstruction/__tests__/export-method-fixtures.ts); the environment fixtures are
+            // synthetic QA scenes. Dev-scene only — the player-facing embed never reads StreamingAssets.
             var files = new[]
             {
                 "reconstruction-poc-real.json",
+                "reconstruction-method-blunt-force.json",
+                "reconstruction-method-stabbing.json",
+                "reconstruction-method-strangulation.json",
+                "reconstruction-method-firearm.json",
+                "reconstruction-method-fall-push.json",
+                "reconstruction-method-poisoning.json",
+                "reconstruction-method-staged-overdose.json",
                 "reconstruction-qa-corridor.json",
                 "reconstruction-qa-parking.json",
                 "reconstruction-qa-shop.json",
                 "reconstruction-qa-street.json",
                 "reconstruction-qa-generic.json",
             };
-            var labels = new[] { "A: CAS REEL", "B: CORRIDOR", "C: PARKING", "D: SHOP", "E: STREET", "F: GENERIC" };
+            var labels = new[]
+            {
+                "A: CAS REEL",
+                "1: COUPS",
+                "2: ARME BLANCHE",
+                "3: STRANGULATION",
+                "4: ARME A FEU",
+                "5: POUSSEE",
+                "6: SUBSTANCE",
+                "7: SURDOSE",
+                "B: CORRIDOR",
+                "C: PARKING",
+                "D: SHOP",
+                "E: STREET",
+                "F: GENERIC",
+            };
             overlay.SetScenarioSwitcher(sceneController, playbackController, files, labels);
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -179,8 +204,7 @@ namespace Caseline.ReconstructionEditor
             if (cctvController != null) Object.DestroyImmediate(cctvController);
 
             var animator = actor.GetComponent<Animator>();
-            var (idle, walk, attackStrike, attackStrangle, collapse) = BuildAnimationClips();
-            animator.runtimeAnimatorController = BuildAnimatorController(idle, walk, attackStrike, attackStrangle, collapse);
+            animator.runtimeAnimatorController = BuildAnimatorController(BuildAnimationClips());
 
             actor.AddComponent<ReconstructionActorController>().SetAnimator(animator);
             return actor;
@@ -208,7 +232,13 @@ namespace Caseline.ReconstructionEditor
             lightGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
         }
 
-        private static (AnimationClip idle, AnimationClip walk, AnimationClip attackStrike, AnimationClip attackStrangle, AnimationClip collapse) BuildAnimationClips()
+        private const string RightUpperArm = "Hips/Spine/Chest/RightUpperArm";
+        private const string LeftUpperArm = "Hips/Spine/Chest/LeftUpperArm";
+        private const string RightLowerArm = "Hips/Spine/Chest/RightUpperArm/RightLowerArm";
+        private const string LeftLowerArm = "Hips/Spine/Chest/LeftUpperArm/LeftLowerArm";
+        private const string Chest = "Hips/Spine/Chest";
+
+        private static System.Collections.Generic.List<(string state, AnimationClip clip)> BuildAnimationClips()
         {
             var idle = new AnimationClip { legacy = false, name = "Idle" };
             idle.SetCurve("Hips", typeof(Transform), "localPosition.y", AnimationCurve.Constant(0, 1, HipsStandingHeight));
@@ -237,6 +267,43 @@ namespace Caseline.ReconstructionEditor
             attackStrangle.SetCurve("Hips/Spine/Chest/LeftUpperArm", typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -95f));
             attackStrangle.SetCurve("Hips/Spine/Chest/RightUpperArm", typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -95f));
 
+            // U5.4 §13 — a short forward thrust of the striking arm, elbow straightening. One beat, no weapon
+            // model, no wound, no repeat: it says "a thrusting attack", never where or with what.
+            var attackStab = new AnimationClip { legacy = false, name = "AttackStab" };
+            attackStab.SetCurve(RightUpperArm, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, -58f, 6f));
+            attackStab.SetCurve(RightLowerArm, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, -30f, 6f));
+            attackStab.SetCurve(Chest, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, 14f, 6f));
+
+            // U5.4 §14 — both arms raised and held toward the victim, elbows straight. No projectile, no muzzle
+            // flash, no casing, no firearm model: the pose alone carries "a shot was fired at range".
+            var attackFirearm = new AnimationClip { legacy = false, name = "AttackFirearm" };
+            attackFirearm.SetCurve(RightUpperArm, typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -88f));
+            attackFirearm.SetCurve(LeftUpperArm, typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -80f));
+            attackFirearm.SetCurve(RightLowerArm, typeof(Transform), "localEulerAngles.x", HoldCurve(0f, 6f));
+            attackFirearm.SetCurve(LeftLowerArm, typeof(Transform), "localEulerAngles.x", HoldCurve(0f, 10f));
+
+            // U5.4 §15 — both arms extended in one shove. The victim's existing collapse follows; nothing here
+            // implies a staircase, balcony, window or any drop CaseTruth does not record.
+            var attackPush = new AnimationClip { legacy = false, name = "AttackPush" };
+            attackPush.SetCurve(RightUpperArm, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, -72f, 5f));
+            attackPush.SetCurve(LeftUpperArm, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, -72f, 5f));
+            attackPush.SetCurve(Chest, typeof(Transform), "localEulerAngles.x", BeatCurve(0f, 10f, 5f));
+
+            // U5.4 §16/§17 — the neutral interaction used for poisoning and staged overdose alike: one hand
+            // extended toward the victim and held. CaseTruth has no structured field for the delivery (drink,
+            // food, injection), so nothing is held, offered or injected; the written reconstruction carries the
+            // detail the animation must not claim. Also the fallback for any action this build does not know.
+            var neutralInteraction = new AnimationClip { legacy = false, name = "NeutralInteraction" };
+            neutralInteraction.SetCurve(RightUpperArm, typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -52f));
+            neutralInteraction.SetCurve(RightLowerArm, typeof(Transform), "localEulerAngles.x", HoldCurve(0f, -18f));
+
+            // U5.4 §18 — a generic "handling something at the scene" crouch for stage_scene. No burglary,
+            // suicide or accident is acted out: CaseTruth's staging description stays in text.
+            var manipulateScene = new AnimationClip { legacy = false, name = "ManipulateScene" };
+            manipulateScene.SetCurve("Hips", typeof(Transform), "localPosition.y", HoldCurve(HipsStandingHeight, 0.68f));
+            manipulateScene.SetCurve(Chest, typeof(Transform), "localEulerAngles.x", HoldCurve(0f, 26f));
+            manipulateScene.SetCurve(RightUpperArm, typeof(Transform), "localEulerAngles.x", HoldCurve(4f, -38f));
+
             var collapse = new AnimationClip { legacy = false, name = "Collapse" };
             // Controlled, deterministic fall to a lying pose — no ragdoll
             // randomness, no wound/blood simulation (req. 13).
@@ -252,13 +319,27 @@ namespace Caseline.ReconstructionEditor
             // U5.2.1's visual QA; the EditMode tests could not see it
             // because they assert which state the timeline selects, never
             // that the state carries a motion.
-            foreach (var clip in new[] { idle, walk, attackStrike, attackStrangle, collapse })
+            var clips = new System.Collections.Generic.List<(string state, AnimationClip clip)>
             {
-                AssetDatabase.CreateAsset(clip, $"{AnimFolder}/Reconstruction_{clip.name}.anim");
+                ("Idle", idle),
+                ("Walk", walk),
+                ("AttackStrike", attackStrike),
+                ("AttackStrangle", attackStrangle),
+                ("AttackStab", attackStab),
+                ("AttackFirearm", attackFirearm),
+                ("AttackPush", attackPush),
+                ("NeutralInteraction", neutralInteraction),
+                ("ManipulateScene", manipulateScene),
+                ("Collapse", collapse),
+            };
+            // CreateAsset renames the object to the file name, so the animator state name is carried separately.
+            foreach (var (state, clip) in clips)
+            {
+                AssetDatabase.CreateAsset(clip, $"{AnimFolder}/Reconstruction_{state}.anim");
             }
             AssetDatabase.SaveAssets();
 
-            return (idle, walk, attackStrike, attackStrangle, collapse);
+            return clips;
         }
 
         private static AnimationCurve SineCurve(float amplitudeDeg, float phase)
@@ -303,32 +384,21 @@ namespace Caseline.ReconstructionEditor
             return curve;
         }
 
-        private static AnimatorController BuildAnimatorController(AnimationClip idle, AnimationClip walk, AnimationClip attackStrike, AnimationClip attackStrangle, AnimationClip collapse)
+        /// <summary>One animator state per persisted clip, named after it. Every state carries a real Motion —
+        /// see ReconstructionAnimatorAssetTests for why that is a guarded invariant and not a detail.</summary>
+        private static AnimatorController BuildAnimatorController(System.Collections.Generic.List<(string state, AnimationClip clip)> clips)
         {
             var controller = AnimatorController.CreateAnimatorControllerAtPath($"{AnimFolder}/Reconstruction_Actor.controller");
             var stateMachine = controller.layers[0].stateMachine;
 
-            var idleState = stateMachine.AddState("Idle");
-            idleState.motion = idle;
-            idleState.writeDefaultValues = true;
+            foreach (var (stateName, clip) in clips)
+            {
+                var state = stateMachine.AddState(stateName);
+                state.motion = clip;
+                state.writeDefaultValues = true;
+                if (stateName == "Idle") stateMachine.defaultState = state;
+            }
 
-            var walkState = stateMachine.AddState("Walk");
-            walkState.motion = walk;
-            walkState.writeDefaultValues = true;
-
-            var strikeState = stateMachine.AddState("AttackStrike");
-            strikeState.motion = attackStrike;
-            strikeState.writeDefaultValues = true;
-
-            var strangleState = stateMachine.AddState("AttackStrangle");
-            strangleState.motion = attackStrangle;
-            strangleState.writeDefaultValues = true;
-
-            var collapseState = stateMachine.AddState("Collapse");
-            collapseState.motion = collapse;
-            collapseState.writeDefaultValues = true;
-
-            stateMachine.defaultState = idleState;
             return controller;
         }
 

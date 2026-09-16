@@ -17,7 +17,10 @@ namespace Caseline.Reconstruction.Tests
     {
         private const string ControllerPath = "Assets/Animations/Reconstruction/Reconstruction_Actor.controller";
 
-        private static readonly string[] ExpectedStates = { "Idle", "Walk", "AttackStrike", "AttackStrangle", "Collapse" };
+        private static readonly string[] ExpectedStates =
+        {
+            "Idle", "Walk", "AttackStrike", "AttackStrangle", "AttackStab", "AttackFirearm", "AttackPush", "NeutralInteraction", "ManipulateScene", "Collapse",
+        };
 
         [Test]
         public void EveryAnimatorState_HasA_PersistedMotion()

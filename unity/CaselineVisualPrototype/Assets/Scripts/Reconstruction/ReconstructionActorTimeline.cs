@@ -44,6 +44,19 @@ namespace Caseline.Reconstruction
         /// ends — a controlled, deterministic fall, not a ragdoll.</summary>
         public const float CollapseTransitionSeconds = 1.5f;
 
+        /// <summary>How long the staging beat is shown — one generic manipulation gesture, never a
+        /// reconstruction of what was actually moved (U5.4 §18).</summary>
+        public const float StageBeatSeconds = 2f;
+
+        /// <summary>
+        /// Longest a leg between two slots is walked for. The walk sits at the END of the leg's truth interval,
+        /// arriving exactly at the recorded waypoint time, and the actor waits at the previous slot until then.
+        /// Truth records where someone was at each anchored event, never that they crossed the scene at a crawl:
+        /// interpolating a ten-minute interval as one continuous walk was a presentation artefact (U5.4 §2).
+        /// Mirrors MAX_WALK_SECONDS in reconstruction-presentation.ts.
+        /// </summary>
+        public const float MaxWalkSeconds = 8f;
+
         private const float WalkCycleHz = 1.2f;
 
         public static ReconstructionActorPose Evaluate(ReconstructionActorData actor, IReadOnlyList<ReconstructionEventData> allEvents, string environment, float t)
@@ -110,6 +123,24 @@ namespace Caseline.Reconstruction
                 }
             }
 
+            // A staging beat, only ever for the actor the projector anchored it to (U5.4 §18): one generic
+            // manipulation gesture at the recorded slot, never a reenactment of what was moved or staged.
+            for (var i = 0; i < allEvents.Count; i++)
+            {
+                var staging = allEvents[i];
+                if (staging.type != "stage_scene" || staging.actorVisualId != actor.visualId) continue;
+                if (t < staging.time || t >= staging.time + StageBeatSeconds) continue;
+                return new ReconstructionActorPose
+                {
+                    visible = true,
+                    position = ReconstructionZoneLayout.GetActorZonePosition(environment, staging.locationSlot, actor.roleForReconstruction),
+                    facing = Vector3.forward,
+                    isWalking = false,
+                    animState = "ManipulateScene",
+                    normalizedTime = Mathf.Clamp01((t - staging.time) / StageBeatSeconds),
+                };
+            }
+
             return EvaluateWaypoints(actor, environment, t);
         }
 
@@ -137,7 +168,14 @@ namespace Caseline.Reconstruction
                     return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
                 }
 
-                var segT = Mathf.Clamp01((t - a.time) / (b.time - a.time));
+                // Wait at the previous slot, then walk the last MaxWalkSeconds of the leg, arriving exactly on time.
+                var walkStart = b.time - Mathf.Min(b.time - a.time, MaxWalkSeconds);
+                if (t <= walkStart)
+                {
+                    return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+                }
+
+                var segT = Mathf.Clamp01((t - walkStart) / (b.time - walkStart));
                 var pos = Vector3.Lerp(posA, posB, segT);
                 var dir = (posB - posA).normalized;
                 return new ReconstructionActorPose { visible = true, position = pos, facing = dir, isWalking = true, animState = "Walk", normalizedTime = walkPhase };
@@ -148,12 +186,25 @@ namespace Caseline.Reconstruction
             return new ReconstructionActorPose { visible = true, position = lastPos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
         }
 
-        /// <summary>Only the two POC-scope methods (req. 12) get a distinct
-        /// pose; any other/future `safeVisualAction` conservatively falls
-        /// back to the strike beat rather than inventing a new one.</summary>
-        private static string AnimStateForSafeVisualAction(string safeVisualAction)
+        /// <summary>
+        /// One pose per safe visual action the projector can emit (U5.4 §9–§17). Each is a single deterministic
+        /// beat that shows the KIND of action CaseTruth records and nothing more: no weapon model, no wound, no
+        /// repeat, no projectile. `attack_administer_substance` (poisoning and staged overdose alike) maps to a
+        /// deliberately neutral interaction, because CaseTruth has no structured field for how a substance was
+        /// given — a drink, food or syringe would all be invented. An unknown action falls back to that same
+        /// neutral beat rather than to a blow, so a future action can never be mistaken for a physical attack.
+        /// </summary>
+        public static string AnimStateForSafeVisualAction(string safeVisualAction)
         {
-            return safeVisualAction == "attack_strangle" ? "AttackStrangle" : "AttackStrike";
+            switch (safeVisualAction)
+            {
+                case "attack_strike": return "AttackStrike";
+                case "attack_strangle": return "AttackStrangle";
+                case "attack_stab": return "AttackStab";
+                case "attack_firearm": return "AttackFirearm";
+                case "attack_push": return "AttackPush";
+                default: return "NeutralInteraction";
+            }
         }
     }
 }
