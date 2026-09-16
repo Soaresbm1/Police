@@ -2,8 +2,15 @@ import type { Difficulty } from "@/lib/game-engine/types/case";
 import type { LabJob, PlayerTimelineEntry, MandateRecord, SurveillanceRecord, BoardState, Accusation, GameSession } from "../types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/lib/supabase/database.types";
+import { isLegacyCaseSeed } from "@/lib/game-engine/random/rng";
+import { getS1Keys, S1ConfigError, type S1Keys } from "@/lib/security/s1-keys";
+import { resolveStoredSessionSeed, sealSessionSeed, SeedEnvelopeError, type ResolvedStoredSeed } from "@/lib/security/seed-envelope";
+import { computeCaseRef } from "@/lib/security/case-ref";
+import * as generatedAssetStore from "@/lib/art/generation/asset-store";
+import { migrateLegacyCaseArt } from "@/lib/art/generation/legacy-case-migration";
 import { applyCaseToCareer } from "../career";
 import { normalizeHintState } from "../hints";
+import { rememberStoredSeed, storedSeedForSave, upgradeLegacySessionSeed, type SessionSeedColumnOps } from "./session-seed";
 import type { CaseHistoryEntry, PlayerProfile, PlayerSettings, SessionStore } from "./types";
 
 /** jsonb columns round-trip through `Json` — every read needs a two-step
@@ -13,14 +20,87 @@ function fromJson<T>(value: Json): T {
   return value as unknown as T;
 }
 
+type ServerSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+/** Security S1 — logs a fixed reason code only: never a seed, envelope,
+ * key, user id or storage path. */
+function logS1Failure(context: string, err: unknown): void {
+  const code = err instanceof S1ConfigError || err instanceof SeedEnvelopeError ? err.code : "UNEXPECTED";
+  console.error(`[CASELINE] [S1] ${context}: ${code}`);
+}
+
+function sealForWrite(session: GameSession, userId: string): string {
+  try {
+    return storedSeedForSave(session, userId, getS1Keys());
+  } catch (err) {
+    logS1Failure("refusing to persist session seed", err);
+    throw err;
+  }
+}
+
+function sessionSeedColumnOps(supabase: ServerSupabaseClient): SessionSeedColumnOps {
+  return {
+    async compareAndSwapSeed(userId, expected, next) {
+      const { data, error } = await supabase
+        .from("investigation_sessions")
+        .update({ seed: next })
+        .eq("user_id", userId)
+        .eq("seed", expected)
+        .select("user_id");
+      if (error) throw new Error("seed compare-and-swap failed");
+      return (data ?? []).length === 1;
+    },
+    async readStoredSeed(userId) {
+      const { data, error } = await supabase.from("investigation_sessions").select("seed").eq("user_id", userId).maybeSingle();
+      if (error) throw new Error("stored seed read failed");
+      return data?.seed ?? null;
+    },
+  };
+}
+
+/** Legacy Generated Art migration runs at most once concurrently per case
+ * in this process, and is skipped for the rest of the process's life once a
+ * pass leaves nothing behind. Keyed by caseRef, never by the seed. */
+const artMigrationInFlight = new Map<string, Promise<void>>();
+const artMigrationComplete = new Set<string>();
+
+async function migrateLegacyArtOnce(userId: string, legacySeed: string, keys: S1Keys): Promise<void> {
+  const caseRef = computeCaseRef(legacySeed, keys);
+  const key = `${userId}:${caseRef}`;
+  if (artMigrationComplete.has(key)) return;
+  let pending = artMigrationInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const result = await migrateLegacyCaseArt(generatedAssetStore, userId, legacySeed, caseRef);
+        if (result.failedRows === 0) artMigrationComplete.add(key);
+        if (result.rows > 0) {
+          console.log(
+            `[CASELINE] [S1] legacy art migration ${caseRef}: rows=${result.rows}, moved=${result.movedObjects}, relabeled=${result.relabeledRows}, failed=${result.failedRows}.`,
+          );
+        }
+      } catch {
+        console.warn(`[CASELINE] [S1] legacy art migration ${caseRef} deferred (will retry on next load).`);
+      } finally {
+        artMigrationInFlight.delete(key);
+      }
+    })();
+    artMigrationInFlight.set(key, pending);
+  }
+  await pending;
+}
+
 export type SessionRow = Database["public"]["Tables"]["investigation_sessions"]["Row"];
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type HistoryRow = Database["public"]["Tables"]["case_history"]["Row"];
 
-export function rowToSession(row: SessionRow): GameSession {
+/** `seed` is the LOGICAL seed. It defaults to resolving the stored column
+ * (decrypting an S1 envelope for `row.user_id`, or accepting a legacy
+ * plaintext value) and throws rather than ever passing ciphertext through. */
+export function rowToSession(row: SessionRow, seed: string = resolveStoredSessionSeed(row.seed, row.user_id).seed): GameSession {
   return {
     id: row.user_id,
-    seed: row.seed,
+    seed,
     difficulty: row.difficulty as Difficulty,
     createdAt: new Date(row.created_at).getTime(),
     currentTime: row.current_time_minutes,
@@ -54,11 +134,17 @@ export function rowToSession(row: SessionRow): GameSession {
 }
 
 /** Exported for the persistence round-trip tests (req. 6) — every other
- * caller stays internal to this file. */
-export function sessionToRow(userId: string, session: GameSession): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
+ * caller stays internal to this file. Security S1: `storedSeed` is what
+ * lands in the `seed` column and is always an `s1e.v1.…` envelope — by
+ * default a fresh seal of `session.seed` bound to `userId`. */
+export function sessionToRow(
+  userId: string,
+  session: GameSession,
+  storedSeed: string = sealSessionSeed(session.seed, userId),
+): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
   return {
     user_id: userId,
-    seed: session.seed,
+    seed: storedSeed,
     difficulty: session.difficulty,
     current_time_minutes: session.currentTime,
     evidence_status: session.evidenceStatus as unknown as Json,
@@ -121,11 +207,41 @@ export class SupabaseSessionStore implements SessionStore {
     return createServerSupabaseClient();
   }
 
+  /**
+   * Security S1: the stored seed is decrypted here and only here. A
+   * legacy plaintext row is upgraded in place (seed column only) on this
+   * first authenticated load, and a legacy case's Generated Art is moved off
+   * its plaintext-seed paths. Missing/invalid key material or an envelope
+   * that fails to authenticate throws — never `null`, which callers would
+   * show as "no investigation".
+   */
   async getActiveSession(userId: string): Promise<GameSession | null> {
     const supabase = await this.client();
     const { data, error } = await supabase.from("investigation_sessions").select("*").eq("user_id", userId).maybeSingle();
     if (error) throw new Error(`Supabase getActiveSession failed: ${error.message}`);
-    return data ? rowToSession(data) : null;
+    if (!data) return null;
+
+    let keys: S1Keys;
+    let resolved: ResolvedStoredSeed;
+    try {
+      keys = getS1Keys();
+      resolved = resolveStoredSessionSeed(data.seed, userId, keys);
+    } catch (err) {
+      logS1Failure("active session unreadable", err);
+      throw err;
+    }
+
+    const session = rowToSession(data, resolved.seed);
+    let stored = data.seed;
+    if (resolved.kind === "legacy_plaintext") {
+      const upgrade = await upgradeLegacySessionSeed(sessionSeedColumnOps(supabase), userId, resolved.seed, keys);
+      if (upgrade.outcome === "not_upgraded") console.warn("[CASELINE] [S1] legacy session seed upgrade deferred (will retry on next load/save).");
+      stored = upgrade.stored;
+    }
+    rememberStoredSeed(session, stored);
+
+    if (isLegacyCaseSeed(resolved.seed)) await migrateLegacyArtOnce(userId, resolved.seed, keys);
+    return session;
   }
 
   async createSession(userId: string, seed: string, difficulty: Difficulty, crimeTimestamp: number): Promise<GameSession> {
@@ -151,18 +267,22 @@ export class SupabaseSessionStore implements SessionStore {
       hintState: { progress: {}, history: [], totalHintsUsed: 0 },
       lastActionMessage: null,
     };
+    // Sealed before any network call: without S1 key material this throws
+    // and nothing is written — never a plaintext fallback for a new case.
+    const storedSeed = sealForWrite(session, userId);
     const supabase = await this.client();
     // A player can only ever have one active investigation — replace
     // rather than error if one somehow still exists (e.g. an abandoned
     // case that was never explicitly ended).
-    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session), { onConflict: "user_id" });
+    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session, storedSeed), { onConflict: "user_id" });
     if (error) throw new Error(`Supabase createSession failed: ${error.message}`);
     return session;
   }
 
   async saveSession(userId: string, session: GameSession): Promise<void> {
+    const storedSeed = sealForWrite(session, userId);
     const supabase = await this.client();
-    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session), { onConflict: "user_id" });
+    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session, storedSeed), { onConflict: "user_id" });
     if (error) throw new Error(`Supabase saveSession failed: ${error.message}`);
   }
 
