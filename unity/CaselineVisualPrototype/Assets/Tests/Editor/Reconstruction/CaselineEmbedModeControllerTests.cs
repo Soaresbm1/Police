@@ -123,6 +123,43 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
+        public void ReconstructionShots_NeverTouchTheCctvCamera_AndLeaveNoShotBehindWhenCctvReturns()
+        {
+            var cctvCamera = Make("CCTVCamera", cctvRoot.transform).AddComponent<Camera>();
+            var cctvPosition = new Vector3(1.25f, 4.5f, -6.75f);
+            var cctvRotation = Quaternion.Euler(32f, 12f, 0f);
+            cctvCamera.transform.SetPositionAndRotation(cctvPosition, cctvRotation);
+            cctvCamera.fieldOfView = 60f;
+
+            var rig = Make("ReconstructionCameraRig", reconstructionRoot.transform);
+            var overview = Make("OverviewCamera", rig.transform).AddComponent<Camera>();
+            var action = Make("CloseCamera", rig.transform).AddComponent<Camera>();
+            var cameras = rig.AddComponent<ReconstructionCameraController>();
+            cameras.Configure(overview, action);
+            scene.Configure(null, environment.GetComponent<ReconstructionEnvironmentController>(), cameras, null, null, null, null, null);
+
+            mode.ActivateReconstruction(string.Empty);
+            LoadReadyScenario(7);
+            playback.Seek(50.5f);
+            Assert.AreEqual(ReconstructionCameraMode.PhysicalAttack, cameras.CurrentShot!.Value.Mode, "precondition: the attack shot is on screen");
+            Assert.IsTrue(action.gameObject.activeInHierarchy);
+
+            mode.ActivateCctv(string.Empty);
+
+            Assert.IsTrue(cctvCamera.gameObject.activeInHierarchy);
+            Assert.AreEqual(cctvPosition, cctvCamera.transform.position);
+            Assert.AreEqual(cctvRotation, cctvCamera.transform.rotation);
+            Assert.AreEqual(60f, cctvCamera.fieldOfView);
+            Assert.IsFalse(action.gameObject.activeInHierarchy, "no reconstruction camera renders in CCTV mode");
+            Assert.IsFalse(overview.gameObject.activeInHierarchy);
+            Assert.IsNull(cameras.CurrentShot, "nothing of the reconstruction's shot carries over");
+
+            mode.ActivateReconstruction(string.Empty);
+            LoadReadyScenario(8);
+            Assert.AreEqual(ReconstructionCameraMode.Interaction, cameras.CurrentShot!.Value.Mode, "a fresh load starts from its own first shot");
+        }
+
+        [Test]
         public void ClearScenario_RemovesEnvironmentGeometry()
         {
             Make("Floor", environment.transform);

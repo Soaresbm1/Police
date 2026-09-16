@@ -215,8 +215,9 @@ namespace Caseline.ReconstructionEditor
             var overview = new GameObject("OverviewCamera").AddComponent<Camera>();
             ReconstructionCameraController.ApplyOverviewSpec(overview);
 
+            // The action camera: ReconstructionCameraController places it at the selected preset on every cut.
             var close = new GameObject("CloseCamera").AddComponent<Camera>();
-            ReconstructionCameraController.ApplyCloseSpec(close);
+            ReconstructionCameraController.ApplyShot(close, ReconstructionCameraPresets.Shot("generic", ReconstructionCameraMode.PhysicalAttack, "crime_point"));
             close.gameObject.SetActive(false); // overview is the default; ReconstructionCameraController switches deterministically
 
             return (overview, close);

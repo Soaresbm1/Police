@@ -85,6 +85,7 @@ namespace Caseline.Reconstruction
         public void ApplyScenario(ReconstructionScenarioData data)
         {
             _scenario = data;
+            if (cameraController != null) cameraController.ResetShot();
 
             foreach (var actor in _spawnedActors)
             {
@@ -136,6 +137,7 @@ namespace Caseline.Reconstruction
             }
 
             _scenario = null;
+            if (cameraController != null) cameraController.ResetShot();
         }
 
         private static void DestroyObject(GameObject target)

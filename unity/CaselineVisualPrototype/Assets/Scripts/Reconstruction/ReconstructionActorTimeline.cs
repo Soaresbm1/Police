@@ -169,7 +169,7 @@ namespace Caseline.Reconstruction
                 }
 
                 // Wait at the previous slot, then walk the last MaxWalkSeconds of the leg, arriving exactly on time.
-                var walkStart = b.time - Mathf.Min(b.time - a.time, MaxWalkSeconds);
+                var walkStart = LegWalkStart(a, b);
                 if (t <= walkStart)
                 {
                     return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
@@ -184,6 +184,26 @@ namespace Caseline.Reconstruction
             var last = waypoints[waypoints.Count - 1];
             var lastPos = ReconstructionZoneLayout.GetActorZonePosition(environment, last.slot, actor.roleForReconstruction);
             return new ReconstructionActorPose { visible = true, position = lastPos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+        }
+
+        private static float LegWalkStart(ReconstructionWaypointData a, ReconstructionWaypointData b) => b.time - Mathf.Min(b.time - a.time, MaxWalkSeconds);
+
+        /// <summary>When the walk that brings `actor` to its waypoint at `arrivalTime` begins, by the same rule pose
+        /// evaluation applies; `arrivalTime` itself when no walk leads there (a first waypoint, a leg that stays on
+        /// one spot, or no waypoint at that time).</summary>
+        public static float WalkStartTime(ReconstructionActorData actor, string environment, float arrivalTime)
+        {
+            var waypoints = actor.waypoints;
+            for (var i = 1; i < waypoints.Count; i++)
+            {
+                var a = waypoints[i - 1];
+                var b = waypoints[i];
+                if (b.time != arrivalTime) continue;
+                var posA = ReconstructionZoneLayout.GetActorZonePosition(environment, a.slot, actor.roleForReconstruction);
+                var posB = ReconstructionZoneLayout.GetActorZonePosition(environment, b.slot, actor.roleForReconstruction);
+                return Mathf.Approximately(a.time, b.time) || posA == posB ? arrivalTime : LegWalkStart(a, b);
+            }
+            return arrivalTime;
         }
 
         /// <summary>

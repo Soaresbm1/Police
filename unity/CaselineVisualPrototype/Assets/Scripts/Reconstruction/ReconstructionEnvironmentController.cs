@@ -108,13 +108,15 @@ namespace Caseline.Reconstruction
             foreach (var bounds in PropBounds(environment)) AddBox("EnvironmentProp", bounds, mat);
         }
 
-        // Scenery yields to semantic slots: the shop counter and generic partition sit behind every slot, off all camera sightlines and walking paths.
+        // Scenery yields to semantic slots: the shop counter, generic partition and parking pillars sit behind every slot, off all camera sightlines and walking paths.
+        // U5.5 — the parking pillars stood in the foreground at z = -3, where one hid a third person at the talk and would have stood beside the
+        // attack camera's lens. Moved to the back row: still a parking structure, never between a camera and anyone.
         private static Bounds[] PropBounds(string environment) => environment switch
         {
             "parking" => new[]
             {
-                new Bounds(new Vector3(-3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)), // pillar
-                new Bounds(new Vector3(3f, 1.5f, -3f), new Vector3(0.4f, 3f, 0.4f)), // pillar
+                new Bounds(new Vector3(-4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
+                new Bounds(new Vector3(4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
             },
             "shop" => new[] { new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)) }, // counter
             "corridor" => new[] { new Bounds(new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)) }, // doorway frame hint

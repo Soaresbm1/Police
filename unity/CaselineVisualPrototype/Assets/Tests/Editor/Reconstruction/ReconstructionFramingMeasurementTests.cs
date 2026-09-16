@@ -19,15 +19,6 @@ namespace Caseline.Reconstruction.Tests
             return cam;
         }
 
-        private static (Camera overview, Camera close) MakeSceneCameras()
-        {
-            var overview = new GameObject("TestOverview").AddComponent<Camera>();
-            ReconstructionCameraController.ApplyOverviewSpec(overview);
-            var close = new GameObject("TestClose").AddComponent<Camera>();
-            ReconstructionCameraController.ApplyCloseSpec(close);
-            return (overview, close);
-        }
-
         [Test]
         public void VerticalOccupancy_IsDeterministic_SameCameraAndActor()
         {
@@ -117,9 +108,9 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
-        public void EveryReachableActorPlacement_InAllFiveEnvironments_IsFramedAndUnoccluded()
+        public void EveryReachableActorPlacement_InAllFiveEnvironments_IsFramedAndUnoccluded_InEveryShotThatCanShowIt()
         {
-            var (overview, close) = MakeSceneCameras();
+            var camera = ReconstructionFramingReport.MakeMeasurementCamera("TestShotCamera");
             try
             {
                 foreach (var env in ReconstructionFramingReport.Environments)
@@ -130,11 +121,12 @@ namespace Caseline.Reconstruction.Tests
                         foreach (var role in roles)
                         {
                             var pos = ReconstructionZoneLayout.GetActorZonePosition(env, slot, role);
-                            foreach (var cam in ReconstructionFramingReport.CamerasThatMustSee(slot, role, overview, close))
+                            foreach (var shot in ReconstructionFramingReport.ShotsThatMustSee(env, slot, role))
                             {
-                                var label = $"{env}/{slot}/{role}/{(cam == close ? "close" : "overview")}";
-                                Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(cam, pos), $"{label} clipped");
-                                Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(cam.transform.position, pos, occluders), $"{label} occluded by scenery");
+                                ReconstructionFramingReport.Place(camera, shot);
+                                var label = $"{env}/{slot}/{role}/{shot.Mode}";
+                                Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(camera, pos), $"{label} clipped");
+                                Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(camera.transform.position, pos, occluders), $"{label} occluded by scenery");
                             }
                         }
                     }
@@ -142,38 +134,44 @@ namespace Caseline.Reconstruction.Tests
             }
             finally
             {
-                Object.DestroyImmediate(overview.gameObject);
-                Object.DestroyImmediate(close.gameObject);
+                Object.DestroyImmediate(camera.gameObject);
             }
         }
 
         [Test]
-        public void GenericCrimePoint_IsVisibleFromBothCameras()
+        public void GenericCrimePoint_IsVisibleFromEveryShotThatFramesIt()
         {
-            var (overview, close) = MakeSceneCameras();
+            var camera = ReconstructionFramingReport.MakeMeasurementCamera("TestShotCamera");
             try
             {
                 var occluders = ReconstructionEnvironmentController.OccluderBounds("generic");
                 var crimePoint = ReconstructionZoneLayout.GetZonePosition("generic", "crime_point");
-                foreach (var cam in new[] { overview, close })
+                foreach (var shot in ReconstructionFramingReport.ShotsThatMustSee("generic", "crime_point", "victim"))
                 {
-                    Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(cam, crimePoint));
-                    Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(cam.transform.position, crimePoint, occluders));
+                    ReconstructionFramingReport.Place(camera, shot);
+                    Assert.IsFalse(ReconstructionFramingMeasurement.IsClipped(camera, crimePoint), shot.Mode.ToString());
+                    Assert.AreEqual(0, ReconstructionFramingMeasurement.OccludedSampleCount(camera.transform.position, crimePoint, occluders), shot.Mode.ToString());
                 }
             }
             finally
             {
-                Object.DestroyImmediate(overview.gameObject);
-                Object.DestroyImmediate(close.gameObject);
+                Object.DestroyImmediate(camera.gameObject);
             }
         }
 
         [Test]
-        public void CloseCamera_LooksAcrossTheAttack_NotAlongTheActorsForwardAxis()
+        public void SlotShots_LookAcrossTheBeat_NotAlongTheActorsForwardAxis()
         {
-            var horizontal = new Vector3(ReconstructionCameraController.CloseDirection.x, 0f, ReconstructionCameraController.CloseDirection.z);
-            var yaw = Vector3.Angle(Vector3.forward, horizontal);
-            Assert.That(yaw, Is.InRange(20f, 40f), "a modest off-axis yaw, so a forward strike is not foreshortened along the view direction");
+            foreach (var env in ReconstructionFramingReport.Environments)
+            {
+                foreach (var mode in new[] { ReconstructionCameraMode.Interaction, ReconstructionCameraMode.PhysicalAttack, ReconstructionCameraMode.Discovery })
+                {
+                    var shot = ReconstructionCameraPresets.Shot(env, mode, "crime_point");
+                    var direction = shot.Rotation * Vector3.forward;
+                    var yaw = Vector3.Angle(Vector3.forward, new Vector3(direction.x, 0f, direction.z));
+                    Assert.That(yaw, Is.InRange(20f, 40f), $"{env}/{mode}: a modest off-axis yaw, so a forward beat is not foreshortened along the view direction");
+                }
+            }
         }
     }
 }
