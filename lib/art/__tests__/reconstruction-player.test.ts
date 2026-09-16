@@ -95,12 +95,16 @@ describe("ReconstructionPlayer — load handshake and races", () => {
     player.mount(container);
     const token = host.loadToken();
 
-    player.seekToTruth(560);
+    player.seekToTruth(540); // the attack: a moment the presentation plays, so the seek lands on it unchanged
     expect(host.sent.some((m) => m.method === "Seek")).toBe(false);
 
     const before = host.sent.length;
     host.emit("ready", token, "40440");
-    expect(host.methodsAfter(before)).toEqual([`SetHoldPoints(${token}:1560)`, `SetSpeed(${token}:1)`, `Play(${token})`, `Seek(${token}:560)`]);
+    const sent = host.sent.slice(before);
+    expect(sent.map((m) => m.method)).toEqual(["SetHoldPoints", "SetSpeed", "Play", "Seek"]);
+    expect(sent.every((m) => m.value.startsWith(`${token}`) || m.value === `${token}`)).toBe(true);
+    expect(sent[0].value.slice(`${token}:`.length).split(",").map(Number)).toEqual(player.timeline.holdPoints);
+    expect(sent[3].value).toBe(`${token}:540`);
     expect(player.getSnapshot().status).toBe("ready");
   });
 
@@ -214,11 +218,13 @@ describe("ReconstructionPlayer — Plus tard… transition", () => {
     vi.useRealTimers();
   });
 
-  it("holds on the transition, then seeks straight to the discovery's truth time and resumes", () => {
-    host.emit("time", token, "1560|0");
+  it("holds on the transition, then seeks straight to the next moment that shows something and resumes", () => {
+    const hold = player.timeline.holdPoints[0];
+    const landsOn = player.timeline.segments.find((s) => s.kind === "gap" && s.truthStart === hold)!.truthEnd;
+    host.emit("time", token, `${hold}|0`);
     const before = host.sent.length;
-    host.emit("hold", token, "1560");
-    expect(player.getSnapshot()).toMatchObject({ transitioning: true, truthTime: 1560 });
+    host.emit("hold", token, String(hold));
+    expect(player.getSnapshot()).toMatchObject({ transitioning: true, truthTime: hold });
 
     player.togglePlay();
     player.seekToTruth(0);
@@ -226,22 +232,23 @@ describe("ReconstructionPlayer — Plus tard… transition", () => {
     expect(host.sent.length).toBe(before);
 
     vi.advanceTimersByTime(1);
-    expect(host.methodsAfter(before)).toEqual([`Seek(${token}:39840)`, `Play(${token})`]);
-    expect(player.getSnapshot()).toMatchObject({ transitioning: false, truthTime: 39840, playing: true });
+    expect(host.methodsAfter(before)).toEqual([`Seek(${token}:${landsOn})`, `Play(${token})`]);
+    expect(player.getSnapshot()).toMatchObject({ transitioning: false, truthTime: landsOn, playing: true });
   });
 
   it("closing during the transition cancels the jump", () => {
-    host.emit("hold", token, "1560");
+    host.emit("hold", token, String(player.timeline.holdPoints[0]));
     const before = host.sent.length;
     player.unmount();
     vi.advanceTimersByTime(GAP_TRANSITION_MS * 2);
     expect(host.sent.slice(before).some((m) => m.method === "Seek")).toBe(false);
   });
 
-  it("seeking into the gap lands on the discovery", () => {
+  it("seeking into a gap lands on the far side of it", () => {
+    const gap = player.timeline.segments.find((s) => s.kind === "gap")!;
     const before = host.sent.length;
-    player.seekToTruth(20000);
-    expect(host.methodsAfter(before)).toEqual([`Seek(${token}:39840)`]);
+    player.seekToTruth((gap.truthStart + gap.truthEnd) / 2);
+    expect(host.methodsAfter(before)).toEqual([`Seek(${token}:${gap.truthEnd})`]);
   });
 
   it("a hold that is not a known gap start is ignored", () => {

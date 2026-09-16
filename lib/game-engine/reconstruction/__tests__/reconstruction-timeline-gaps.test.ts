@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateCase } from "../../case-generator/case-truth";
 import type { Difficulty } from "../../types/case";
-import { buildPresentationTimeline, computeTimelineSegments, GAP_THRESHOLD_SECONDS } from "../reconstruction-presentation";
+import {
+  buildPresentationTimeline,
+  IDLE_SKIP_THRESHOLD_SECONDS,
+  mergedActivitySpans,
+  POST_ACTIVITY_DWELL_SECONDS,
+} from "../reconstruction-presentation";
 import { projectReconstruction } from "../reconstruction-projector";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -14,23 +19,28 @@ function seedFor(i: number): string {
   return `CASE-${(i + 90000).toString(36).toUpperCase().padStart(6, "0").slice(-6)}`;
 }
 
-describe("long-gap compression (1800 s) across 2,000 generated scenarios", () => {
+/**
+ * Phase U5.4 — the compression contract across 2,000 generated scenarios: a skip only ever covers truth in which
+ * nothing is shown moving, it always starts after the dwell that follows the last thing that did move, and it
+ * never changes, hides or reorders a semantic event. Replaces U5.3's event-gap version of the same guarantee,
+ * which could only ever skip the one long gap before the discovery.
+ */
+describe("presentation pacing across 2,000 generated scenarios", () => {
   it(
-    "compresses only the dead period before discovery, after all movement, with the body still present",
+    "skips only idle truth, never an event, never movement, never the body",
     () => {
       let projected = 0;
-      let noCompression = 0;
-      let multipleCompressions = 0;
-      let compressionsNotEndingAtDiscovery = 0;
-      let compressionsWithoutDiscovery = 0;
-      let holdsNotOnePerScenario = 0;
-      let movementDuringSkip = 0;
+      let scenariosWithoutSkip = 0;
+      let eventInsideSkip = 0;
+      let activityInsideSkip = 0;
+      let skipShorterThanThreshold = 0;
+      let skipNotAfterDwell = 0;
       let bodyAbsentAcrossSkip = 0;
       let eventTimesRewritten = 0;
-      const compressedGapHours: number[] = [];
-      const holdDelaySeconds: number[] = [];
-      let largestUncompressedGapSeconds = 0;
-      let smallestCompressedGapSeconds = Infinity;
+      let markersOutOfOrder = 0;
+      const skipsPerScenario: number[] = [];
+      const watchedSeconds: number[] = [];
+      const truthSeconds: number[] = [];
 
       for (const difficulty of DIFFICULTIES) {
         for (let i = 0; i < PER_DIFFICULTY; i++) {
@@ -45,73 +55,67 @@ describe("long-gap compression (1800 s) across 2,000 generated scenarios", () =>
 
           const scenario = result.scenario;
           const before = JSON.stringify(scenario.events);
-          const segments = computeTimelineSegments(scenario);
           const timeline = buildPresentationTimeline(scenario);
           if (JSON.stringify(scenario.events) !== before) eventTimesRewritten++;
 
-          const compressed = segments.filter((s) => s.compressible);
-          const discover = scenario.events.find((e) => e.type === "discover");
+          const activity = mergedActivitySpans(scenario);
+          const gaps = timeline.segments.filter((s) => s.kind === "gap");
+          const plays = timeline.segments.filter((s) => s.kind === "play");
           const attack = scenario.events.find((e) => e.type === "attack");
 
-          if (compressed.length === 0) noCompression++;
-          if (compressed.length > 1) multipleCompressions++;
-          if (timeline.holdPoints.length !== 1) holdsNotOnePerScenario++;
+          skipsPerScenario.push(gaps.length);
+          if (gaps.length === 0) scenariosWithoutSkip++;
+          watchedSeconds.push(plays.reduce((sum, p) => sum + (p.truthEnd - p.truthStart), 0));
+          truthSeconds.push(scenario.durationSeconds);
 
-          for (const s of compressed) {
-            compressedGapHours.push((s.end - s.start) / 3600);
-            smallestCompressedGapSeconds = Math.min(smallestCompressedGapSeconds, s.end - s.start);
-            if (!discover) compressionsWithoutDiscovery++;
-            else if (s.end !== discover.time) compressionsNotEndingAtDiscovery++;
-          }
-          for (const s of segments.filter((x) => !x.compressible)) {
-            largestUncompressedGapSeconds = Math.max(largestUncompressedGapSeconds, s.end - s.start);
-          }
+          const positions = timeline.markers.map((m) => m.barPosition);
+          if ([...positions].sort((a, b) => a - b).join() !== positions.join()) markersOutOfOrder++;
 
-          for (const gap of timeline.segments.filter((s) => s.kind === "gap")) {
-            holdDelaySeconds.push(gap.truthStart - (compressed[0]?.start ?? gap.truthStart));
+          for (const gap of gaps) {
+            if (gap.truthEnd - gap.truthStart < IDLE_SKIP_THRESHOLD_SECONDS) skipShorterThanThreshold++;
+            if (scenario.events.some((e) => e.time > gap.truthStart && e.time < gap.truthEnd)) eventInsideSkip++;
+            if (activity.some((s) => s.start < gap.truthEnd && s.end > gap.truthStart)) activityInsideSkip++;
+
+            const lastActivityEnd = activity.filter((s) => s.end <= gap.truthStart).reduce((latest, s) => Math.max(latest, s.end), 0);
+            if (Math.abs(gap.truthStart - Math.min(lastActivityEnd + POST_ACTIVITY_DWELL_SECONDS, scenario.durationSeconds)) > 1e-6) skipNotAfterDwell++;
+
             for (const actor of scenario.actors) {
               const isBody = attack?.counterpartyVisualId === actor.visualId && gap.truthStart >= attack.time;
-              if (isBody) {
-                if (actor.despawnTime < gap.truthEnd) bodyAbsentAcrossSkip++;
-              } else if (actor.spawnTime < gap.truthEnd && actor.despawnTime > gap.truthStart) {
-                movementDuringSkip++;
-              }
+              if (isBody && actor.despawnTime < gap.truthEnd) bodyAbsentAcrossSkip++;
             }
           }
         }
       }
 
-      compressedGapHours.sort((a, b) => a - b);
-      holdDelaySeconds.sort((a, b) => a - b);
+      const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
       const report = {
         projected,
-        noCompression,
-        multipleCompressions,
-        compressedGaps: compressedGapHours.length,
-        medianCompressedGapHours: compressedGapHours[Math.floor(compressedGapHours.length / 2)],
-        minCompressedGapHours: compressedGapHours[0],
-        maxCompressedGapHours: compressedGapHours[compressedGapHours.length - 1],
-        smallestCompressedGapSeconds,
-        largestUncompressedGapSeconds,
-        compressionsNotEndingAtDiscovery,
-        compressionsWithoutDiscovery,
-        holdsNotOnePerScenario,
-        medianHoldDelayAfterGapStartSeconds: holdDelaySeconds[Math.floor(holdDelaySeconds.length / 2)],
-        movementDuringSkip,
+        scenariosWithoutSkip,
+        medianSkipsPerScenario: median(skipsPerScenario),
+        maxSkipsPerScenario: Math.max(...skipsPerScenario),
+        medianWatchedSeconds: Math.round(median(watchedSeconds)),
+        maxWatchedSeconds: Math.round(Math.max(...watchedSeconds)),
+        medianTruthSeconds: Math.round(median(truthSeconds)),
+        eventInsideSkip,
+        activityInsideSkip,
+        skipShorterThanThreshold,
+        skipNotAfterDwell,
         bodyAbsentAcrossSkip,
         eventTimesRewritten,
+        markersOutOfOrder,
       };
-      writeFileSync(join(tmpdir(), "u53_timeline_gaps.json"), JSON.stringify(report, null, 2));
+      writeFileSync(join(tmpdir(), "u54_pacing_gaps.json"), JSON.stringify(report, null, 2));
 
       expect(projected).toBeGreaterThan(1900);
-      expect(compressionsNotEndingAtDiscovery).toBe(0);
-      expect(compressionsWithoutDiscovery).toBe(0);
-      expect(multipleCompressions).toBe(0);
-      expect(largestUncompressedGapSeconds).toBeLessThan(GAP_THRESHOLD_SECONDS);
-      expect(holdsNotOnePerScenario).toBe(0);
-      expect(movementDuringSkip).toBe(0);
+      expect(eventInsideSkip).toBe(0);
+      expect(activityInsideSkip).toBe(0);
+      expect(skipShorterThanThreshold).toBe(0);
+      expect(skipNotAfterDwell).toBe(0);
       expect(bodyAbsentAcrossSkip).toBe(0);
       expect(eventTimesRewritten).toBe(0);
+      expect(markersOutOfOrder).toBe(0);
+      // A player should watch a reconstruction, not sit through the case's real duration.
+      expect(median(watchedSeconds)).toBeLessThan(120);
     },
     10 * 60 * 1000,
   );

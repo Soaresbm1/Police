@@ -7,6 +7,9 @@ import {
   EVENT_LABELS_FR,
   formatElapsed,
   gapAtHold,
+  IDLE_SKIP_THRESHOLD_SECONDS,
+  mergedActivitySpans,
+  POST_ACTIVITY_DWELL_SECONDS,
   snapOutOfGap,
   truthToBar,
 } from "../reconstruction-presentation";
@@ -20,14 +23,35 @@ function scenario(overrides: Partial<ReconstructionScenario>): ReconstructionSce
 
 describe("buildPresentationTimeline — real POC", () => {
   const timeline = buildPresentationTimeline(poc);
+  const gaps = timeline.segments.filter((s) => s.kind === "gap");
+  const plays = timeline.segments.filter((s) => s.kind === "play");
+  const activity = mergedActivitySpans(poc);
 
-  it("plays the scene, skips the dead period once the culprit has gone, then plays the discovery", () => {
-    expect(timeline.segments.map((s) => [s.kind, s.truthStart, s.truthEnd])).toEqual([
-      ["play", 0, 1560],
-      ["gap", 1560, 39840],
-      ["play", 39840, 40440],
-    ]);
-    expect(timeline.holdPoints).toEqual([1560]);
+  it("plays every stretch where something happens and skips the ones where nothing does", () => {
+    expect(gaps.length).toBeGreaterThan(0);
+    for (const gap of gaps) {
+      expect(gap.truthEnd - gap.truthStart).toBeGreaterThanOrEqual(IDLE_SKIP_THRESHOLD_SECONDS);
+      for (const span of activity) {
+        expect(span.start >= gap.truthEnd || span.end <= gap.truthStart, `activity ${span.start}-${span.end} inside gap ${gap.truthStart}-${gap.truthEnd}`).toBe(true);
+      }
+    }
+    for (const span of activity) {
+      expect(plays.some((p) => p.truthStart <= span.start && p.truthEnd >= span.end)).toBe(true);
+    }
+    expect(timeline.holdPoints).toEqual(gaps.map((g) => g.truthStart));
+  });
+
+  it("holds for the dwell after the last thing that moved, then skips", () => {
+    for (const gap of gaps) {
+      const lastActivityEnd = activity.filter((s) => s.end <= gap.truthStart).reduce((latest, s) => Math.max(latest, s.end), 0);
+      expect(gap.truthStart).toBeCloseTo(Math.min(lastActivityEnd + POST_ACTIVITY_DWELL_SECONDS, timeline.truthDuration), 6);
+    }
+  });
+
+  it("turns hours of truth into a viewing measured in seconds", () => {
+    const watched = plays.reduce((sum, p) => sum + (p.truthEnd - p.truthStart), 0);
+    expect(timeline.truthDuration).toBeGreaterThan(10 * 3600);
+    expect(watched).toBeLessThan(90);
   });
 
   it("keeps event truth times untouched and labels only from event types", () => {
@@ -40,31 +64,36 @@ describe("buildPresentationTimeline — real POC", () => {
     expect(poc.events.map((e) => e.time)).toEqual([0, 540, 1140, 39840]);
   });
 
-  it("places markers in order along a bar where the gap is visible but short", () => {
+  it("places markers in order along a bar where each gap is visible but short", () => {
     const positions = timeline.markers.map((m) => m.barPosition);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
-    const gap = timeline.segments[1];
-    expect(gap.barEnd - gap.barStart).toBeGreaterThan(0);
-    expect(gap.barEnd - gap.barStart).toBeLessThan(0.15 * timeline.barDuration);
-  });
-
-  it("maps truth to the bar and back through play segments exactly", () => {
-    for (const t of [0, 300, 540, 1559, 39840, 40000, 40440]) {
-      expect(barToTruth(timeline, truthToBar(timeline, t))).toBeCloseTo(t, 6);
+    for (const gap of gaps) {
+      expect(gap.barEnd - gap.barStart).toBeGreaterThan(0);
+      expect(gap.barEnd - gap.barStart).toBeLessThan(0.15 * timeline.barDuration);
     }
   });
 
-  it("never lands inside the gap: bar positions and seeks within it resolve to the discovery side", () => {
-    const gap = timeline.segments[1];
-    expect(barToTruth(timeline, (gap.barStart + gap.barEnd) / 2)).toBe(39840);
-    expect(snapOutOfGap(timeline, 20000)).toBe(39840);
-    expect(snapOutOfGap(timeline, 1000)).toBe(1000);
-    expect(snapOutOfGap(timeline, 39840)).toBe(39840);
-    expect(truthToBar(timeline, 20000)).toBe(gap.barStart);
+  it("maps truth to the bar and back through play segments exactly", () => {
+    for (const play of plays) {
+      for (const t of [play.truthStart, (play.truthStart + play.truthEnd) / 2, play.truthEnd]) {
+        expect(barToTruth(timeline, truthToBar(timeline, t))).toBeCloseTo(t, 6);
+      }
+    }
   });
 
-  it("finds the gap for a hold and reports the current event", () => {
-    expect(gapAtHold(timeline, 1560)?.truthEnd).toBe(39840);
+  it("never lands inside a gap: bar positions and seeks within one resolve to its far side", () => {
+    for (const gap of gaps) {
+      const middle = (gap.truthStart + gap.truthEnd) / 2;
+      expect(barToTruth(timeline, (gap.barStart + gap.barEnd) / 2)).toBe(gap.truthEnd);
+      expect(snapOutOfGap(timeline, middle)).toBe(gap.truthEnd);
+      expect(truthToBar(timeline, middle)).toBe(gap.barStart);
+    }
+    expect(snapOutOfGap(timeline, 0)).toBe(0);
+    expect(snapOutOfGap(timeline, 540)).toBe(540);
+  });
+
+  it("finds the gap for each hold and reports the current event", () => {
+    for (const gap of gaps) expect(gapAtHold(timeline, gap.truthStart)?.truthEnd).toBe(gap.truthEnd);
     expect(gapAtHold(timeline, 540)).toBeNull();
     expect(currentMarker(timeline, 600)?.label).toBe("AGRESSION");
     expect(currentMarker(timeline, 39850)?.label).toBe("DÉCOUVERTE");
@@ -76,34 +105,65 @@ describe("buildPresentationTimeline — real POC", () => {
 });
 
 describe("buildPresentationTimeline — rules", () => {
-  it("a scenario without a long gap is one play segment with no holds", () => {
+  it("a scenario where beats follow each other closely is one play segment with no holds", () => {
     const timeline = buildPresentationTimeline(
       scenario({
-        durationSeconds: 900,
+        durationSeconds: 40,
         events: [
           { time: 0, type: "talk", actorVisualId: "c", counterpartyVisualId: "v", locationSlot: "interaction" },
-          { time: 600, type: "attack", actorVisualId: "c", counterpartyVisualId: "v", locationSlot: "crime_point" },
+          { time: 10, type: "attack", actorVisualId: "c", counterpartyVisualId: "v", locationSlot: "crime_point" },
+          { time: 20, type: "leave_scene", actorVisualId: "c", locationSlot: "exit" },
         ],
       }),
     );
     expect(timeline.segments).toHaveLength(1);
     expect(timeline.holdPoints).toEqual([]);
-    expect(timeline.barDuration).toBe(900);
   });
 
-  it("never skips over someone still moving: an actor present for the whole gap turns it back into playback", () => {
+  it("a stretch where nothing changes is skipped once it is longer than the threshold", () => {
     const timeline = buildPresentationTimeline(
       scenario({
-        durationSeconds: 5000,
-        actors: [{ visualId: "w", roleForReconstruction: "unnamed", genericAppearance: "casual_neutral", spawnTime: 0, despawnTime: 5000, waypoints: [{ time: 0, slot: "exit" }] }],
+        durationSeconds: 1000,
         events: [
-          { time: 0, type: "leave_scene", actorVisualId: "w", locationSlot: "exit" },
-          { time: 4000, type: "discover", actorVisualId: "w", locationSlot: "crime_point" },
+          { time: 0, type: "talk", actorVisualId: "c", counterpartyVisualId: "v", locationSlot: "interaction" },
+          { time: 900, type: "discover", actorVisualId: "w", locationSlot: "crime_point" },
         ],
       }),
     );
-    expect(timeline.holdPoints).toEqual([]);
-    expect(timeline.segments.every((s) => s.kind === "play")).toBe(true);
+    expect(timeline.segments.map((s) => [s.kind, s.truthStart, s.truthEnd])).toEqual([
+      ["play", 0, 5],
+      ["gap", 5, 900],
+      ["play", 900, 905],
+      ["gap", 905, 1000],
+    ]);
+  });
+
+  it("never skips over someone still walking", () => {
+    const timeline = buildPresentationTimeline(
+      scenario({
+        durationSeconds: 1200,
+        actors: [
+          {
+            visualId: "w",
+            roleForReconstruction: "unnamed",
+            genericAppearance: "casual_neutral",
+            spawnTime: 0,
+            despawnTime: 1200,
+            waypoints: [
+              { time: 0, slot: "entrance" },
+              { time: 1000, slot: "crime_point" },
+            ],
+          },
+        ],
+        events: [{ time: 0, type: "talk", actorVisualId: "w", locationSlot: "entrance" }],
+      }),
+    );
+    // The leg is walked over its last 8 s, arriving at 1000: that window must play, only the wait before it skips.
+    for (const gap of timeline.segments.filter((s) => s.kind === "gap")) {
+      expect(gap.truthStart <= 992 || gap.truthStart >= 1000).toBe(true);
+      expect(gap.truthEnd <= 992 || gap.truthEnd >= 1000).toBe(true);
+    }
+    expect(timeline.segments.some((s) => s.kind === "play" && s.truthStart <= 992 && s.truthEnd >= 1000)).toBe(true);
   });
 
   it("formats a relative clock readably", () => {
