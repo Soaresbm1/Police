@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "caseId": "qa-real-firearm",
+  "environment": "street",
+  "durationSeconds": 44520,
+  "actors": [
+    {
+      "visualId": "actor_1bqbcp3",
+      "roleForReconstruction": "unnamed",
+      "genericAppearance": "casual_neutral",
+      "spawnTime": 43920,
+      "despawnTime": 44520,
+      "waypoints": [
+        {
+          "time": 43920,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_1mhytuf",
+      "roleForReconstruction": "victim",
+      "genericAppearance": "casual_dark",
+      "spawnTime": 0,
+      "despawnTime": 44520,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 360,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_egmws4",
+      "roleForReconstruction": "culprit",
+      "genericAppearance": "casual_dark",
+      "spawnTime": 0,
+      "despawnTime": 1260,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 360,
+          "slot": "crime_point"
+        },
+        {
+          "time": 780,
+          "slot": "exit"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "talk",
+      "actorVisualId": "actor_egmws4",
+      "counterpartyVisualId": "actor_1mhytuf",
+      "locationSlot": "interaction"
+    },
+    {
+      "time": 360,
+      "type": "attack",
+      "actorVisualId": "actor_egmws4",
+      "counterpartyVisualId": "actor_1mhytuf",
+      "locationSlot": "crime_point",
+      "safeVisualAction": "attack_firearm"
+    },
+    {
+      "time": 780,
+      "type": "leave_scene",
+      "actorVisualId": "actor_egmws4",
+      "locationSlot": "exit"
+    },
+    {
+      "time": 43920,
+      "type": "discover",
+      "actorVisualId": "actor_1bqbcp3",
+      "locationSlot": "crime_point"
+    }
+  ]
+}

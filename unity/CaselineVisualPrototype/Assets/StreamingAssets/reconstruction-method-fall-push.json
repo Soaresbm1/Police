@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "caseId": "qa-real-fall-push",
+  "environment": "generic",
+  "durationSeconds": 43860,
+  "actors": [
+    {
+      "visualId": "actor_14rvgzx",
+      "roleForReconstruction": "accomplice",
+      "genericAppearance": "workwear_light",
+      "spawnTime": 43260,
+      "despawnTime": 43860,
+      "waypoints": [
+        {
+          "time": 43260,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_u6t2u0",
+      "roleForReconstruction": "culprit",
+      "genericAppearance": "casual_light",
+      "spawnTime": 0,
+      "despawnTime": 960,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 780,
+          "slot": "crime_point"
+        }
+      ]
+    },
+    {
+      "visualId": "actor_xja5lh",
+      "roleForReconstruction": "victim",
+      "genericAppearance": "casual_neutral",
+      "spawnTime": 0,
+      "despawnTime": 43860,
+      "waypoints": [
+        {
+          "time": 0,
+          "slot": "interaction"
+        },
+        {
+          "time": 780,
+          "slot": "crime_point"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "talk",
+      "actorVisualId": "actor_u6t2u0",
+      "counterpartyVisualId": "actor_xja5lh",
+      "locationSlot": "interaction"
+    },
+    {
+      "time": 780,
+      "type": "attack",
+      "actorVisualId": "actor_u6t2u0",
+      "counterpartyVisualId": "actor_xja5lh",
+      "locationSlot": "crime_point",
+      "safeVisualAction": "attack_push"
+    },
+    {
+      "time": 43260,
+      "type": "discover",
+      "actorVisualId": "actor_14rvgzx",
+      "locationSlot": "crime_point"
+    }
+  ]
+}
