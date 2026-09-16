@@ -7,6 +7,8 @@ import * as assetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { ACTIVE_PROVIDER_NAME } from "@/lib/art/generation/asset-kinds";
 import type { GeneratedAssetKind } from "@/lib/art/generation/types";
+import { isValidCaseSeed } from "@/lib/game-engine/random/rng";
+import { caseAssetKeysFor } from "@/lib/security/case-ref";
 
 /**
  * Manual, one-asset-at-a-time trigger for the dev-only art inspector
@@ -29,17 +31,30 @@ export async function triggerAssetGenerationAction(formData: FormData): Promise<
   const promptVersion = Number(formData.get("promptVersion") ?? 0);
   const prompt = String(formData.get("prompt") ?? "");
   const seed = String(formData.get("seed") ?? "");
-  if (!caseSeed || !descriptorHash || !prompt || !seed) return;
+  if (!caseSeed || !isValidCaseSeed(caseSeed) || !descriptorHash || !prompt || !seed) return;
+  // Security S1 — even dev-inspector writes are keyed by caseRef, never the seed.
+  const { caseRef, lookupKeys } = caseAssetKeysFor(caseSeed);
 
   const result = await getOrGenerateAsset(
     { store: assetStore, provider: activeGeneratedAssetProvider },
-    { userId: identity.userId, caseSeed, assetKind, descriptorHash, generationVersion, providerName: ACTIVE_PROVIDER_NAME, promptVersion, prompt, seed },
+    {
+      userId: identity.userId,
+      caseRef,
+      caseLookupKeys: lookupKeys,
+      assetKind,
+      descriptorHash,
+      generationVersion,
+      providerName: ACTIVE_PROVIDER_NAME,
+      promptVersion,
+      prompt,
+      seed,
+    },
   );
   // Tagged distinctly from the automatic triggers' own summary lines
   // (auto-portrait-trigger.ts / auto-scene-trigger.ts) so dev logs can
   // tell manual clicks apart from background generation — counts and
   // status only, never the prompt or a credential.
-  console.log(`[CASELINE] [manual-dev] case ${caseSeed}: assetKind=${assetKind}, result=${result.status}.`);
+  console.log(`[CASELINE] [manual-dev] case ${caseRef}: assetKind=${assetKind}, result=${result.status}.`);
 
   revalidatePath("/case-lab/art");
 }

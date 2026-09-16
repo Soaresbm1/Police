@@ -4,6 +4,7 @@ import type { PersonId } from "@/lib/game-engine/types/person";
 import { buildCharacterVisualDescriptor } from "../visual-manifest";
 import { hashDescriptor } from "../asset-cache";
 import { importantPeopleForPortraits } from "./pilot-scope";
+import { caseAssetKeysFor } from "@/lib/security/case-ref";
 import * as assetStore from "./asset-store";
 import { CHARACTER_PORTRAIT_GENERATION_VERSION, ACTIVE_PROVIDER_NAME } from "./asset-kinds";
 
@@ -32,7 +33,14 @@ export interface PortraitLookupDeps {
  * actual culprit all resolve through the exact same code path with no
  * branch on role anywhere in this file.
  */
-export async function resolveReadyPortraitUrls(deps: PortraitLookupDeps, userId: string, truth: CaseTruth): Promise<Map<PersonId, string>> {
+export async function resolveReadyPortraitUrls(
+  deps: PortraitLookupDeps,
+  userId: string,
+  truth: CaseTruth,
+  /** Security S1 — every key this case's rows may be stored under
+   * (`caseAssetKeysFor(truth.seed).lookupKeys`). */
+  caseLookupKeys: string[],
+): Promise<Map<PersonId, string>> {
   const people = importantPeopleForPortraits(truth);
   if (people.length === 0) return new Map();
 
@@ -45,7 +53,7 @@ export async function resolveReadyPortraitUrls(deps: PortraitLookupDeps, userId:
   try {
     records = await deps.findReadyAssetsByHashes(
       userId,
-      truth.seed,
+      caseLookupKeys,
       "character_portrait",
       CHARACTER_PORTRAIT_GENERATION_VERSION,
       ACTIVE_PROVIDER_NAME,
@@ -82,9 +90,17 @@ export async function resolveReadyPortraitUrls(deps: PortraitLookupDeps, userId:
  * `getCurrentGame()` result share a single batched read instead of each
  * re-querying.
  */
-export const getReadyPortraitUrls = cache((userId: string, truth: CaseTruth): Promise<Map<PersonId, string>> =>
-  resolveReadyPortraitUrls(assetStore, userId, truth),
-);
+export const getReadyPortraitUrls = cache(async (userId: string, truth: CaseTruth): Promise<Map<PersonId, string>> => {
+  let caseLookupKeys: string[];
+  try {
+    caseLookupKeys = caseAssetKeysFor(truth.seed).lookupKeys;
+  } catch {
+    // S1 key material unavailable — portraits stay procedural rather than
+    // ever falling back to a plaintext-seed lookup.
+    return new Map();
+  }
+  return resolveReadyPortraitUrls(assetStore, userId, truth, caseLookupKeys);
+});
 
 /**
  * Generated Art V2A helper: does at least one of the given person ids lack

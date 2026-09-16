@@ -59,7 +59,7 @@ class FakeAssetStore implements AssetStoreLike {
     generationVersion: number,
     provider: string,
     reuseKey: string,
-    excludeCaseSeed: string,
+    excludeCaseKeys: string[],
     limit: number,
   ) {
     return this.rows
@@ -72,7 +72,7 @@ class FakeAssetStore implements AssetStoreLike {
           r.reuseKey === reuseKey &&
           r.status === "ready" &&
           r.sourceAssetId === null && // canonical sources only — never a reused row
-          r.caseSeed !== excludeCaseSeed,
+          !excludeCaseKeys.includes(r.caseSeed),
       )
       .sort((a, b) => a.reuseCount - b.reuseCount || a.id.localeCompare(b.id))
       .slice(0, limit);
@@ -134,8 +134,8 @@ class FakeAssetStore implements AssetStoreLike {
     if (r) Object.assign(r, { status: "failed", errorMessage, attemptCount, failedAt: new Date().toISOString() });
   }
 
-  async countAssetsForCase(userId: string, caseSeed: string) {
-    return this.rows.filter((r) => r.userId === userId && r.caseSeed === caseSeed).length;
+  async countAssetsForCase(userId: string, caseKeys: string[]) {
+    return this.rows.filter((r) => r.userId === userId && caseKeys.includes(r.caseSeed)).length;
   }
 
   async uploadAssetBytes(userId: string, caseSeed: string, descriptorHash: string) {
@@ -148,9 +148,14 @@ class FakeAssetStore implements AssetStoreLike {
   }
 }
 
+/** Security S1 — the pipeline is keyed by an opaque caseRef plus every lookup key. */
+function caseArgs(caseKey: string) {
+  return { caseRef: caseKey, caseLookupKeys: [caseKey] };
+}
+
 const baseArgs = {
   userId: "user-1",
-  caseSeed: "CASE-A",
+  ...caseArgs("CASE-A"),
   assetKind: "character_portrait" as GeneratedAssetKind,
   descriptorHash: "hash-1",
   generationVersion: 1,
@@ -179,7 +184,7 @@ describe("getOrGenerateAsset", () => {
     const store = new FakeAssetStore();
     await store.createQueuedRecord(
       baseArgs.userId,
-      baseArgs.caseSeed,
+      baseArgs.caseRef,
       baseArgs.assetKind,
       baseArgs.descriptorHash,
       baseArgs.generationVersion,
@@ -240,7 +245,7 @@ describe("getOrGenerateAsset", () => {
 
     await store.createQueuedRecord(
       baseArgs.userId,
-      baseArgs.caseSeed,
+      baseArgs.caseRef,
       baseArgs.assetKind,
       baseArgs.descriptorHash,
       baseArgs.generationVersion,
@@ -340,8 +345,8 @@ describe("getOrGenerateAsset", () => {
 });
 
 describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
-  function reuseLookupFor(excludeCaseSeed: string, claimedSourceIds: Set<string> = new Set()) {
-    return { excludeCaseSeed, claimedSourceIds, candidateLimit: 8 };
+  function reuseLookupFor(excludeCaseKey: string, claimedSourceIds: Set<string> = new Set()) {
+    return { excludeCaseKeys: [excludeCaseKey], claimedSourceIds, candidateLimit: 8 };
   }
 
   it("[C] a compatible reusable asset from a DIFFERENT case is used with zero provider calls", async () => {
@@ -351,7 +356,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     // First entity, first case — a real generation, tagged with a reuse key.
     const first = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-entity-1", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-entity-1", reuseKey: "bucket-1" },
     );
     expect(first.origin).toBe("fresh_generation");
     expect(provider.calls).toHaveLength(1);
@@ -359,7 +364,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     // Second entity, a DIFFERENT case, same reuse bucket, no exact-hash row of its own yet.
     const second = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-entity-2", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-entity-2", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
 
@@ -372,20 +377,20 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     // This entity already has its OWN exact-hash ready row (simulates a
     // refresh/navigation) — a reusable candidate also exists and would
     // match, but must never be consulted.
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     provider.calls.length = 0;
 
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     expect(result.origin).toBe("exact_cache");
@@ -396,11 +401,11 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
 
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-2" }, // different bucket
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-2" }, // different bucket
       reuseLookupFor("CASE-B"),
     );
     expect(result.origin).toBe("fresh_generation");
@@ -411,11 +416,11 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-1", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-1", reuseKey: "bucket-1" });
 
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-2", reuseKey: "bucket-1" }, // same case!
+      { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-2", reuseKey: "bucket-1" }, // same case!
       reuseLookupFor("CASE-A"),
     );
     expect(result.origin).toBe("fresh_generation");
@@ -426,13 +431,13 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     const sourceId = store.rows[0].id;
 
     const claimedSourceIds = new Set<string>([sourceId]); // simulates a sibling worker having already claimed it
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B", claimedSourceIds),
     );
     expect(result.origin).toBe("fresh_generation"); // the only candidate was already claimed
@@ -444,12 +449,12 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, userId: "user-A", caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" },
+      { ...baseArgs, userId: "user-A", ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" },
     );
 
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, userId: "user-B", caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, userId: "user-B", ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     expect(result.origin).toBe("fresh_generation"); // user-A's asset is invisible to user-B
@@ -460,12 +465,12 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     const sourceRow = store.rows[0];
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
 
@@ -480,13 +485,13 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     const sourceId = store.rows[0].id;
     expect(store.rows[0].reuseCount).toBe(0);
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target-1", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target-1", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     expect(store.rows.find((r) => r.id === sourceId)!.reuseCount).toBe(1);
@@ -495,7 +500,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-C", descriptorHash: "hash-target-2", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-C"), descriptorHash: "hash-target-2", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-C"),
     );
     // "hash-target-1" is now permanently excluded from the candidate pool
@@ -509,10 +514,10 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     provider.calls.length = 0;
@@ -520,7 +525,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     // Simulates a refresh/navigation/restart for the SAME entity in CASE-B.
     const again = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     expect(again.origin).toBe("exact_cache");
@@ -531,7 +536,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     expect(store.rows[0].sourceAssetId).toBeNull();
   });
 
@@ -539,12 +544,12 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     const canonicalId = store.rows[0].id;
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     const reusedRow = store.rows.find((r) => r.descriptorHash === "hash-target")!;
@@ -555,10 +560,10 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-source", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-source", reuseKey: "bucket-1" });
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target-1", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target-1", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     const reusedRow = store.rows.find((r) => r.descriptorHash === "hash-target-1")!;
@@ -574,7 +579,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
       1,
       "mock",
       "bucket-1",
-      "CASE-A",
+      ["CASE-A"],
       8,
     );
     expect(candidates.map((c) => c.id)).not.toContain(reusedRow.id);
@@ -584,12 +589,12 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-A", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-A", reuseKey: "bucket-1" });
     const rowA = store.rows.find((r) => r.descriptorHash === "hash-A")!;
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-B", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-B", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     const rowB = store.rows.find((r) => r.descriptorHash === "hash-B")!;
@@ -597,7 +602,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-C", descriptorHash: "hash-C", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-C"), descriptorHash: "hash-C", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-C"),
     );
     const rowC = store.rows.find((r) => r.descriptorHash === "hash-C")!;
@@ -612,10 +617,10 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-A", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-A", reuseKey: "bucket-1" });
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-B", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-B", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     const rowB = store.rows.find((r) => r.descriptorHash === "hash-B")!;
@@ -624,7 +629,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     // A same-case lookup (excluding CASE-B) must never surface rowB —
     // doubly excluded (it's non-canonical AND same-case), even though its
     // physical storage_path is shared with the canonical hash-A row.
-    const candidates = await store.findReusableAssetCandidates("user-1", "character_portrait", 1, "mock", "bucket-1", "CASE-B", 8);
+    const candidates = await store.findReusableAssetCandidates("user-1", "character_portrait", 1, "mock", "bucket-1", ["CASE-B"], 8);
     expect(candidates.map((c) => c.id)).not.toContain(rowB.id);
   });
 
@@ -632,14 +637,14 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-A", descriptorHash: "hash-popular", reuseKey: "bucket-1" });
-    await getOrGenerateAsset({ store, provider }, { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-fresh", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-A"), descriptorHash: "hash-popular", reuseKey: "bucket-1" });
+    await getOrGenerateAsset({ store, provider }, { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-fresh", reuseKey: "bucket-1" });
     const popularId = store.rows.find((r) => r.descriptorHash === "hash-popular")!.id;
     await store.incrementReuseCount("user-1", popularId); // "hash-popular" already reused once elsewhere
 
     await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-C", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-C"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-C"),
     );
     const reusedRow = store.rows.find((r) => r.descriptorHash === "hash-target")!;
@@ -654,7 +659,7 @@ describe("getOrGenerateAsset — same-user reuse (Generated Art V2B)", () => {
 
     const result = await getOrGenerateAsset(
       { store, provider },
-      { ...baseArgs, caseSeed: "CASE-B", descriptorHash: "hash-target", reuseKey: "bucket-1" },
+      { ...baseArgs, ...caseArgs("CASE-B"), descriptorHash: "hash-target", reuseKey: "bucket-1" },
       reuseLookupFor("CASE-B"),
     );
     expect(result.status).toBe("ready");

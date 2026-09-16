@@ -12,7 +12,7 @@ export interface AssetStoreLike {
   findAssetRecord(userId: string, descriptorHash: string, generationVersion: number, provider: string): Promise<GeneratedAssetRecord | null>;
   createQueuedRecord(
     userId: string,
-    caseSeed: string,
+    caseRef: string,
     assetKind: GeneratedAssetKind,
     descriptorHash: string,
     generationVersion: number,
@@ -26,8 +26,8 @@ export interface AssetStoreLike {
     fields: { storagePath: string; width: number; height: number; providerModel: string; promptVersion: number },
   ): Promise<void>;
   markFailed(userId: string, id: string, errorMessage: string, attemptCount: number): Promise<void>;
-  countAssetsForCase(userId: string, caseSeed: string): Promise<number>;
-  uploadAssetBytes(userId: string, caseSeed: string, descriptorHash: string, bytes: Uint8Array, contentType: string): Promise<{ path: string }>;
+  countAssetsForCase(userId: string, caseKeys: string[]): Promise<number>;
+  uploadAssetBytes(userId: string, caseRef: string, descriptorHash: string, bytes: Uint8Array, contentType: string): Promise<{ path: string }>;
   getSignedAssetUrl(path: string, expiresInSeconds?: number): Promise<string | null>;
   /** Generated Art V2B */
   findReusableAssetCandidates(
@@ -36,12 +36,12 @@ export interface AssetStoreLike {
     generationVersion: number,
     provider: string,
     reuseKey: string,
-    excludeCaseSeed: string,
+    excludeCaseKeys: string[],
     limit: number,
   ): Promise<GeneratedAssetRecord[]>;
   createReusedRecord(
     userId: string,
-    caseSeed: string,
+    caseRef: string,
     assetKind: GeneratedAssetKind,
     descriptorHash: string,
     generationVersion: number,
@@ -55,7 +55,14 @@ export interface AssetStoreLike {
 
 export interface GetOrGenerateAssetArgs {
   userId: string;
-  caseSeed: string;
+  /** Security S1 — the case's opaque reference (`lib/security/case-ref.ts`).
+   * Every row and storage path this call writes is keyed by it; the
+   * plaintext seed never reaches this pipeline. */
+  caseRef: string;
+  /** Every key the case's existing rows may be stored under — `caseRef`,
+   * plus the legacy seed for a pre-S1 case not yet lazily migrated. Only
+   * used for the per-case asset cap count. */
+  caseLookupKeys: string[];
   assetKind: GeneratedAssetKind;
   descriptorHash: string;
   generationVersion: number;
@@ -97,8 +104,9 @@ export interface GetOrGenerateAssetResult {
 export interface ReuseLookupOptions {
   /** Never match a candidate belonging to the case currently being
    * generated for — the hard guarantee against two entities in the SAME
-   * case resolving to each other's asset. */
-  excludeCaseSeed: string;
+   * case resolving to each other's asset. Every key that case may be
+   * stored under (caseRef, plus its legacy seed for a pre-S1 case). */
+  excludeCaseKeys: string[];
   /** Shared across every concurrent worker in one auto-generation batch
    * (see `auto-portrait-trigger.ts`) — a source asset id claimed by one
    * worker can never be claimed by a sibling, even though several workers
@@ -187,7 +195,7 @@ export async function getOrGenerateAsset(
           args.generationVersion,
           args.providerName,
           args.reuseKey,
-          reuseLookup.excludeCaseSeed,
+          reuseLookup.excludeCaseKeys,
           reuseLookup.candidateLimit,
         );
         for (const candidate of candidates) {
@@ -217,7 +225,7 @@ export async function getOrGenerateAsset(
           try {
             const reused = await store.createReusedRecord(
               args.userId,
-              args.caseSeed,
+              args.caseRef,
               args.assetKind,
               args.descriptorHash,
               args.generationVersion,
@@ -247,11 +255,11 @@ export async function getOrGenerateAsset(
 
     record = existing ?? undefined;
     if (!record) {
-      const currentCount = await store.countAssetsForCase(args.userId, args.caseSeed);
+      const currentCount = await store.countAssetsForCase(args.userId, args.caseLookupKeys);
       if (currentCount >= MAX_ASSETS_PER_CASE) return MISSING; // pilot cap reached — stay procedural
       record = await store.createQueuedRecord(
         args.userId,
-        args.caseSeed,
+        args.caseRef,
         args.assetKind,
         args.descriptorHash,
         args.generationVersion,
@@ -275,7 +283,7 @@ export async function getOrGenerateAsset(
       return FAILED;
     }
 
-    const { path } = await store.uploadAssetBytes(args.userId, args.caseSeed, args.descriptorHash, generated.bytes, generated.contentType);
+    const { path } = await store.uploadAssetBytes(args.userId, args.caseRef, args.descriptorHash, generated.bytes, generated.contentType);
     await store.markReady(args.userId, record.id, {
       storagePath: path,
       width: generated.width,

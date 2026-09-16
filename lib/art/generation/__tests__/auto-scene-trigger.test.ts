@@ -10,6 +10,15 @@ import type { GeneratedAssetKind, GeneratedAssetRecord } from "../types";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { Location } from "@/lib/game-engine/types/location";
 import type { Person } from "@/lib/game-engine/types/person";
+import type { CaseAssetKeys } from "@/lib/security/case-ref";
+
+/** Security S1 — the fake store labels rows with whatever case key it is
+ * given; tests keep using the truth's seed string as that label so their
+ * per-case assertions read unchanged. Real keys are covered in
+ * lib/security/__tests__. */
+function testCaseKeys(truth: CaseTruth): CaseAssetKeys {
+  return { caseRef: truth.seed, lookupKeys: [truth.seed] };
+}
 
 function makeLocation(overrides: Partial<Location> = {}): Location {
   return {
@@ -169,8 +178,8 @@ class FakeAssetStore implements AssetStoreLike {
     if (r) Object.assign(r, { status: "failed", errorMessage, attemptCount, failedAt: new Date().toISOString() });
   }
 
-  async countAssetsForCase(userId: string, caseSeed: string) {
-    return this.rows.filter((r) => r.userId === userId && r.caseSeed === caseSeed).length;
+  async countAssetsForCase(userId: string, caseKeys: string[]) {
+    return this.rows.filter((r) => r.userId === userId && caseKeys.includes(r.caseSeed)).length;
   }
 
   async uploadAssetBytes(userId: string, caseSeed: string, descriptorHash: string) {
@@ -187,7 +196,7 @@ class FakeAssetStore implements AssetStoreLike {
     generationVersion: number,
     provider: string,
     reuseKey: string,
-    excludeCaseSeed: string,
+    excludeCaseKeys: string[],
     limit: number,
   ) {
     return this.rows
@@ -200,7 +209,7 @@ class FakeAssetStore implements AssetStoreLike {
           r.reuseKey === reuseKey &&
           r.status === "ready" &&
           r.sourceAssetId === null &&
-          r.caseSeed !== excludeCaseSeed,
+          !excludeCaseKeys.includes(r.caseSeed),
       )
       .sort((a, b) => a.reuseCount - b.reuseCount || a.id.localeCompare(b.id))
       .slice(0, limit);
@@ -271,7 +280,7 @@ describe("runAutoCrimeSceneGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
 
     expect(MAX_AUTO_CRIME_SCENES_PER_CASE).toBe(1);
     expect(diagnostics.attempted).toBe(1);
@@ -287,10 +296,10 @@ describe("runAutoCrimeSceneGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(provider.calls).toHaveLength(1);
 
-    const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(provider.calls).toHaveLength(1); // no new call at all
     expect(second.cacheHits).toBe(1);
     expect(second.attempted).toBe(0);
@@ -302,11 +311,11 @@ describe("runAutoCrimeSceneGeneration", () => {
     const provider = new MockGeneratedAssetProvider();
     const generateSpy = vi.spyOn(provider, "generate");
 
-    const firstRun = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const firstRun = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(firstRun.ready).toBe(1);
     generateSpy.mockClear();
 
-    const secondRun = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const secondRun = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(secondRun.cacheHits).toBe(1);
     expect(generateSpy).not.toHaveBeenCalled();
   });
@@ -316,7 +325,7 @@ describe("runAutoCrimeSceneGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new AlwaysMissingGeneratedAssetProvider();
 
-    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(diagnostics.failed).toBe(1);
     expect(diagnostics.ready).toBe(0);
   });
@@ -326,7 +335,7 @@ describe("runAutoCrimeSceneGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(diagnostics.skipped).toBe(1);
     expect(diagnostics.attempted).toBe(0);
     expect(provider.calls).toHaveLength(0);
@@ -347,12 +356,12 @@ describe("runAutoCrimeSceneGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    const first = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", baseTruth);
+    const first = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", baseTruth, testCaseKeys(baseTruth));
     expect(first.attempted).toBe(1);
 
     // Same public location/timestamp, wildly different hidden CaseTruth —
     // must resolve as the exact same cached asset, not a new generation.
-    const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthWithDifferentCulprit);
+    const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthWithDifferentCulprit, testCaseKeys(truthWithDifferentCulprit));
     expect(second.cacheHits).toBe(1);
     expect(second.attempted).toBe(0);
     expect(provider.calls).toHaveLength(1); // still just the one real call
@@ -370,12 +379,12 @@ describe("runAutoCrimeSceneGeneration", () => {
       const provider = new MockGeneratedAssetProvider();
 
       const truthA = makeTruth({ seed: "CASE-A", locations: [locationA], crimeLocationId: locationA.id, crimeTimestamp: 700 });
-      const first = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthA);
+      const first = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthA, testCaseKeys(truthA));
       expect(first.attempted).toBe(1);
       expect(first.reuseHits).toBe(0);
 
       const truthB = makeTruth({ seed: "CASE-B", locations: [locationB], crimeLocationId: locationB.id, crimeTimestamp: 700 });
-      const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthB);
+      const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthB, testCaseKeys(truthB));
       expect(second.ready).toBe(1);
       expect(second.reuseHits).toBe(1);
       expect(provider.calls).toHaveLength(1); // no new Cloudflare call for the second case's scene
@@ -388,10 +397,10 @@ describe("runAutoCrimeSceneGeneration", () => {
       const provider = new MockGeneratedAssetProvider();
 
       const truthOffice = makeTruth({ seed: "CASE-OFFICE", locations: [officeLocation], crimeLocationId: officeLocation.id, crimeTimestamp: 700 });
-      await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthOffice);
+      await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthOffice, testCaseKeys(truthOffice));
 
       const truthWarehouse = makeTruth({ seed: "CASE-WAREHOUSE", locations: [warehouseLocation], crimeLocationId: warehouseLocation.id, crimeTimestamp: 700 });
-      const result = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthWarehouse);
+      const result = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truthWarehouse, testCaseKeys(truthWarehouse));
 
       expect(result.reuseHits).toBe(0);
       expect(result.ready).toBe(1);

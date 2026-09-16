@@ -5,12 +5,14 @@ export type AssetStatus = "missing" | "queued" | "generating" | "ready" | "faile
 /**
  * Domain shape of one `generated_assets` row (camelCase, mirrors
  * `lib/supabase/database.types.ts#generated_assets`). Deliberately carries
- * nothing from `CaseTruth` — `caseSeed` + `descriptorHash` are already
- * enough to regenerate the exact same visual descriptor deterministically.
+ * nothing from `CaseTruth`.
  */
 export interface GeneratedAssetRecord {
   id: string;
   userId: string;
+  /** The `case_seed` column. Security S1: holds the case's opaque `caseRef`
+   * (`cr1_…`) — or, only on a pre-S1 row not yet lazily migrated, a legacy
+   * seed. Never read back as a seed; players can read this row directly. */
   caseSeed: string;
   assetKind: GeneratedAssetKind;
   descriptorHash: string;

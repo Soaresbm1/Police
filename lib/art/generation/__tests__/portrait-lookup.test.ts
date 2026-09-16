@@ -124,7 +124,7 @@ describe("resolveReadyPortraitUrls", () => {
       getSignedAssetUrls: vi.fn().mockResolvedValue(new Map()),
     };
 
-    const result = await resolveReadyPortraitUrls(deps, "user-1", truth);
+    const result = await resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed]);
     expect(result.size).toBe(0);
   });
 
@@ -139,7 +139,7 @@ describe("resolveReadyPortraitUrls", () => {
       getSignedAssetUrls: vi.fn().mockResolvedValue(new Map([[path, "https://example.test/signed-url"]])),
     };
 
-    const result = await resolveReadyPortraitUrls(deps, "user-1", truth);
+    const result = await resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed]);
     expect(result.get("victim")).toBe("https://example.test/signed-url");
   });
 
@@ -149,8 +149,8 @@ describe("resolveReadyPortraitUrls", () => {
     const findSpy = vi.fn().mockResolvedValue([]);
     const deps: PortraitLookupDeps = { findReadyAssetsByHashes: findSpy, getSignedAssetUrls: vi.fn().mockResolvedValue(new Map()) };
 
-    await resolveReadyPortraitUrls(deps, "user-A", truth);
-    expect(findSpy).toHaveBeenCalledWith("user-A", truth.seed, "character_portrait", CHARACTER_PORTRAIT_GENERATION_VERSION, ACTIVE_PROVIDER_NAME, expect.any(Array));
+    await resolveReadyPortraitUrls(deps, "user-A", truth, [truth.seed]);
+    expect(findSpy).toHaveBeenCalledWith("user-A", [truth.seed], "character_portrait", CHARACTER_PORTRAIT_GENERATION_VERSION, ACTIVE_PROVIDER_NAME, expect.any(Array));
   });
 
   it("never calls the store when there are no important people (nobody qualifies as victim/suspect/non-red-herring witness)", async () => {
@@ -159,7 +159,7 @@ describe("resolveReadyPortraitUrls", () => {
     const findSpy = vi.fn();
     const deps: PortraitLookupDeps = { findReadyAssetsByHashes: findSpy, getSignedAssetUrls: vi.fn() };
 
-    const result = await resolveReadyPortraitUrls(deps, "user-1", truth);
+    const result = await resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed]);
     expect(result.size).toBe(0);
     expect(findSpy).not.toHaveBeenCalled();
   });
@@ -172,7 +172,7 @@ describe("resolveReadyPortraitUrls", () => {
       getSignedAssetUrls: vi.fn(),
     };
 
-    await expect(resolveReadyPortraitUrls(deps, "user-1", truth)).resolves.toEqual(new Map());
+    await expect(resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed])).resolves.toEqual(new Map());
   });
 
   it("never queries generation for a bystander/red herring excluded from the pilot scope", async () => {
@@ -182,7 +182,7 @@ describe("resolveReadyPortraitUrls", () => {
     const findSpy = vi.fn().mockResolvedValue([]);
     const deps: PortraitLookupDeps = { findReadyAssetsByHashes: findSpy, getSignedAssetUrls: vi.fn().mockResolvedValue(new Map()) };
 
-    await resolveReadyPortraitUrls(deps, "user-1", truth);
+    await resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed]);
     const requestedHashes = findSpy.mock.calls[0][5] as string[];
     const bystanderHash = hashDescriptor(buildCharacterVisualDescriptor(bystander));
     expect(requestedHashes).not.toContain(bystanderHash);
@@ -199,7 +199,7 @@ describe("resolveReadyPortraitUrls", () => {
     const deps: PortraitLookupDeps = { findReadyAssetsByHashes: findSpy, getSignedAssetUrls: signSpy };
 
     for (let i = 0; i < 3; i++) {
-      await resolveReadyPortraitUrls(deps, "user-1", truth);
+      await resolveReadyPortraitUrls(deps, "user-1", truth, [truth.seed]);
     }
 
     expect(findSpy).toHaveBeenCalledTimes(3);

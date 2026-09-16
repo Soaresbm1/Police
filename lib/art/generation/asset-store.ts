@@ -1,8 +1,23 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { isCaseRef } from "@/lib/security/case-ref";
 import type { AssetStatus, GeneratedAssetKind, GeneratedAssetRecord } from "./types";
 
 const BUCKET = "generated-art";
+
+/** Security S1 — every NEW row and object is keyed by the opaque `caseRef`,
+ * never by a seed (the column keeps its historical `case_seed` name to
+ * avoid a schema migration; see SECURITY.md). Refusing anything else here
+ * makes a plaintext seed structurally impossible to write. */
+function assertWritableCaseKey(caseKey: string): void {
+  if (!isCaseRef(caseKey)) throw new Error("generated asset writes require a caseRef case key");
+}
+
+/** PostgREST `in` list literal for `.not(column, "in", …)`. Case keys are
+ * `cr1_<hex>` or legacy `CASE-XXXXXX`, but quote defensively anyway. */
+function postgrestInList(values: string[]): string {
+  return `(${values.map((v) => `"${v.replace(/["\\]/g, "")}"`).join(",")})`;
+}
 
 type AssetRow = Database["public"]["Tables"]["generated_assets"]["Row"];
 
@@ -67,7 +82,7 @@ export async function findAssetRecord(
 
 export async function createQueuedRecord(
   userId: string,
-  caseSeed: string,
+  caseRef: string,
   assetKind: GeneratedAssetKind,
   descriptorHash: string,
   generationVersion: number,
@@ -79,12 +94,13 @@ export async function createQueuedRecord(
    * deliberately never passes one). */
   reuseKey: string | null,
 ): Promise<GeneratedAssetRecord> {
+  assertWritableCaseKey(caseRef);
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("generated_assets")
     .insert({
       user_id: userId,
-      case_seed: caseSeed,
+      case_seed: caseRef,
       asset_kind: assetKind,
       descriptor_hash: descriptorHash,
       generation_version: generationVersion,
@@ -115,6 +131,9 @@ export async function createQueuedRecord(
  * by a concurrent sibling. `user_id` is filtered explicitly here — same
  * defense-in-depth discipline as every other function in this file — on
  * top of the unchanged RLS select policy.
+ *
+ * Security S1: `excludeCaseKeys` holds every key the current case may be
+ * stored under (its caseRef, plus its legacy seed for a pre-S1 case).
  */
 export async function findReusableAssetCandidates(
   userId: string,
@@ -122,7 +141,7 @@ export async function findReusableAssetCandidates(
   generationVersion: number,
   provider: string,
   reuseKey: string,
-  excludeCaseSeed: string,
+  excludeCaseKeys: string[],
   limit: number,
 ): Promise<GeneratedAssetRecord[]> {
   const supabase = await createServerSupabaseClient();
@@ -136,7 +155,7 @@ export async function findReusableAssetCandidates(
     .eq("reuse_key", reuseKey)
     .eq("status", "ready")
     .is("source_asset_id", null)
-    .neq("case_seed", excludeCaseSeed)
+    .not("case_seed", "in", postgrestInList(excludeCaseKeys))
     .order("reuse_count", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -165,7 +184,7 @@ export async function findReusableAssetCandidates(
  */
 export async function createReusedRecord(
   userId: string,
-  caseSeed: string,
+  caseRef: string,
   assetKind: GeneratedAssetKind,
   descriptorHash: string,
   generationVersion: number,
@@ -174,12 +193,13 @@ export async function createReusedRecord(
   reuseKey: string,
   canonicalSourceId: string,
 ): Promise<GeneratedAssetRecord> {
+  assertWritableCaseKey(caseRef);
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("generated_assets")
     .insert({
       user_id: userId,
-      case_seed: caseSeed,
+      case_seed: caseRef,
       asset_kind: assetKind,
       descriptor_hash: descriptorHash,
       generation_version: generationVersion,
@@ -272,19 +292,19 @@ export async function markFailed(userId: string, id: string, errorMessage: strin
  */
 export async function findReadyAssetsByHashes(
   userId: string,
-  caseSeed: string,
+  caseKeys: string[],
   assetKind: GeneratedAssetKind,
   generationVersion: number,
   provider: string,
   descriptorHashes: string[],
 ): Promise<GeneratedAssetRecord[]> {
-  if (descriptorHashes.length === 0) return [];
+  if (descriptorHashes.length === 0 || caseKeys.length === 0) return [];
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("generated_assets")
     .select("*")
     .eq("user_id", userId)
-    .eq("case_seed", caseSeed)
+    .in("case_seed", caseKeys)
     .eq("asset_kind", assetKind)
     .eq("generation_version", generationVersion)
     .eq("provider", provider)
@@ -294,32 +314,35 @@ export async function findReadyAssetsByHashes(
   return (data ?? []).map(rowToRecord);
 }
 
-export async function countAssetsForCase(userId: string, caseSeed: string): Promise<number> {
+export async function countAssetsForCase(userId: string, caseKeys: string[]): Promise<number> {
+  if (caseKeys.length === 0) return 0;
   const supabase = await createServerSupabaseClient();
   const { count, error } = await supabase
     .from("generated_assets")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
-    .eq("case_seed", caseSeed);
+    .in("case_seed", caseKeys);
   if (error) throw new Error(`Supabase countAssetsForCase failed: ${error.message}`);
   return count ?? 0;
 }
 
 /** Uploads generated image bytes to the private `generated-art` bucket at
- * the standard `{userId}/{caseSeed}/{descriptorHash}.{ext}` path — the
- * leading `userId` segment is what the storage RLS policy checks (see
- * `supabase/migrations/0002_generated_assets.sql`), so this path is safe
- * to treat as stable/permanent without also needing to be secret. */
+ * `{userId}/{caseRef}/{descriptorHash}.{ext}` — the leading `userId`
+ * segment is what the storage RLS policy checks (see
+ * `supabase/migrations/0002_generated_assets.sql`). Security S1: the second
+ * segment is the opaque caseRef because this path is visible inside every
+ * signed image URL; before S1 it was the plaintext seed. */
 export async function uploadAssetBytes(
   userId: string,
-  caseSeed: string,
+  caseRef: string,
   descriptorHash: string,
   bytes: Uint8Array,
   contentType: string,
 ): Promise<{ path: string }> {
+  assertWritableCaseKey(caseRef);
   const supabase = await createServerSupabaseClient();
   const ext = contentType.split("/")[1] ?? "bin";
-  const path = `${userId}/${caseSeed}/${descriptorHash}.${ext}`;
+  const path = `${userId}/${caseRef}/${descriptorHash}.${ext}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, { contentType, upsert: true });
   if (error) throw new Error(`Supabase uploadAssetBytes failed: ${error.message}`);
   return { path };
@@ -355,4 +378,53 @@ export async function getSignedAssetUrls(paths: string[], expiresInSeconds = 14_
     if (entry.path && entry.signedUrl && !entry.error) result.set(entry.path, entry.signedUrl);
   }
   return result;
+}
+
+// ---------------------------------------------------------------------
+// Security S1 — operations for `legacy-case-migration.ts` (structurally
+// satisfies its `LegacyArtMigrationOps`). Same explicit `user_id` filtering
+// as everything above, on top of the unchanged RLS policies. Nothing here
+// deletes a row or an object: `move` renames an object in place, and a
+// path is only ever repointed for rows owned by the same user.
+// ---------------------------------------------------------------------
+
+export async function listCaseRows(userId: string, caseKey: string): Promise<{ id: string; storagePath: string | null }[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.from("generated_assets").select("id, storage_path").eq("user_id", userId).eq("case_seed", caseKey);
+  if (error) throw new Error(`Supabase listCaseRows failed: ${error.message}`);
+  return (data ?? []).map((row) => ({ id: row.id, storagePath: row.storage_path }));
+}
+
+export async function moveObject(fromPath: string, toPath: string): Promise<boolean> {
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.storage.from(BUCKET).move(fromPath, toPath);
+  return !error;
+}
+
+export async function objectExists(path: string): Promise<boolean> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.storage.from(BUCKET).exists(path);
+  return !error && data === true;
+}
+
+export async function repointStoragePath(userId: string, fromPath: string, toPath: string): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from("generated_assets")
+    .update({ storage_path: toPath })
+    .eq("user_id", userId)
+    .eq("storage_path", fromPath);
+  if (error) throw new Error(`Supabase repointStoragePath failed: ${error.message}`);
+}
+
+export async function relabelRow(userId: string, id: string, fromCaseKey: string, toCaseKey: string): Promise<void> {
+  assertWritableCaseKey(toCaseKey);
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from("generated_assets")
+    .update({ case_seed: toCaseKey })
+    .eq("user_id", userId)
+    .eq("id", id)
+    .eq("case_seed", fromCaseKey);
+  if (error) throw new Error(`Supabase relabelRow failed: ${error.message}`);
 }

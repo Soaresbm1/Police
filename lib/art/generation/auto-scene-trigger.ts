@@ -1,5 +1,6 @@
 import type { GeneratedAssetProvider } from "../generated-asset-provider";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
+import type { CaseAssetKeys } from "@/lib/security/case-ref";
 import { buildCrimeSceneVisualDescriptor } from "../visual-manifest";
 import { hashDescriptor } from "../asset-cache";
 import { buildCrimeSceneEnvironmentPrompt, CRIME_SCENE_PROMPT_VERSION } from "./crime-scene-prompt";
@@ -73,13 +74,16 @@ export async function runAutoCrimeSceneGeneration(
   deps: { store: AssetStoreLike; provider: GeneratedAssetProvider },
   userId: string,
   truth: CaseTruth,
+  /** Security S1 — computed server-side by the caller
+   * (`caseAssetKeysFor(truth.seed)`); rows, paths and logs use its caseRef. */
+  caseKeys: CaseAssetKeys,
 ): Promise<AutoCrimeSceneDiagnostics> {
   const diagnostics: AutoCrimeSceneDiagnostics = { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0, reuseHits: 0 };
 
   const location = truth.locations.find((l) => l.id === truth.crimeLocationId);
   if (!location) {
     diagnostics.skipped = 1;
-    logSummary(truth.seed, diagnostics);
+    logSummary(caseKeys.caseRef, diagnostics);
     return diagnostics;
   }
 
@@ -95,7 +99,7 @@ export async function runAutoCrimeSceneGeneration(
   }
   if (existing?.status === "ready") {
     diagnostics.cacheHits++;
-    logSummary(truth.seed, diagnostics);
+    logSummary(caseKeys.caseRef, diagnostics);
     return diagnostics;
   }
 
@@ -104,7 +108,8 @@ export async function runAutoCrimeSceneGeneration(
     deps,
     {
       userId,
-      caseSeed: truth.seed,
+      caseRef: caseKeys.caseRef,
+      caseLookupKeys: caseKeys.lookupKeys,
       assetKind: "crime_scene_environment",
       descriptorHash,
       generationVersion: CRIME_SCENE_GENERATION_VERSION,
@@ -114,7 +119,7 @@ export async function runAutoCrimeSceneGeneration(
       seed: descriptor.seed,
       reuseKey: reuseSceneKey(descriptor),
     },
-    { excludeCaseSeed: truth.seed, claimedSourceIds: new Set(), candidateLimit: REUSE_CANDIDATE_LIMIT },
+    { excludeCaseKeys: caseKeys.lookupKeys, claimedSourceIds: new Set(), candidateLimit: REUSE_CANDIDATE_LIMIT },
   );
   if (result.status === "ready") {
     diagnostics.ready++;
@@ -123,16 +128,16 @@ export async function runAutoCrimeSceneGeneration(
     diagnostics.failed++;
   }
 
-  logSummary(truth.seed, diagnostics);
+  logSummary(caseKeys.caseRef, diagnostics);
   return diagnostics;
 }
 
-function logSummary(seed: string, d: AutoCrimeSceneDiagnostics): void {
-  // Never logs the prompt, a credential, or anything CaseTruth-shaped —
-  // only counts and the (already player-visible-eventually) case seed,
+function logSummary(caseRef: string, d: AutoCrimeSceneDiagnostics): void {
+  // Never logs the prompt, a credential, the seed, or anything
+  // CaseTruth-shaped — only counts and the opaque caseRef (Security S1),
   // same discipline as auto-portrait-trigger.ts's own summary line.
   console.log(
-    `[CASELINE] [auto-crime-scene] case ${seed}: ` +
+    `[CASELINE] [auto-crime-scene] case ${caseRef}: ` +
       `attempted=${d.attempted}, cacheHits=${d.cacheHits}, ready=${d.ready}, reuseHits=${d.reuseHits}, failed=${d.failed}, skipped=${d.skipped}.`,
   );
 }

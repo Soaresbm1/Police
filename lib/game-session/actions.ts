@@ -11,6 +11,7 @@ import { isAutoCrimeSceneGenerationEnabled, runAutoCrimeSceneGeneration } from "
 import { markEventSeen } from "./events";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
+import { caseAssetKeysFor } from "@/lib/security/case-ref";
 import { getStore } from "./persistence";
 import { getCurrentIdentity } from "./identity";
 import { withSession } from "./with-session";
@@ -36,7 +37,11 @@ export async function startNewCase(formData: FormData) {
   const difficulty: Difficulty = DIFFICULTIES.includes(raw as Difficulty) ? (raw as Difficulty) : "investigator";
   const seed = generateCaseSeed();
   const truth = generateCase(seed, { difficulty });
+  // Security S1: in Supabase mode this refuses (S1ConfigError) before
+  // writing anything when the master secret is missing — a new case is
+  // never stored with a plaintext seed.
   await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
+  const caseKeys = caseAssetKeysFor(seed);
 
   // Pilot-gated (see `.env.example`): queues portrait/crime-scene
   // generation for this brand-new case to run after this response is
@@ -65,20 +70,20 @@ export async function startNewCase(formData: FormData) {
         (async () => {
           if (!isAutoPortraitGenerationEnabled()) return;
           try {
-            await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+            await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys);
           } catch (err) {
             console.error(
-              `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+              `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${caseKeys.caseRef}: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
         })(),
         (async () => {
           if (!isAutoCrimeSceneGenerationEnabled()) return;
           try {
-            await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth);
+            await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys);
           } catch (err) {
             console.error(
-              `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${seed}: ${err instanceof Error ? err.message : String(err)}`,
+              `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${caseKeys.caseRef}: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
         })(),

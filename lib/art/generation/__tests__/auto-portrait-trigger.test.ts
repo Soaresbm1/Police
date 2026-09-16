@@ -17,6 +17,15 @@ import type { GeneratedAssetProvider, GeneratedAssetResult } from "../../generat
 import type { GeneratedAssetKind, GeneratedAssetRecord } from "../types";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { Person } from "@/lib/game-engine/types/person";
+import type { CaseAssetKeys } from "@/lib/security/case-ref";
+
+/** Security S1 — the fake store labels rows with whatever case key it is
+ * given; tests keep using the truth's seed string as that label so their
+ * per-case assertions read unchanged. Real keys are covered in
+ * lib/security/__tests__. */
+function testCaseKeys(truth: CaseTruth): CaseAssetKeys {
+  return { caseRef: truth.seed, lookupKeys: [truth.seed] };
+}
 
 function makePerson(overrides: Partial<Person> = {}): Person {
   return {
@@ -156,8 +165,8 @@ class FakeAssetStore implements AssetStoreLike {
     if (r) Object.assign(r, { status: "failed", errorMessage, attemptCount, failedAt: new Date().toISOString() });
   }
 
-  async countAssetsForCase(userId: string, caseSeed: string) {
-    return this.rows.filter((r) => r.userId === userId && r.caseSeed === caseSeed).length;
+  async countAssetsForCase(userId: string, caseKeys: string[]) {
+    return this.rows.filter((r) => r.userId === userId && caseKeys.includes(r.caseSeed)).length;
   }
 
   async uploadAssetBytes(userId: string, caseSeed: string, descriptorHash: string) {
@@ -175,7 +184,7 @@ class FakeAssetStore implements AssetStoreLike {
     generationVersion: number,
     provider: string,
     reuseKey: string,
-    excludeCaseSeed: string,
+    excludeCaseKeys: string[],
     limit: number,
   ) {
     return this.rows
@@ -188,7 +197,7 @@ class FakeAssetStore implements AssetStoreLike {
           r.reuseKey === reuseKey &&
           r.status === "ready" &&
           r.sourceAssetId === null &&
-          r.caseSeed !== excludeCaseSeed,
+          !excludeCaseKeys.includes(r.caseSeed),
       )
       .sort((a, b) => a.reuseCount - b.reuseCount || a.id.localeCompare(b.id))
       .slice(0, limit);
@@ -297,7 +306,7 @@ describe("runAutoPortraitGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
 
     expect(diagnostics.attempted).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
     expect(diagnostics.ready).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
@@ -312,10 +321,10 @@ describe("runAutoPortraitGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new MockGeneratedAssetProvider();
 
-    await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     const callsAfterFirstRun = provider.calls.length;
 
-    const second = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    const second = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(provider.calls).toHaveLength(callsAfterFirstRun); // no new calls at all
     expect(second.cacheHits).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
     expect(second.attempted).toBe(0);
@@ -326,7 +335,7 @@ describe("runAutoPortraitGeneration", () => {
     const store = new FakeAssetStore();
     const provider = new AlwaysMissingGeneratedAssetProvider();
 
-    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
     expect(diagnostics.failed).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
     expect(diagnostics.ready).toBe(0);
   });
@@ -398,7 +407,7 @@ describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)"
     const store = new FakeAssetStore();
     const gated = makeGatedProvider();
 
-    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth);
+    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth, testCaseKeys(truth));
 
     for (let i = 0; i < MAX_AUTO_PORTRAITS_PER_CASE; i++) {
       await flushMicrotasks();
@@ -415,7 +424,7 @@ describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)"
     const store = new FakeAssetStore();
     const { provider, calls } = makePartiallyFailingProvider(new Set([suspects[0].avatarSeed]));
 
-    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
 
     expect(calls).toHaveLength(MAX_AUTO_PORTRAITS_PER_CASE); // every candidate was still attempted
     expect(diagnostics.attempted).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
@@ -436,7 +445,7 @@ describe("runAutoPortraitGeneration — bounded concurrency (Generated Art V2A)"
     }
     const gated = makeGatedProvider();
 
-    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth);
+    const donePromise = runAutoPortraitGeneration({ store, provider: gated.provider }, "user-1", truth, testCaseKeys(truth));
     // Let every candidate's cache-check + budget-check settle (they all
     // resolve near-instantly against the fake store), then release every
     // gated generation at once — the worst-case simultaneous-completion
@@ -472,7 +481,7 @@ describe("runAutoPortraitGeneration — same-user reuse under V2A concurrency (G
     );
     await store.markReady("user-1", priorRow.id, { storagePath: "user-1/CASE-PRIOR/prior.jpeg", width: 1024, height: 1024, providerModel: "old", promptVersion: 3 });
 
-    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth);
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth));
 
     expect(diagnostics.reuseHits).toBeGreaterThanOrEqual(1);
     const victimHash = hashDescriptor(victimDescriptor);

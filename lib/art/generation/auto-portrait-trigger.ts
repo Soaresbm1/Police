@@ -1,6 +1,7 @@
 import type { GeneratedAssetProvider } from "../generated-asset-provider";
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import type { Person } from "@/lib/game-engine/types/person";
+import type { CaseAssetKeys } from "@/lib/security/case-ref";
 import { buildCharacterVisualDescriptor } from "../visual-manifest";
 import { hashDescriptor } from "../asset-cache";
 import { hashSeed } from "../hash";
@@ -137,6 +138,9 @@ export async function runAutoPortraitGeneration(
   deps: { store: AssetStoreLike; provider: GeneratedAssetProvider },
   userId: string,
   truth: CaseTruth,
+  /** Security S1 — computed server-side by the caller
+   * (`caseAssetKeysFor(truth.seed)`); rows, paths and logs use its caseRef. */
+  caseKeys: CaseAssetKeys,
 ): Promise<AutoPortraitDiagnostics> {
   const allImportant = importantPeopleForPortraits(truth);
   const candidates = selectAutoPortraitCandidates(truth);
@@ -151,7 +155,7 @@ export async function runAutoPortraitGeneration(
 
   let remainingBudget: number;
   try {
-    const currentCount = await deps.store.countAssetsForCase(userId, truth.seed);
+    const currentCount = await deps.store.countAssetsForCase(userId, caseKeys.lookupKeys);
     remainingBudget = Math.max(0, MAX_ASSETS_PER_CASE - currentCount);
   } catch {
     // Pre-check-only read failed — fall back to letting each
@@ -199,7 +203,8 @@ export async function runAutoPortraitGeneration(
       deps,
       {
         userId,
-        caseSeed: truth.seed,
+        caseRef: caseKeys.caseRef,
+        caseLookupKeys: caseKeys.lookupKeys,
         assetKind: "character_portrait",
         descriptorHash,
         generationVersion: CHARACTER_PORTRAIT_GENERATION_VERSION,
@@ -209,7 +214,7 @@ export async function runAutoPortraitGeneration(
         seed: descriptor.seed,
         reuseKey: reusePortraitKey(descriptor),
       },
-      { excludeCaseSeed: truth.seed, claimedSourceIds, candidateLimit: REUSE_CANDIDATE_LIMIT },
+      { excludeCaseKeys: caseKeys.lookupKeys, claimedSourceIds, candidateLimit: REUSE_CANDIDATE_LIMIT },
     );
     if (result.status === "ready") {
       diagnostics.ready++;
@@ -220,7 +225,7 @@ export async function runAutoPortraitGeneration(
   });
 
   console.log(
-    `[CASELINE] [auto-portrait] case ${truth.seed}: ` +
+    `[CASELINE] [auto-portrait] case ${caseKeys.caseRef}: ` +
       `attempted=${diagnostics.attempted}, cacheHits=${diagnostics.cacheHits}, ready=${diagnostics.ready}, ` +
       `reuseHits=${diagnostics.reuseHits}, failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}.`,
   );
