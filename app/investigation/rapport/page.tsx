@@ -4,7 +4,7 @@ import { getPerson } from "@/lib/game-session/player-view";
 import { scoreAccusation } from "@/lib/game-session/scoring";
 import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
 import { formatDuration } from "@/lib/game-engine/types/time";
-import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { displayCaseNumber } from "@/lib/security/case-number";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
 import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
@@ -24,7 +24,7 @@ export default async function RapportPage() {
   const realVictim = getPerson(truth, truth.victimId);
 
   const data: TruthRevealData = {
-    caseRef: formatCaseNumber(session.seed),
+    caseRef: displayCaseNumber(session.seed),
     grade: score.grade,
     overallPercent: score.overallPercent,
     culpritCorrect: score.culpritCorrect,

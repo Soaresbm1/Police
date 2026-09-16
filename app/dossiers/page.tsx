@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getCurrentIdentity } from "@/lib/game-session/identity";
 import { getStore } from "@/lib/game-session/persistence";
-import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { displayCaseNumber } from "@/lib/security/case-number";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +44,7 @@ export default async function DossiersPage() {
               className="panel flex flex-wrap items-center justify-between gap-2 p-4 hover:border-accent"
             >
               <div>
-                <p className="data-id">{formatCaseNumber(entry.seed)}</p>
+                <p className="data-id">{displayCaseNumber(entry.seed)}</p>
                 <p className="text-xs text-muted">{formatDate(entry.completedAt)} — {entry.difficulty}</p>
               </div>
               <div className="flex items-center gap-3">

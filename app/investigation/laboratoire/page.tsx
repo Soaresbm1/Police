@@ -2,7 +2,7 @@ import { getCurrentGame } from "@/lib/game-session/current";
 import { getVisibleEvidence } from "@/lib/game-session/player-view";
 import { sendToLabAction } from "@/lib/game-session/actions";
 import { formatDuration, formatGameTime } from "@/lib/game-engine/types/time";
-import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { displayCaseNumber } from "@/lib/security/case-number";
 import { DocumentSheet } from "@/components/investigation/DocumentSheet";
 import { LAB_ANALYSIS_LABEL, RELIABILITY_LABEL } from "@/lib/game-session/labels";
 import { evidenceCode } from "@/lib/art/evidence-code";
@@ -94,7 +94,7 @@ export default async function LaboratoirePage() {
         )}
       </section>
 
-      <DocumentSheet title={`Rapports disponibles (${completed.length})`} caseRef={formatCaseNumber(session.seed)}>
+      <DocumentSheet title={`Rapports disponibles (${completed.length})`} caseRef={displayCaseNumber(session.seed)}>
         {completed.length === 0 ? (
           <p className="text-sm text-muted">Aucun rapport pour l&apos;instant.</p>
         ) : (

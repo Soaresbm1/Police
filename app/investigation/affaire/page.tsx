@@ -2,7 +2,8 @@ import Link from "next/link";
 import { getCurrentGame } from "@/lib/game-session/current";
 import { getBriefing, getLocation, getPerson } from "@/lib/game-session/player-view";
 import { formatGameTime } from "@/lib/game-engine/types/time";
-import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { displayCaseNumber } from "@/lib/security/case-number";
+import { computeCaseRef } from "@/lib/security/case-ref";
 import { CharacterPortrait } from "@/components/investigation/CharacterPortrait";
 import { CaseIntroOverlay } from "@/components/investigation/CaseIntroOverlay";
 import { OnboardingHint } from "@/components/investigation/OnboardingHint";
@@ -20,13 +21,15 @@ export default async function AffairePage() {
   const victimName = `${victim.firstName} ${victim.lastName}`;
   const portraitUrls = await getReadyPortraitUrls(userId, truth);
   const victimGeneratedPortraitUrl = portraitUrls.get(victim.id) ?? null;
+  // Security S1: only opaque/derived values cross into client components.
+  const caseNumber = displayCaseNumber(session.seed);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
       <ArtRefreshWatcher pending={hasMissingPortraits([victim.id], portraitUrls)} />
       <CaseIntroOverlay
-        seed={session.seed}
-        caseNumber={formatCaseNumber(session.seed)}
+        introKey={computeCaseRef(session.seed)}
+        caseNumber={caseNumber}
         crimeType={briefing.crimeType}
         victimName={victimName}
         victimAvatarSeed={victim.avatarSeed}
@@ -43,7 +46,7 @@ export default async function AffairePage() {
 
       <div className="panel panel-bracketed flex flex-wrap items-start justify-between gap-4 p-5">
         <div>
-          <p className="data-id">DOSSIER N° {formatCaseNumber(session.seed)}</p>
+          <p className="data-id">DOSSIER N° {caseNumber}</p>
           <h1 className="mt-1 text-2xl font-bold uppercase tracking-wide text-foreground">
             Homicide — {victimName}
           </h1>
@@ -79,7 +82,7 @@ export default async function AffairePage() {
         </div>
       </section>
 
-      <DocumentSheet title="Rapport du médecin légiste" caseRef={formatCaseNumber(session.seed)} pageLabel="Page 1/1">
+      <DocumentSheet title="Rapport du médecin légiste" caseRef={caseNumber} pageLabel="Page 1/1">
         <dl className="font-document grid gap-3 text-sm md:grid-cols-2">
           <div>
             <dt className="field-label !text-muted">Décès estimé entre</dt>

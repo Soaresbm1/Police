@@ -3,7 +3,7 @@ import { generateCase } from "@/lib/game-engine/case-generator/case-truth";
 import { getCurrentIdentity } from "@/lib/game-session/identity";
 import { getStore } from "@/lib/game-session/persistence";
 import { buildNarrativeReconstruction, enrichNarrativeForDisplay } from "@/lib/game-session/narrative-reconstruction";
-import { formatCaseNumber } from "@/lib/game-engine/world/city";
+import { displayCaseNumber } from "@/lib/security/case-number";
 import { TruthRevealSequence, type TruthRevealData } from "@/components/investigation/TruthRevealSequence";
 import { ArtRefreshWatcher } from "@/components/investigation/ArtRefreshWatcher";
 import { getReadyPortraitUrls, hasMissingPortraits } from "@/lib/art/generation/portrait-lookup";
@@ -31,7 +31,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   const accompliceWronglyAccused = score.accompliceWronglyAccused ?? 0;
 
   const data: TruthRevealData = {
-    caseRef: formatCaseNumber(entry.seed),
+    caseRef: displayCaseNumber(entry.seed),
     grade: score.grade,
     overallPercent: score.overallPercent,
     culpritCorrect: score.culpritCorrect,

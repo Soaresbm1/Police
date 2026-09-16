@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { CharacterPortrait } from "./CharacterPortrait";
 
 interface CaseIntroOverlayProps {
-  seed: string;
-  /** Display-only case reference (`CL-2026-0421`); `seed` stays the
-   * storage key so the intro still plays exactly once per case. */
+  /** Security S1 — the case's opaque caseRef (`cr1_…`, computed
+   * server-side). Keys the "already shown" flag so the intro plays exactly
+   * once per case; the seed itself never reaches this client component. */
+  introKey: string;
+  /** Display-only case reference (`CL-2026-0421`). */
   caseNumber: string;
   crimeType: string;
   victimName: string;
@@ -22,8 +24,12 @@ interface CaseIntroOverlayProps {
 
 const STEP_DELAY_MS = 850;
 
+export function caseIntroStorageKey(introKey: string): string {
+  return `caseline:intro-shown:${introKey}`;
+}
+
 export function CaseIntroOverlay({
-  seed,
+  introKey,
   caseNumber,
   crimeType,
   victimName,
@@ -33,7 +39,7 @@ export function CaseIntroOverlay({
   reportedAtLabel,
   victimGeneratedPortraitUrl,
 }: CaseIntroOverlayProps) {
-  const storageKey = `caseline:intro-shown:${seed}`;
+  const storageKey = caseIntroStorageKey(introKey);
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
   const totalSteps = 4;
