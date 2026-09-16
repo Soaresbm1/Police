@@ -7,20 +7,23 @@ cas :
 
 - **U5.4** (terminé, en Production) : rythme de présentation (« Plus tard… », ~41 s médian au lieu de ~37 min) et un
   geste abstrait par méthode de crime (7 méthodes).
-- **U5.5** (en cours, en attente d'approbation) : caméras déterministes « action-aware ». Limitation connue de U5.4 :
+- **U5.5** (approuvé, mergé sur master) : caméras déterministes « action-aware ». Limitation connue de U5.4 :
   les attaques paraissaient trop petites dans les environnements larges.
 
 La série Generated Art (V1 → V2B) et la Phase 5A sont terminées depuis. Voir GENERATED_ART.md et l'historique git.
 
 ## État actuel
 
-- **Production / master : `a46d5d6`** (U5.4). Non modifié pendant U5.5.
-- **Branche `unity/reconstruction-action-camera-u5-5`** poussée, **non mergée** :
+- **master** : U5.5 approuvé et intégré en fast-forward depuis `unity/reconstruction-action-camera-u5-5` (base
+  précédente `a46d5d6`, U5.4). Commits :
   - `93b53de` : feat: add deterministic reconstruction action cameras
   - `f2e7ad7` : test: validate reconstruction camera framing matrix
   - `b5e58fc` : chore: refresh shared Unity WebGL build (U5.5)
-  - un commit docs (ce fichier, UNITY_RECONSTRUCTION.md, ARCHITECTURE.md, ROADMAP.md, README.md)
-- **Preview Vercel (U5.5)** : https://police-6hdc661db-soares-2.vercel.app, QA complète faite.
+  - `24346bb` et le commit docs suivant : documentation (ce fichier, UNITY_RECONSTRUCTION.md, ARCHITECTURE.md,
+    ROADMAP.md, README.md)
+- **QA Preview U5.5** complète (7 méthodes via fixtures réelles, cas archivé réel, 10× réouverture, CCTV,
+  mobile) avant approbation. Le smoke test Production de U5.5 et son résultat figurent dans le rapport de merge
+  final de la session.
 - **Tests Unity** : 235/235 (reconstruction 163/163, CCTV 72/72).
 - **Tests CASELINE** : 773 réussis, 1 ignoré. Tests TS de reconstruction : 153/153. Typecheck, lint et build propres.
 - **Build Brotli partagée** : 5 250 678 octets (U5.4 : 5 253 827). Hash décodés identiques entre le commit et le Preview.
@@ -89,11 +92,11 @@ La série Generated Art (V1 → V2B) et la Phase 5A sont terminées depuis. Voir
 
 ## Prochaines étapes
 
-1. **Attendre l'approbation explicite** de U5.5 avant tout merge sur master ou tout déploiement Production.
-2. Si approuvé : merge (fast-forward si possible), attente du déploiement Production, vérification Brotli, smoke test
-   Production (comme pour U5.4).
-3. Limites restantes, non traitées volontairement :
+1. Vérifier le résultat du smoke test Production U5.5 (rapport de merge final). Aucun correctif à chaud sans rapport
+   préalable.
+2. Limites restantes, non traitées volontairement :
    - acteurs toujours côte à côte, face à +z ;
    - bâtiment décoratif de la rue parfois derrière le plan de discussion ;
-   - redémarrage Unity (~5 s) en passant de Caméras au rapport.
-4. Ne pas commencer U5.6, ni refonte d'environnements ou de modèles d'acteurs, sans nouvelle demande.
+   - redémarrage Unity (~5–8 s) en passant de Caméras au rapport ;
+   - reconstitution 3D indisponible sur mobile, par conception.
+3. Ne pas commencer U5.6, ni refonte d'environnements ou de modèles d'acteurs, sans nouvelle demande.

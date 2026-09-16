@@ -103,7 +103,8 @@ change the shot at a given time.
 ### Measurements
 
 Measured by projection (`Camera.WorldToViewportPoint`, 16:10 viewer aspect), never from screenshots:
-`Tools/CASELINE/Report Reconstruction Camera Matrix` writes the full report. At the attack beat:
+`Tools/CASELINE/Report Reconstruction Camera Matrix (U5.5 action cameras)` writes the full report, and the
+`(U5.4 baseline)` item writes the same report for the frozen U5.4 camera. At the attack beat:
 
 | | U5.4 camera | U5.5 `PhysicalAttack` |
 | --- | --- | --- |
@@ -138,12 +139,13 @@ from the foreground to the back row, where they can no longer hide a person at t
 - TypeScript (Vitest): projector, presentation pacing, 2,000-case method coverage diagnostics, player/viewer tests.
 - Release build: `Tools/CASELINE/Build Shared Embed Scene (CCTV + Reconstruction)`, then
   `Tools/CASELINE/Build Shared Embed WebGL (Brotli)`, then copy `SharedEmbedBrotli/Build/*` to
-  `public/unity/cctv/Build/`. Rebuilding scenes rewrites the CCTV actor assets and `CCTVEmbed.unity`; those
-  changes are regenerated ids only and are not committed.
+  `public/unity/cctv/Build/`. Rebuilding scenes rewrites the CCTV actor assets, `CCTVEmbed.unity` and
+  `Reconstruction_Actor.controller` with regenerated ids and the same content; those changes are not committed.
 
 ## Known limitations
 
 - Actors are staged side by side at fixed lateral offsets, all facing +z; a beat shows the kind of act, never the
   exact geometry between the people.
 - The street environment's cosmetic building can sit behind the talk shot, which lowers contrast slightly.
-- A Cameras → report navigation restarts the Unity runtime (about 5 s), because the host page unmounts.
+- A Cameras → report navigation restarts the Unity runtime (about 5–8 s), because the host page unmounts.
+- The reconstruction is desktop only by design; mobile shows the written reconstruction.
