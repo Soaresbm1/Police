@@ -84,7 +84,14 @@ async function archiveCase(userId: string, truth: CaseTruth): Promise<string> {
   const session = await startCase(userId, truth);
   const accusation = accusationFor(truth);
   const score = scoreAccusation(truth, { ...session, accusation }, accusation);
-  await getStore().completeCase(userId, { seed: SEED, difficulty: DIFFICULTY, accusation, score });
+  await getStore().finalizeCase(userId, session.sessionUuid, {
+    seed: SEED,
+    difficulty: DIFFICULTY,
+    accusation,
+    score,
+    xpGained: 0,
+    culpritCorrect: score.culpritCorrect,
+  });
   const [entry] = await getStore().listCaseHistory(userId);
   return entry.id;
 }

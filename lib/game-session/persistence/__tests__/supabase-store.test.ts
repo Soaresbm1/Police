@@ -15,6 +15,7 @@ import type { GameSession, HintState } from "../../types";
 function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     user_id: "user-1",
+    session_uuid: "session-uuid-1",
     seed: "CASE-TEST01",
     difficulty: "investigator",
     current_time_minutes: 250,
@@ -42,6 +43,7 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
 function makeSession(overrides: Partial<GameSession> = {}): GameSession {
   return {
     id: "user-1",
+    sessionUuid: "session-uuid-1",
     seed: "CASE-TEST01",
     difficulty: "investigator",
     createdAt: Date.now(),

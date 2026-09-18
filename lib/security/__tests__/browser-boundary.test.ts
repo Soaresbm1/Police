@@ -39,6 +39,7 @@ function gameFor(seed: string): ActiveGame {
     truth,
     session: {
       id: "user-boundary",
+      sessionUuid: "session-boundary",
       seed,
       difficulty: "investigator",
       createdAt: 0,

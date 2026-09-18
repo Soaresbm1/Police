@@ -6,6 +6,7 @@ import type { GameSession } from "../types";
 function makeSession(seed: string, overrides: Partial<GameSession> = {}): GameSession {
   return {
     id: "s1",
+    sessionUuid: "s1-uuid",
     seed,
     difficulty: "investigator",
     createdAt: Date.now(),

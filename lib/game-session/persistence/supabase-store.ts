@@ -8,10 +8,10 @@ import { resolveStoredSessionSeed, sealSessionSeed, SeedEnvelopeError, type Reso
 import { computeCaseRef } from "@/lib/security/case-ref";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { migrateLegacyCaseArt } from "@/lib/art/generation/legacy-case-migration";
-import { applyCaseToCareer } from "../career";
 import { normalizeHintState } from "../hints";
 import { rememberStoredSeed, storedSeedForSave, upgradeLegacySessionSeed, type SessionSeedColumnOps } from "./session-seed";
-import type { CaseHistoryEntry, PlayerProfile, PlayerSettings, SessionStore } from "./types";
+import { getS2ServerCapabilityToken } from "@/lib/security/s2-server-capability";
+import type { AllowedTimeDelta, CaseHistoryEntry, FinalizeCaseInput, FinalizeCaseResult, PlayerProfile, PlayerSettings, SessionStore } from "./types";
 
 /** jsonb columns round-trip through `Json` — every read needs a two-step
  * cast (there's no structural overlap TypeScript can verify on its own)
@@ -100,6 +100,7 @@ type HistoryRow = Database["public"]["Tables"]["case_history"]["Row"];
 export function rowToSession(row: SessionRow, seed: string = resolveStoredSessionSeed(row.seed, row.user_id).seed): GameSession {
   return {
     id: row.user_id,
+    sessionUuid: row.session_uuid,
     seed,
     difficulty: row.difficulty as Difficulty,
     createdAt: new Date(row.created_at).getTime(),
@@ -136,15 +137,26 @@ export function rowToSession(row: SessionRow, seed: string = resolveStoredSessio
 /** Exported for the persistence round-trip tests (req. 6) — every other
  * caller stays internal to this file. Security S1: `storedSeed` is what
  * lands in the `seed` column and is always an `s1e.v1.…` envelope — by
- * default a fresh seal of `session.seed` bound to `userId`. */
+ * default a fresh seal of `session.seed` bound to `userId`.
+ *
+ * Security S2: `session_uuid` is deliberately OMITTED from this payload
+ * unless `includeSessionUuid` is set. `createSession` is the only caller
+ * that sets it, because it's the only moment a *new* investigation
+ * instance exists — every ordinary `saveSession` upsert takes the UPDATE
+ * arm (a row for this `user_id` already exists), and PostgREST/Postgres
+ * only ever touch the columns present in the payload on that arm, so
+ * omitting this key is what makes `session_uuid` survive unchanged across
+ * every normal in-game save. See `GameSession#sessionUuid`. */
 export function sessionToRow(
   userId: string,
   session: GameSession,
   storedSeed: string = sealSessionSeed(session.seed, userId),
+  options?: { includeSessionUuid?: boolean },
 ): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
   return {
     user_id: userId,
     seed: storedSeed,
+    ...(options?.includeSessionUuid ? { session_uuid: session.sessionUuid } : {}),
     difficulty: session.difficulty,
     current_time_minutes: session.currentTime,
     evidence_status: session.evidenceStatus as unknown as Json,
@@ -247,6 +259,7 @@ export class SupabaseSessionStore implements SessionStore {
   async createSession(userId: string, seed: string, difficulty: Difficulty, crimeTimestamp: number): Promise<GameSession> {
     const session: GameSession = {
       id: userId,
+      sessionUuid: crypto.randomUUID(),
       seed,
       difficulty,
       createdAt: Date.now(),
@@ -273,8 +286,13 @@ export class SupabaseSessionStore implements SessionStore {
     const supabase = await this.client();
     // A player can only ever have one active investigation — replace
     // rather than error if one somehow still exists (e.g. an abandoned
-    // case that was never explicitly ended).
-    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session, storedSeed), { onConflict: "user_id" });
+    // case that was never explicitly ended). `includeSessionUuid: true`
+    // is what gives this brand-new investigation instance its own fresh
+    // identity even when this upsert takes the UPDATE arm (reusing an
+    // existing row) — see `sessionToRow`'s own doc comment.
+    const { error } = await supabase
+      .from("investigation_sessions")
+      .upsert(sessionToRow(userId, session, storedSeed, { includeSessionUuid: true }), { onConflict: "user_id" });
     if (error) throw new Error(`Supabase createSession failed: ${error.message}`);
     return session;
   }
@@ -310,47 +328,59 @@ export class SupabaseSessionStore implements SessionStore {
     return rowToProfile(created);
   }
 
+  /** Security S2 — routes through `caseline_update_profile_preferences`
+   * (ownership-checked via `auth.uid()` inside the function; no capability
+   * token needed) instead of a whole-row `UPDATE`, so this keeps working
+   * unchanged once S2's CONTRACT phase removes the broad `profiles` grant. */
   async updateSettings(userId: string, patch: Partial<PlayerSettings>): Promise<PlayerProfile> {
     const supabase = await this.client();
-    const update: Database["public"]["Tables"]["profiles"]["Update"] = { updated_at: new Date().toISOString() };
-    if (patch.soundMuted !== undefined) update.sound_muted = patch.soundMuted;
-    if (patch.reduceMotion !== undefined) update.reduce_motion = patch.reduceMotion;
-    if (patch.hintsDisabled !== undefined) update.hints_disabled = patch.hintsDisabled;
-
-    const { data, error } = await supabase.from("profiles").update(update).eq("id", userId).select("*").single();
+    const { error } = await supabase.rpc("caseline_update_profile_preferences", {
+      p_sound_muted: patch.soundMuted ?? null,
+      p_reduce_motion: patch.reduceMotion ?? null,
+      p_hints_disabled: patch.hintsDisabled ?? null,
+    });
     if (error) throw new Error(`Supabase updateSettings failed: ${error.message}`);
-    return rowToProfile(data);
+    return this.getProfile(userId);
   }
 
-  async completeCase(userId: string, entry: Omit<CaseHistoryEntry, "id" | "completedAt">): Promise<PlayerProfile> {
+  /** Security S2 — the game clock's only sanctioned mutation path once
+   * CONTRACT lands; routes through `caseline_advance_time`, which enforces
+   * both ownership (`auth.uid()`) and the delta allow-list at the database
+   * layer, independent of anything this TypeScript call site does. */
+  async advanceTime(userId: string, sessionUuid: string, minutes: AllowedTimeDelta): Promise<number> {
     const supabase = await this.client();
-    const profile = await this.getProfile(userId);
-    const { newXp, newRank } = applyCaseToCareer(profile.xp, entry.score);
+    const { data, error } = await supabase.rpc("caseline_advance_time", { p_session_uuid: sessionUuid, p_minutes: minutes });
+    if (error) throw new Error(`Supabase advanceTime failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { current_time_minutes: number } | undefined;
+    if (!row) throw new Error("Supabase advanceTime returned no row");
+    void userId; // ownership is enforced inside the function via auth.uid(), not by this argument
+    return row.current_time_minutes;
+  }
 
-    const { error: historyError } = await supabase.from("case_history").insert({
-      user_id: userId,
-      seed: entry.seed,
-      difficulty: entry.difficulty,
-      accusation: entry.accusation as unknown as Json,
-      score: entry.score as unknown as Json,
+  /** Security S2 — one atomic, idempotent resolution via
+   * `caseline_finalize_case`. The server-only capability token proves this
+   * call carries a genuinely server-computed result (score/grade/XP,
+   * regenerated from CaseTruth) rather than a value a direct caller chose
+   * for themselves — see SECURITY.md §S2 "capability call path". Fails
+   * closed (throws, writes nothing) if the token isn't configured. */
+  async finalizeCase(userId: string, sessionUuid: string, input: FinalizeCaseInput): Promise<FinalizeCaseResult> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_finalize_case", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_seed: input.seed,
+      p_difficulty: input.difficulty,
+      p_accusation: input.accusation as unknown as Json,
+      p_score: input.score as unknown as Json,
+      p_xp_gained: input.xpGained,
+      p_culprit_correct: input.culpritCorrect,
     });
-    if (historyError) throw new Error(`Supabase completeCase (history insert) failed: ${historyError.message}`);
-
-    const { data, error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        xp: newXp,
-        rank: newRank,
-        cases_solved: profile.casesSolved + (entry.score.culpritCorrect ? 1 : 0),
-        cases_failed: profile.casesFailed + (entry.score.culpritCorrect ? 0 : 1),
-        accusations_total: profile.accusationsTotal + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", userId)
-      .select("*")
-      .single();
-    if (profileError) throw new Error(`Supabase completeCase (profile update) failed: ${profileError.message}`);
-    return rowToProfile(data);
+    if (error) throw new Error(`Supabase finalizeCase failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { history_id: string; already_finalized: boolean } | undefined;
+    if (!row) throw new Error("Supabase finalizeCase returned no row");
+    const profile = await this.getProfile(userId);
+    return { historyId: row.history_id, alreadyFinalized: row.already_finalized, profile };
   }
 
   async listCaseHistory(userId: string): Promise<CaseHistoryEntry[]> {

@@ -8,6 +8,7 @@ import type { GameSession } from "../types";
 function freshSession(currentTime: number): GameSession {
   return {
     id: "stress",
+    sessionUuid: "stress-uuid",
     seed: "n/a",
     difficulty: "investigator",
     createdAt: Date.now(),

@@ -39,6 +39,41 @@ Verified live on the shared database after both fixes: a direct RPC call to
 `culprit_correct: true` is rejected (`caseline: invalid server capability
 token`) with the session, profile and `case_history` count all unchanged.
 
+**APP-1** (routing `advanceTimeAction`, `updateSettings`, and
+`submitAccusationAction`/finalization through the EXPAND-1 trusted RPCs) is
+implemented on this branch, not yet deployed to Preview. One bug was found
+and fixed while writing its acceptance tests:
+
+3. `advanceTimeAction` called the authoritative `caseline_advance_time` RPC
+   *and then* `discovery.advanceTime(session, delta)` locally, which
+   increments `session.currentTime` a second time for its lab-queue/event
+   side effects. `withSession`'s trailing `saveSession` then persisted that
+   doubled, non-authoritative local value straight back over what the RPC
+   had just written — silently discarding the RPC's actual return value.
+   Harmless *today* only because `saveSession` still has an unrestricted
+   `UPDATE` grant on `investigation_sessions` (CONTRACT not applied); once
+   CONTRACT revokes that grant down to `notes`/`board`/`player_timeline`
+   only, this same code path would either desync the clock (if `saveSession`
+   partially failed) or need a redesign. Fixed: `advanceTimeAction` now
+   applies the RPC's returned time directly
+   (`session.currentTime = await getStore().advanceTime(...)`) and calls
+   `discovery.advanceTime(session, 0)` only for its completion/event side
+   effects, never adding minutes a second time. Covered by
+   `lib/game-session/__tests__/app1-security.test.ts`.
+
+APP-1 test coverage (`app1-security.test.ts`, 20 tests): session_uuid
+assigned fresh per new case / stable across ordinary saves / distinct per
+new case; all three allowed time deltas advance the clock exactly once,
+every disallowed value is a no-op that never calls the store's authoritative
+`advanceTime`; `updateSettings` proven immune to extra fields (`xp`, `rank`)
+smuggled into the same patch object; a forged `score`/`xpGained` in the
+accusation form is inert (server always recomputes from `CaseTruth`); a
+genuine submit archives exactly one `case_history` row and grants XP exactly
+once; a retried submit against the same session is idempotent (snapshotting
+primitives before re-reading — `MemoryStore` hands back the same object
+reference on every call, so comparing an object to itself would have hidden
+a real double-write).
+
 ### Threat model
 
 Attacker has: their own CASELINE account, their own valid JWT, the public

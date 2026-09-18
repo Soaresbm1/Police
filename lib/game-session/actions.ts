@@ -12,7 +12,9 @@ import { markEventSeen } from "./events";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { caseAssetKeysFor } from "@/lib/security/case-ref";
+import { xpForCase } from "./career";
 import { getStore } from "./persistence";
+import { ALLOWED_TIME_DELTAS, type AllowedTimeDelta } from "./persistence/types";
 import { getCurrentIdentity } from "./identity";
 import { withSession } from "./with-session";
 import * as discovery from "./discovery";
@@ -158,9 +160,27 @@ export async function sendToLabAction(evidenceId: string) {
   refreshInvestigation();
 }
 
+/** Security S2 — `minutes` is validated against the same allow-list the
+ * database enforces (`caseline_advance_time`, `ALLOWED_TIME_DELTAS`)
+ * before ever reaching `getStore().advanceTime`, which is the actual
+ * authoritative gate; this is defense in depth at the Server Action
+ * layer, not the boundary itself. A tampered/malformed request (the UI
+ * only ever binds 30/60/240 — see components/shell/TopBar.tsx) is
+ * silently ignored rather than partially applied.
+ *
+ * The RPC's returned new time is applied to the local `session` directly
+ * (`session.currentTime = newTime`, never `+=`) before running
+ * `discovery.advanceTime(session, 0)` for its lab-queue-completion/event
+ * side effects only — calling it with the real `delta` here would advance
+ * the clock a second time locally, and `withSession`'s trailing
+ * `saveSession` would then persist that doubled, non-authoritative value
+ * right back over what the RPC just wrote. */
 export async function advanceTimeAction(minutes: number) {
-  await withSession(({ session }) => {
-    const result = discovery.advanceTime(session, minutes);
+  const delta = (ALLOWED_TIME_DELTAS as readonly number[]).includes(minutes) ? (minutes as AllowedTimeDelta) : null;
+  await withSession(async ({ session, userId }) => {
+    if (!delta) return;
+    session.currentTime = await getStore().advanceTime(userId, session.sessionUuid, delta);
+    const result = discovery.advanceTime(session, 0);
     session.lastActionMessage =
       result.completedEvidenceIds.length > 0
         ? `Le temps passe... ${result.completedEvidenceIds.length} résultat(s) de laboratoire sont arrivés.`
@@ -367,11 +387,36 @@ export async function submitAccusationAction(formData: FormData) {
     .map((personId, i) => ({ personId, role: accompliceRoles[i] ?? "" }))
     .filter((a) => a.personId && a.personId !== culpritId && !seenAccomplices.has(a.personId) && seenAccomplices.add(a.personId));
 
-  await withSession(async ({ session, truth, userId }) => {
-    const accusation = { culpritId, motiveType, method, accomplices, submittedAt: session.currentTime };
-    session.accusation = accusation;
-    const score = scoreAccusation(truth, session, accusation);
-    await getStore().completeCase(userId, { seed: session.seed, difficulty: session.difficulty, accusation, score });
+  // Security S2: deliberately NOT `withSession()` for this one action.
+  // `withSession` always calls `saveSession` (a whole-row upsert) after
+  // its closure runs, unconditionally — but the authoritative resolution
+  // here happens inside `finalizeCase`'s own atomic database transaction,
+  // and a losing/retried call must NOT then have this action's own
+  // `saveSession` overwrite the winning call's already-persisted
+  // `accusation` with a stale (or different) local value. Only a call
+  // that genuinely won the atomic claim (`!alreadyFinalized`) reflects the
+  // accusation locally and saves — see `SessionStore#finalizeCase`.
+  const { userId, authenticated } = await getCurrentIdentity();
+  if (!authenticated) throw new Error("Non authentifié.");
+  const store = getStore();
+  const session = await store.getActiveSession(userId);
+  if (!session) throw new Error("Aucune enquête en cours.");
+  const truth = generateCase(session.seed, { difficulty: session.difficulty });
+
+  const accusation = { culpritId, motiveType, method, accomplices, submittedAt: session.currentTime };
+  const score = scoreAccusation(truth, session, accusation);
+  const result = await store.finalizeCase(userId, session.sessionUuid, {
+    seed: session.seed,
+    difficulty: session.difficulty,
+    accusation,
+    score,
+    xpGained: xpForCase(score),
+    culpritCorrect: score.culpritCorrect,
   });
+
+  if (!result.alreadyFinalized) {
+    session.accusation = accusation;
+    await store.saveSession(userId, session);
+  }
   redirect("/investigation/rapport");
 }

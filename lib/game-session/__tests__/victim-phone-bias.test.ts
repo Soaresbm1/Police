@@ -6,6 +6,7 @@ import type { GameSession } from "../types";
 function readySession(seed: string, deviceId: string): GameSession {
   return {
     id: "s1",
+    sessionUuid: "s1-uuid",
     seed,
     difficulty: "investigator",
     createdAt: Date.now(),

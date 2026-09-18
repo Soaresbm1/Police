@@ -3,7 +3,8 @@ import { MemoryStore } from "./memory-store";
 import { SupabaseSessionStore } from "./supabase-store";
 import type { SessionStore } from "./types";
 
-export type { SessionStore, PlayerProfile, PlayerSettings, CaseHistoryEntry } from "./types";
+export type { SessionStore, PlayerProfile, PlayerSettings, CaseHistoryEntry, AllowedTimeDelta, FinalizeCaseInput, FinalizeCaseResult } from "./types";
+export { ALLOWED_TIME_DELTAS } from "./types";
 
 let sharedMemoryStore: MemoryStore | null = null;
 

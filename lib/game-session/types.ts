@@ -275,6 +275,14 @@ export interface HintState {
 
 export interface GameSession {
   id: string;
+  /** Security S2 — identifies this one investigation instance across the
+   * lifetime of the 1-row-per-user `investigation_sessions` table (which
+   * gets reused/upserted for every new case a player starts). Assigned
+   * fresh by `SessionStore#createSession`; unrelated to `id` (always just
+   * `userId`) or `seed`. `case_history.source_session_uuid` links an
+   * archived case back to the instance that produced it — see
+   * supabase/migrations/0007_s2_expand_authoritative_mutations.sql. */
+  sessionUuid: string;
   seed: string;
   difficulty: Difficulty;
   createdAt: number;

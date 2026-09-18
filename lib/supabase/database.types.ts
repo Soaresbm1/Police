@@ -56,11 +56,8 @@ export interface Database {
            * supabase/migrations/0007_s2_expand_authoritative_mutations.sql.
            * Identifies one investigation instance across the lifetime of
            * this 1-row-per-user table; case_history.source_session_uuid
-           * links back to whichever value was current at finalization.
-           * Optional here (not `string`) because migration 0007 has not
-           * been applied yet — this type stays accurate for the *current*
-           * schema until it is; make it required once applied. */
-          session_uuid?: string;
+           * links back to whichever value was current at finalization. */
+          session_uuid: string;
           created_at: string;
           updated_at: string;
         };

@@ -78,6 +78,7 @@ function makeTruth(evidence: Evidence[]): CaseTruth {
 function makeSession(overrides: Partial<GameSession> = {}): GameSession {
   return {
     id: "s1",
+    sessionUuid: "s1-uuid",
     seed: "CASE-TEST01",
     difficulty: "investigator",
     createdAt: Date.now(),
