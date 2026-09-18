@@ -142,6 +142,14 @@ disappears. New rows/objects can only be written with a `caseRef`
   visible 32-bit ids is unproven. Removing that dependency means keying id
   derivation or the root RNG for new-format seeds with a PRF, which changes
   generation for new cases — deliberately out of S1's scope.
+- **Reused art from older cases.** Generated Art V2B reuse points a new
+  case's row at another case's existing object. When that source is a
+  pre-S1 archived (or abandoned) case whose objects were never migrated, the
+  new case's signed URL contains that *older* case's legacy seed (observed on
+  Preview). It never contains the active case's seed; an archived case's
+  truth is already revealed, and an abandoned case cannot be resumed.
+  Migrating archived folders or excluding legacy-path reuse sources would
+  remove it; deliberately not done in S1.
 - **Operational coupling.** Preview writes to the production database: a
   session opened by S1 code (Preview included) is encrypted/migrated, and
   pre-S1 code reading it would regenerate the wrong case. Use a dedicated
