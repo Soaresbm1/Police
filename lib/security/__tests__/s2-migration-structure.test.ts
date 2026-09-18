@@ -59,8 +59,22 @@ describe("S2 EXPAND migration — must stay inert for current Production", () =>
     expect(capabilityCheckLine).toBeLessThan(firstWriteLine);
   });
 
-  it("the capability verifier hash formula uses a versioned domain-separation label", () => {
-    expect(expandSql).toMatch(/digest\('caseline\/s2\/server-capability\/v1' \|\| chr\(0\) \|\| p_token, 'sha256'\)/i);
+  it("the capability verifier hash formula uses a versioned domain-separation label, built as bytea (text cannot hold a NUL byte)", () => {
+    // Applying this migration surfaced that PostgreSQL `text` cannot
+    // contain a NUL byte at all ("null character not permitted") — the
+    // digest input must be built as bytea instead (a comment elsewhere in
+    // this file illustrates the broken text-concatenation form for
+    // context, which is why this checks the actual function body, not
+    // "chr(0) appears nowhere in the file").
+    const fnBody = expandSql.match(/create or replace function public\.caseline_check_server_capability[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnBody).toMatch(/convert_to\('caseline\/s2\/server-capability\/v1', 'UTF8'\)\s*\|\|\s*'\\x00'::bytea\s*\|\|\s*convert_to\(p_token, 'UTF8'\)/i);
+    expect(fnBody).toMatch(/extensions\.digest\(/i);
+    expect(fnBody).not.toMatch(/\|\|\s*chr\(0\)\s*\|\|/i);
+  });
+
+  it("caseline_check_server_capability's search_path includes extensions (pgcrypto lives there on Supabase, not public)", () => {
+    const fnBody = expandSql.match(/create or replace function public\.caseline_check_server_capability[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnBody).toMatch(/set search_path = public, extensions, pg_temp/i);
   });
 
   it("caseline_advance_time and caseline_update_profile_preferences ARE granted to authenticated (ownership-only functions)", () => {

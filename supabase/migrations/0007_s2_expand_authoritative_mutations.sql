@@ -118,6 +118,22 @@ create extension if not exists pgcrypto;
 -- verifier and a `v2` label side by side without touching this function's
 -- signature.
 --
+-- Built as `bytea`, never `text`, for the concatenation that includes the
+-- 0x00 separator: PostgreSQL's `text` type structurally cannot contain a
+-- NUL byte (`'a' || chr(0) || 'b'` raises "null character not permitted",
+-- for every input, valid token or not — caught applying this migration).
+-- `convert_to(..., 'UTF8')` turns each text piece into `bytea` first, and
+-- `'\x00'::bytea` is a literal single zero byte; `bytea || bytea`
+-- concatenation has no such restriction. `pgcrypto`'s `digest()` accepts
+-- `bytea` input directly, so the hashed bytes are identical to what
+-- `crypto.createHash('sha256').update(label + '\0' + token)` produces on
+-- the Node.js side that computed the installed verifier — same digest
+-- input, two different (and differently constrained) type systems.
+--
+-- `extensions` (not `public`) is where Supabase installs `pgcrypto` by
+-- convention — also caught applying this migration, as "function digest
+-- does not exist" until `search_path` included it.
+--
 -- Comparison uses plain `=` (not a constant-time primitive) — acceptable
 -- here because the input is a single high-entropy (>=256-bit) token, not
 -- a low-entropy password: a remote network-timing attack against one
@@ -130,10 +146,11 @@ create or replace function public.caseline_check_server_capability(p_token text)
 returns void
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   v_hash text;
+  v_computed text;
 begin
   if p_token is null or length(p_token) < 32 then
     raise exception 'caseline: missing or malformed server capability token';
@@ -144,7 +161,14 @@ begin
   if v_hash is null then
     raise exception 'caseline: server capability not configured';
   end if;
-  if v_hash <> encode(digest('caseline/s2/server-capability/v1' || chr(0) || p_token, 'sha256'), 'hex') then
+  v_computed := encode(
+    extensions.digest(
+      convert_to('caseline/s2/server-capability/v1', 'UTF8') || '\x00'::bytea || convert_to(p_token, 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  );
+  if v_hash <> v_computed then
     raise exception 'caseline: invalid server capability token';
   end if;
 end;
@@ -192,6 +216,15 @@ begin
 end;
 $$;
 
+-- PostgreSQL grants EXECUTE on a newly created function to the implicit
+-- PUBLIC pseudo-role by default, which every role — including `anon` —
+-- inherits from unless explicitly revoked. Applying this migration
+-- surfaced exactly that: without this revoke, `anon` could call this
+-- function too (harmlessly, since it fails closed on `auth.uid() is
+-- null`, but that's defense-in-depth the grant itself should provide,
+-- not something to lean on the function body catching). Revoke first,
+-- then grant only to `authenticated`.
+revoke all on function public.caseline_advance_time(uuid, integer) from public, anon;
 grant execute on function public.caseline_advance_time(uuid, integer) to authenticated;
 
 -- Profile preferences — the only profile columns a player may ever set
@@ -221,6 +254,8 @@ begin
 end;
 $$;
 
+-- Same PUBLIC-default correction as caseline_advance_time above.
+revoke all on function public.caseline_update_profile_preferences(boolean, boolean, boolean) from public, anon;
 grant execute on function public.caseline_update_profile_preferences(boolean, boolean, boolean) to authenticated;
 
 -- ---------------------------------------------------------------------

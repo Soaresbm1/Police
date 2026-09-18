@@ -1,15 +1,43 @@
 # Security
 
-## S2 — game-state write authority (design phase, NOT YET APPLIED)
+## S2 — game-state write authority
 
 ### Status
 
-Audited and designed on branch `security/s2-game-state-integrity`. The EXPAND
-and CONTRACT migrations exist as files
-(`supabase/migrations/0007_s2_expand_authoritative_mutations.sql`,
-`0008_s2_contract_client_writes.sql`) but **have not been run against the
-shared Supabase project**. Nothing in this section describes current
-Production behavior yet — see "Known S2 exposure" below for that.
+Designed on branch `security/s2-game-state-integrity`. **EXPAND-1**
+(`supabase/migrations/0007_s2_expand_authoritative_mutations.sql`) has been
+applied to the shared Supabase project — additively only, nothing existing
+was revoked (verified: policy counts and grants on all four tables unchanged
+before/after). **CONTRACT** (`0008_s2_contract_client_writes.sql`) remains a
+draft, not applied — current Production `ae2a2b0` still writes game state
+directly, exactly as before; EXPAND-1 only adds a trusted path alongside it.
+APP-1 (routing the application through that trusted path) is not deployed
+yet.
+
+Two bugs were found and fixed while applying EXPAND-1, both caught before
+any legitimate call could be affected:
+
+1. PostgreSQL grants `EXECUTE` on a new function to the implicit `PUBLIC`
+   role by default; `caseline_advance_time` and
+   `caseline_update_profile_preferences` initially inherited it, making
+   them callable (harmlessly — each fails closed on `auth.uid() is null`)
+   by `anon` too. Fixed with an explicit `revoke ... from public, anon`
+   before granting to `authenticated`.
+2. The capability verifier's domain-separation label concatenated a literal
+   NUL byte into a `text` value (`label || chr(0) || token`) — PostgreSQL's
+   `text` type cannot contain a NUL byte at all ("null character not
+   permitted"), so this failed for *every* call, not just invalid ones.
+   Fixed by building the digest input as `bytea`
+   (`convert_to(label, 'UTF8') || '\x00'::bytea || convert_to(token,
+   'UTF8')`), which has no such restriction and produces byte-for-byte the
+   same input the Node.js-side verifier-installation command hashes. Also
+   corrected the function's `search_path` to include `extensions`, where
+   Supabase installs `pgcrypto` by convention (not `public`).
+
+Verified live on the shared database after both fixes: a direct RPC call to
+`caseline_finalize_case` with a forged token, forged score, 500 XP and
+`culprit_correct: true` is rejected (`caseline: invalid server capability
+token`) with the session, profile and `case_history` count all unchanged.
 
 ### Threat model
 
