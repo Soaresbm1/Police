@@ -52,6 +52,15 @@ export interface Database {
           /** Motive & Digital Evidence Phase 2 — see
            * supabase/migrations/0006_hint_state.sql. */
           hint_state: Json;
+          /** Security S2 (draft, not yet applied) — see
+           * supabase/migrations/0007_s2_expand_authoritative_mutations.sql.
+           * Identifies one investigation instance across the lifetime of
+           * this 1-row-per-user table; case_history.source_session_uuid
+           * links back to whichever value was current at finalization.
+           * Optional here (not `string`) because migration 0007 has not
+           * been applied yet — this type stays accurate for the *current*
+           * schema until it is; make it required once applied. */
+          session_uuid?: string;
           created_at: string;
           updated_at: string;
         };
@@ -73,6 +82,10 @@ export interface Database {
           accusation: Json;
           score: Json;
           completed_at: string;
+          /** Security S2 (draft, not yet applied) — nullable; only rows
+           * written by caseline_finalize_case() populate it. See
+           * supabase/migrations/0007_s2_expand_authoritative_mutations.sql. */
+          source_session_uuid: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["case_history"]["Row"]> & {
           user_id: string;
@@ -125,6 +138,33 @@ export interface Database {
       increment_reuse_count: {
         Args: { asset_id: string; owner_id: string };
         Returns: undefined;
+      };
+      /** Security S2 (draft, not yet applied) — player-callable, ownership-
+       * scoped, no server capability required. See migration 0007. */
+      caseline_advance_time: {
+        Args: { p_session_uuid: string; p_minutes: number };
+        Returns: { current_time_minutes: number }[];
+      };
+      caseline_update_profile_preferences: {
+        Args: { p_sound_muted?: boolean | null; p_reduce_motion?: boolean | null; p_hints_disabled?: boolean | null };
+        Returns: undefined;
+      };
+      /** Security S2 (draft, not yet applied) — requires the trusted
+       * server capability token; never granted to `authenticated`, so
+       * this is only reachable from server code holding that token, not
+       * directly by a player's own client. See migration 0007. */
+      caseline_finalize_case: {
+        Args: {
+          p_server_token: string;
+          p_session_uuid: string;
+          p_seed: string;
+          p_difficulty: string;
+          p_accusation: Json;
+          p_score: Json;
+          p_xp_gained: number;
+          p_culprit_correct: boolean;
+        };
+        Returns: { history_id: string; already_finalized: boolean }[];
       };
     };
     Enums: Record<string, never>;
