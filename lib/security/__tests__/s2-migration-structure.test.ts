@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { RANKS } from "@/lib/game-session/career";
 
 /**
  * Security S2 — structural checks on the DRAFT migration files that don't
@@ -38,12 +39,28 @@ describe("S2 EXPAND migration — must stay inert for current Production", () =>
     expect(expandSql).toMatch(/create unique index[\s\S]*?case_history[\s\S]*?where source_session_uuid is not null/i);
   });
 
-  it("caseline_finalize_case is explicitly revoked from authenticated/anon/public, never granted to authenticated", () => {
+  it("caseline_finalize_case IS granted to authenticated (Next.js has no other role) but never to anon", () => {
+    // The security boundary is the capability-token check inside the
+    // function body, not this GRANT — see the migration's own comment for
+    // why revoking `authenticated` here would break the legitimate call
+    // too (Next.js has no distinct database role in this architecture).
+    expect(expandSql).toMatch(/grant execute on function public\.caseline_finalize_case[^;]*to authenticated/i);
     const revokeBlock = expandSql.match(/revoke all on function public\.caseline_finalize_case[^;]*;/i)?.[0] ?? "";
-    expect(revokeBlock).toMatch(/\bpublic\b/);
     expect(revokeBlock).toMatch(/\banon\b/);
-    expect(revokeBlock).toMatch(/\bauthenticated\b/);
-    expect(expandSql).not.toMatch(/grant execute on function public\.caseline_finalize_case[^;]*to authenticated/i);
+    expect(revokeBlock).not.toMatch(/\bauthenticated\b/);
+  });
+
+  it("caseline_finalize_case's body checks the server capability before writing anything", () => {
+    const fnBody = expandSql.match(/create or replace function public\.caseline_finalize_case[\s\S]*?\$\$;/i)?.[0] ?? "";
+    const capabilityCheckLine = fnBody.search(/caseline_check_server_capability/i);
+    const firstWriteLine = fnBody.search(/\bupdate public\.investigation_sessions\b/i);
+    expect(capabilityCheckLine).toBeGreaterThan(-1);
+    expect(firstWriteLine).toBeGreaterThan(-1);
+    expect(capabilityCheckLine).toBeLessThan(firstWriteLine);
+  });
+
+  it("the capability verifier hash formula uses a versioned domain-separation label", () => {
+    expect(expandSql).toMatch(/digest\('caseline\/s2\/server-capability\/v1' \|\| chr\(0\) \|\| p_token, 'sha256'\)/i);
   });
 
   it("caseline_advance_time and caseline_update_profile_preferences ARE granted to authenticated (ownership-only functions)", () => {
@@ -64,6 +81,30 @@ describe("S2 EXPAND migration — must stay inert for current Production", () =>
     expect(expandSql).toMatch(/alter table public\.s2_server_capabilities enable row level security/i);
     expect(expandSql).not.toMatch(/create policy[^;]*s2_server_capabilities/i);
     expect(expandSql).toMatch(/revoke all on public\.s2_server_capabilities from public, anon, authenticated/i);
+  });
+
+  it("the SQL rank thresholds inside caseline_finalize_case exactly match lib/game-session/career.ts#RANKS (fails if they diverge)", () => {
+    // Guards against exactly the risk flagged in review: SQL mirrors
+    // career.ts by hand, so a future threshold change there must be
+    // caught here rather than silently diverging.
+    const fnBody = expandSql.match(/create or replace function public\.caseline_finalize_case[\s\S]*?\$\$;/i)?.[0] ?? "";
+    for (const { name, minXp } of RANKS) {
+      if (minXp === 0) continue; // the SQL CASE's `else` branch, no explicit threshold line to match
+      expect(fnBody).toMatch(new RegExp(`>=\\s*${minXp}\\s+then\\s+'${name}'`, "i"));
+    }
+    // And nothing extra: exactly RANKS.length - 1 threshold branches (the
+    // zero-floor rank is the `else`), so an added/removed SQL branch that
+    // doesn't correspond to a RANKS entry also fails this test.
+    const branches = fnBody.match(/when xp \+ p_xp_gained >= \d+ then '[^']+'/gi) ?? [];
+    expect(branches.length).toBe(RANKS.length - 1);
+  });
+
+  it("the SQL allowed time deltas exactly match the actual UI buttons (components/shell/TopBar.tsx), not an assumption", () => {
+    const topBarSrc = readFileSync(path.resolve(__dirname, "../../../components/shell/TopBar.tsx"), "utf8");
+    const uiDeltas = [...topBarSrc.matchAll(/advanceTimeAction\.bind\(null,\s*(\d+)\)/g)].map((m) => Number(m[1]));
+    expect(uiDeltas.sort((a, b) => a - b)).toEqual([30, 60, 240]);
+    const sqlDeltas = expandSql.match(/p_minutes not in \(([^)]+)\)/i)?.[1].split(",").map((n) => Number(n.trim())) ?? [];
+    expect(sqlDeltas.sort((a, b) => a - b)).toEqual(uiDeltas.sort((a, b) => a - b));
   });
 
   it("never embeds a literal secret value — only column/table/function structure", () => {

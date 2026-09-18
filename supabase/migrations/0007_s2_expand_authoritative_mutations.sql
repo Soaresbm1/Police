@@ -102,11 +102,29 @@ revoke all on public.s2_server_capabilities from public, anon, authenticated;
 create extension if not exists pgcrypto;
 
 -- ---------------------------------------------------------------------
--- Internal helper — not exposed to `authenticated`. Compares the caller-
--- supplied token against the stored hash. Raises if the capability is
--- unconfigured or the token doesn't match, so every caller (including a
--- misconfigured trusted server) fails closed rather than silently
--- degrading to "capability not required".
+-- Internal helper — never granted to anyone, callable only from another
+-- SECURITY DEFINER function's body in this same file. Compares the
+-- caller-supplied token against the stored verifier. Raises if the
+-- capability is unconfigured or the token doesn't match, so every caller
+-- (including a misconfigured trusted server) fails closed rather than
+-- silently degrading to "capability not required".
+--
+-- Verifier = sha256("caseline/s2/server-capability/v1" || 0x00 || token),
+-- hex-encoded — same versioned-label-plus-NUL convention as the S1 HMAC/
+-- AAD labels (lib/security/case-ref.ts, seed-envelope.ts), so this hash
+-- can never collide with a hash computed for an unrelated purpose even if
+-- some other part of the system ever hashes raw tokens too. `v1` in both
+-- the label and the stored row's `name` lets a future rotation add a `v2`
+-- verifier and a `v2` label side by side without touching this function's
+-- signature.
+--
+-- Comparison uses plain `=` (not a constant-time primitive) — acceptable
+-- here because the input is a single high-entropy (>=256-bit) token, not
+-- a low-entropy password: a remote network-timing attack against one
+-- SHA-256 comparison is not a practical threat at this entropy, and this
+-- is the same trust assumption CASELINE already makes for e.g. Supabase's
+-- own JWT verification. Flagged for visibility, not because it is
+-- believed exploitable.
 -- ---------------------------------------------------------------------
 create or replace function public.caseline_check_server_capability(p_token text)
 returns void
@@ -126,7 +144,7 @@ begin
   if v_hash is null then
     raise exception 'caseline: server capability not configured';
   end if;
-  if v_hash <> encode(digest(p_token, 'sha256'), 'hex') then
+  if v_hash <> encode(digest('caseline/s2/server-capability/v1' || chr(0) || p_token, 'sha256'), 'hex') then
     raise exception 'caseline: invalid server capability token';
   end if;
 end;
@@ -206,13 +224,32 @@ $$;
 grant execute on function public.caseline_update_profile_preferences(boolean, boolean, boolean) to authenticated;
 
 -- ---------------------------------------------------------------------
--- 5. Server-capability-gated functions — the result they persist cannot
--- be independently verified from data already in Postgres (it depends on
--- a regenerated CaseTruth that only ever exists in the Next.js process),
--- so these require the trusted-server token in addition to auth.uid().
--- A direct REST caller has their own JWT but never this token (it is a
--- server-only Vercel environment variable, never sent to the browser),
--- so they cannot invoke these with a self-chosen result.
+-- 5. Server-capability-gated functions.
+--
+-- IMPORTANT — the actual call-path architecture (see SECURITY.md §S2
+-- "capability call path" for the full write-up):
+--
+-- Next.js has no database role other than `authenticated`: it calls
+-- Supabase using the same per-request, cookie-derived user session the
+-- browser itself holds (this project has no service-role client, by
+-- design — see ARCHITECTURE.md/DATABASE.md). That means this function
+-- MUST be `grant execute ... to authenticated`, or the legitimate
+-- Next.js call — made with that exact same role — could not succeed
+-- either. Revoking EXECUTE from `authenticated` would not create a
+-- meaningful boundary; it would break the feature entirely, for everyone,
+-- including trusted server code.
+--
+-- The security boundary is NOT the grant. It is the `p_server_token`
+-- argument, checked inside the function body by
+-- caseline_check_server_capability() before anything is written. A
+-- browser can attempt this call (PostgREST will accept the request, same
+-- as Next.js's own call) but cannot produce a token that passes the
+-- check: CASELINE_S2_SERVER_CAPABILITY is a server-only Vercel
+-- environment variable, read only inside a Server Action / Route
+-- Handler, never serialized into HTML, an RSC payload, a Server Action's
+-- client-visible response, or any bundle the browser executes. Losing
+-- fails closed (raises, writes nothing) rather than silently accepting
+-- an unauthenticated-for-this-purpose call.
 -- ---------------------------------------------------------------------
 
 -- One case resolution, atomically: persists the accusation, inserts
@@ -301,10 +338,10 @@ begin
 end;
 $$;
 
-revoke all on function public.caseline_finalize_case(text, uuid, text, text, jsonb, jsonb, integer, boolean) from public, anon, authenticated;
--- Deliberately NOT granted to `authenticated` — see the interim report's
--- capability-model section for why this one function is reachable only
--- from trusted server code holding the capability token, never directly.
--- (Kept as a distinct statement, not folded into `create function`, so a
--- future migration can `grant`/`revoke` it independently without editing
--- this file.)
+revoke all on function public.caseline_finalize_case(text, uuid, text, text, jsonb, jsonb, integer, boolean) from public, anon;
+grant execute on function public.caseline_finalize_case(text, uuid, text, text, jsonb, jsonb, integer, boolean) to authenticated;
+-- Granted to `authenticated` deliberately — see the architecture note
+-- above. `anon` (unauthenticated) is explicitly denied; `authenticated`
+-- is required for the legitimate Next.js call, and is safe to grant
+-- because the capability-token check inside the function body is the
+-- real boundary, not this GRANT.
