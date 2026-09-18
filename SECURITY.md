@@ -41,7 +41,8 @@ token`) with the session, profile and `case_history` count all unchanged.
 
 **APP-1** (routing `advanceTimeAction`, `updateSettings`, and
 `submitAccusationAction`/finalization through the EXPAND-1 trusted RPCs) is
-implemented on this branch, not yet deployed to Preview. One bug was found
+implemented on this branch and validated live on Preview
+(`security/s2-game-state-integrity`, commit `497c2f2`). One bug was found
 and fixed while writing its acceptance tests:
 
 3. `advanceTimeAction` called the authoritative `caseline_advance_time` RPC
@@ -73,6 +74,52 @@ once; a retried submit against the same session is idempotent (snapshotting
 primitives before re-reading — `MemoryStore` hands back the same object
 reference on every call, so comparing an object to itself would have hidden
 a real double-write).
+
+### Incident: `CASELINE_S2_SERVER_CAPABILITY` Preview/Production divergence
+
+First Preview deployment of APP-1 (`police-8b7ho3r98-soares-2.vercel.app`)
+failed every accusation submission with `caseline: invalid server capability
+token` (500, Vercel runtime log). Root cause: Vercel held **two separate**
+entries for `CASELINE_S2_SERVER_CAPABILITY` — one scoped to Production, one
+to Preview — with different values, unlike `CASELINE_S1_MASTER_SECRET`
+(single "Production and Preview" entry). The original token value was lost
+(never recorded outside Vercel), so recovery wasn't possible.
+
+Verified before any fix: `caseline_check_server_capability` raises its
+exception *before* the atomic `UPDATE ... WHERE accusation IS NULL` claim
+runs (confirmed live: `investigation_sessions.accusation IS NULL` stayed
+true, `case_history` count and `profiles.xp` stayed unchanged after the
+failed call). A wrong capability token can never corrupt state — it can
+only ever block a legitimate write, which is the correct fail-closed
+behavior.
+
+Since the S2 capability is an authorization check, not an encryption key
+(unlike S1's master secret), rotation requires no re-encryption of existing
+data — only replacing the live value and its stored verifier:
+
+1. New 256-bit value generated locally (`crypto.randomBytes(32)`, base64url).
+2. Both Vercel entries replaced with a single "Production and Preview"
+   entry holding the identical new value (matching S1's pattern, closing the
+   divergence risk for good).
+3. Verifier recomputed locally with the same domain-separated SHA-256
+   formula the database uses; only the resulting hex hash (never the token)
+   was shared to install it.
+4. `s2_server_capabilities.secret_hash` updated in place for
+   `name = 'trusted_mutation_v1'` — one `UPDATE`, no migration, no other
+   table touched, `CASELINE_S1_MASTER_SECRET` untouched.
+5. Preview redeployed (`Redeploy`, same commit `497c2f2`, no rebuild of
+   source) so the new env var value is picked up — Vercel bakes env vars in
+   at deploy time, not read live per request.
+6. Verified on the redeployed Preview
+   (`police-q6j8nqwv5-soares-2.vercel.app`):
+   - A direct REST call to `caseline_finalize_case` using the test account's
+     own JWT + the public publishable key + a forged token, 500 XP, grade S,
+     `culprit_correct: true` was rejected (`400`,
+     `caseline: invalid server capability token`); state unchanged after
+     (verified in SQL).
+   - A genuine accusation submitted through the real UI succeeded (no more
+     500): `case_history` count 6→7, `profiles.xp` 80→120, rank
+     Recrue→Agent, all internally consistent with the grade awarded.
 
 ### Threat model
 
