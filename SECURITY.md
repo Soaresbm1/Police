@@ -1,5 +1,98 @@
 # Security
 
+## S2 — game-state write authority (design phase, NOT YET APPLIED)
+
+### Status
+
+Audited and designed on branch `security/s2-game-state-integrity`. The EXPAND
+and CONTRACT migrations exist as files
+(`supabase/migrations/0007_s2_expand_authoritative_mutations.sql`,
+`0008_s2_contract_client_writes.sql`) but **have not been run against the
+shared Supabase project**. Nothing in this section describes current
+Production behavior yet — see "Known S2 exposure" below for that.
+
+### Threat model
+
+Attacker has: their own CASELINE account, their own valid JWT, the public
+Supabase publishable key, the full public source code, and can send arbitrary
+PostgREST/RPC requests. Attacker does not have: the service-role key, the S1
+master secret, or another user's credentials.
+
+### Known S2 exposure (current, pre-CONTRACT)
+
+Every table's RLS policy grants `authenticated` broad row-level CRUD keyed
+only on `auth.uid() = user_id`, with no column or semantic restriction —
+because no service-role client exists in this codebase, server code writes
+through the exact same privilege level a direct REST caller has. Confirmed on
+the dedicated test account (`testclaude@gmail.com`), then reverted:
+
+- `investigation_sessions`: `current_time_minutes` set to an arbitrary value; `seed` overwritten with plaintext, bypassing S1 at the write layer entirely (S1 protects confidentiality of legitimately-written data, not write integrity).
+- `profiles`: `xp`/`rank` set directly.
+- `case_history`: a forged row inserted (UPDATE/DELETE were already blocked — no grant exists for either).
+- `anon` role: denied everywhere (401).
+
+Also found, independent of RLS: `submitAccusationAction`/`completeCase` are
+not idempotent — a double-submit (double-click, two tabs, retry) can insert
+two `case_history` rows and race the profile XP update (lost-update pattern,
+no transaction). `advanceTimeAction`/`discovery.advanceTime` accept an
+unclamped `minutes` value with no server-side range check.
+
+### Capability model — why SECURITY DEFINER alone isn't enough
+
+A SECURITY DEFINER function can prove *whose* row is being touched
+(`auth.uid()`) and enforce that a write only affects that row. It cannot prove
+that a caller-supplied score/grade/XP value is the *genuine* result of scoring
+an accusation against `CaseTruth` — that computation only exists in the
+Next.js process (`scoreAccusation`, regenerated from the seed) and is never
+present in Postgres. Ownership alone is therefore not sufficient authorization
+for functions that persist an authoritative *result* rather than a player's
+*choice*.
+
+Design: a narrow **server capability token** (`CASELINE_S2_SERVER_CAPABILITY`,
+server-only Vercel env var, never sent to the browser) that trusted server
+code passes as an explicit argument to `caseline_finalize_case` only. The
+database stores nothing but a SHA-256 hash of it, in a table with RLS enabled
+and zero policies (default-deny for every role). A leaked token lets someone
+call `caseline_finalize_case` with a self-chosen score for **their own
+account only** — `auth.uid()` inside the function still gates which row is
+touched, so this never grants cross-user access; its blast radius is a single
+function's semantics, not RLS-wide bypass the way a leaked service-role key
+would be.
+
+Functions that only need ownership (time advance, profile preferences) do not
+require this token and are granted directly to `authenticated`.
+
+### Idempotent finalization
+
+`investigation_sessions.session_uuid` (new) identifies one investigation
+instance across the lifetime of the 1-row-per-user table.
+`case_history.source_session_uuid` (new, nullable) links a history row back to
+it, with a partial unique index (`WHERE source_session_uuid IS NOT NULL`) —
+safe against existing data because every current row is NULL there. Inside
+`caseline_finalize_case`, a single conditional `UPDATE ... WHERE accusation IS
+NULL` is the atomicity primitive: Postgres's row lock on that UPDATE makes
+"exactly one caller wins" hold under concurrency without an explicit
+`SELECT ... FOR UPDATE`. A losing/retried call returns the existing result
+rather than erroring or duplicating the reward.
+
+### Rollout (expand → contract)
+
+EXPAND is additive only — adds functions/columns/grants, revokes nothing.
+Production `ae2a2b0` keeps working through it unmodified. Only once an S2
+application is confirmed to be the sole writer of this shared database does
+CONTRACT revoke the broad `UPDATE`/`INSERT` grants and replace them with
+column-level grants for genuinely player-owned content (`notes`, `board`,
+`player_timeline`; profile preferences via function only). See the two
+migration files' own comments for the exact SQL and reasoning.
+
+### Deferred to a later pass (P1)
+
+`generated_assets` metadata and `generated-art` Storage object writes use the
+same broad ownership-only policy shape and share the same fix (route through
+a capability-gated function before revoking direct grants) — not included in
+this EXPAND/CONTRACT pair so the P0 identity/XP/history/seed fix stays
+reviewable on its own.
+
 ## S1 — active-case seed confidentiality
 
 ### Why the seed is a secret
