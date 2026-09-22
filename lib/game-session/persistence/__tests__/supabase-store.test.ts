@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // rowToSession never touches Supabase itself (it's a pure row -> GameSession
@@ -76,8 +78,24 @@ describe("sessionToPlayerOwnedRow — Security S2 EXPAND-2 saveSession narrowing
       expect(keys).not.toContain(forbidden);
     }
     expect(keys.sort()).toEqual(
-      ["notes", "board", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids", "updated_at"].sort(),
+      ["notes", "board", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids"].sort(),
     );
+  });
+
+  it("emits exactly the column set 0008 grants back to authenticated — never more (a column outside this grant makes the whole UPDATE fail with 'permission denied for table', as found live post-CONTRACT on 2026-09-22)", () => {
+    const contractSql = readFileSync(
+      path.join(__dirname, "../../../../supabase/migrations/0008_s2_contract_client_writes.sql"),
+      "utf8",
+    );
+    const grantMatch = contractSql.match(/grant update \(([\s\S]*?)\) on public\.investigation_sessions to authenticated;/);
+    expect(grantMatch, "0008 should contain the investigation_sessions column grant").not.toBeNull();
+    const grantedColumns = grantMatch![1]
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    const row = sessionToPlayerOwnedRow(makeSession());
+    expect(Object.keys(row).sort()).toEqual(grantedColumns.sort());
   });
 });
 

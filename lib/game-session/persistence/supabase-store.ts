@@ -218,7 +218,6 @@ export function sessionToPlayerOwnedRow(session: GameSession): Database["public"
     crime_scene_inspected_zone_ids: session.crimeSceneInspectedZoneIds as unknown as Json,
     last_action_message: session.lastActionMessage,
     last_revealed_evidence_ids: session.lastRevealedEvidenceIds as unknown as Json,
-    updated_at: new Date().toISOString(),
   };
 }
 
