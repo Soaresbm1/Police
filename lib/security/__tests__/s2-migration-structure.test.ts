@@ -207,7 +207,7 @@ describe("S2 EXPAND-2 migration (draft) — evidence/mandate/lab/surveillance/hi
   });
 
   it("every function is revoked from anon and never from authenticated", () => {
-    const allFns = [...EXPAND2_CAPABILITY_REQUIRED, ...EXPAND2_AUTHENTICATED_SEMANTIC, "caseline_advance_time", "caseline_apply_time_effects"];
+    const allFns = [...EXPAND2_CAPABILITY_REQUIRED, ...EXPAND2_AUTHENTICATED_SEMANTIC, "caseline_advance_time", "caseline_apply_time_effects", "caseline_append_event_if_new"];
     for (const fn of allFns) {
       const revokeBlock = expand2Sql.match(new RegExp(`revoke all on function public\\.${fn}\\([^;]*;`, "i"))?.[0] ?? "";
       expect(revokeBlock, `${fn} missing revoke-from-anon`).toMatch(/\banon\b/);

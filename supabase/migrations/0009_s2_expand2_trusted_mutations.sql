@@ -41,6 +41,16 @@ as $$
   end;
 $$;
 
+-- Bug found applying this migration live (same PUBLIC-default-grant class
+-- as EXPAND-1's original finding): this helper had no explicit revoke/grant
+-- of its own, so it inherited the implicit PUBLIC execute grant Postgres
+-- gives every new function. Harmless in practice (pure, no table access,
+-- no auth check needed — a stranger calling it directly gains nothing) but
+-- fixed for consistency with every other function in this file, applied as
+-- a follow-up statement live and folded back into this draft.
+revoke all on function public.caseline_append_event_if_new(jsonb, jsonb) from public, anon;
+grant execute on function public.caseline_append_event_if_new(jsonb, jsonb) to authenticated;
+
 -- =======================================================================
 -- 1. EVIDENCE / DISCOVERY
 -- =======================================================================
