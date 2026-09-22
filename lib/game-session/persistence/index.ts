@@ -3,7 +3,22 @@ import { MemoryStore } from "./memory-store";
 import { SupabaseSessionStore } from "./supabase-store";
 import type { SessionStore } from "./types";
 
-export type { SessionStore, PlayerProfile, PlayerSettings, CaseHistoryEntry, AllowedTimeDelta, FinalizeCaseInput, FinalizeCaseResult } from "./types";
+export type {
+  SessionStore,
+  PlayerProfile,
+  PlayerSettings,
+  CaseHistoryEntry,
+  AllowedTimeDelta,
+  InternalTimeCost,
+  FinalizeCaseInput,
+  FinalizeCaseResult,
+  AdvanceTimeResult,
+  EvidenceMutationResult,
+  LabSubmissionResult,
+  MandateMutationResult,
+  SurveillanceMutationResult,
+} from "./types";
+export { ALLOWED_INTERNAL_TIME_COSTS } from "./types";
 export { ALLOWED_TIME_DELTAS } from "./types";
 
 let sharedMemoryStore: MemoryStore | null = null;

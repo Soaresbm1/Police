@@ -324,6 +324,70 @@ from the rest of EXPAND-2 (which needs no new secret at all, reusing
 Storage write-locking stays out of CONTRACT's scope — `0008`'s Storage
 section is left as a draft placeholder only.
 
+### APP-2 (local implementation — NOT deployed, NOT applied to Supabase)
+
+Routes every remaining authoritative mutation through the EXPAND-2 pattern:
+`discovery.ts`/`mandates.ts`/`surveillance.ts`/`hints.ts`/`events.ts` stay
+pure and unchanged (they already correctly derive results from
+`CaseTruth`); a new module,
+[`lib/game-session/trusted-mutations.ts`](../lib/game-session/trusted-mutations.ts),
+is the only thing that changed how persistence happens — it takes a
+session a pure function already mutated locally and commits that same
+result through the matching `SessionStore` method (`revealEvidence`,
+`collectEvidence`, `submitToLab`, `requestMandate`, `startSurveillance`,
+`recordHint`, `markEventSeen`), then overwrites the local fields with
+whatever actually got persisted — exactly `advanceTimeAction`'s existing
+APP-1 pattern, generalized.
+
+**Real bug found and fixed while wiring this up**: several actions
+(`askQuestionAction`, `confrontAction`, `searchPhoneAction`,
+`searchVehicleAction`, `searchCriminalRecordAction`,
+`executeSearchWarrantAction`) pay small, fixed, server-computed time costs
+(3/4/5/20 minutes) via a local `discovery.advanceTime(session, N)` call —
+these never went through `caseline_advance_time`'s allow-list at all (it
+only accepts 30/60/240, matching the TopBar buttons) and would have simply
+stopped persisting once `saveSession` was narrowed to player-owned columns.
+Fixed with a second, separate function,
+`caseline_advance_time_internal(p_session_uuid, p_minutes)` (allow-list
+3/4/5/20, sharing a `caseline_apply_time_effects` helper with the
+player-facing function so lab/event completion logic isn't duplicated) —
+deliberately NOT a widened allow-list on the existing function, which would
+have blurred "the TopBar's own buttons" with "costs a player never directly
+chooses."
+
+**`saveSession` narrowing**: `SupabaseSessionStore#saveSession` now writes
+only `notes`, `board`, `player_timeline`, the four crime-scene/UI
+bookkeeping columns, and — as a deliberate, documented exception — the
+resealed `seed` (see `sessionToPlayerOwnedRow`'s own doc comment: S1's
+lazy-migration fallback depends on an ordinary save re-sealing it; closing
+this needs its own future `caseline_reseal_seed`-style function, out of
+scope for a pass about game-state write authority rather than seed
+confidentiality). `createSession`'s initial INSERT still uses the full
+`sessionToRow` — a brand-new row legitimately needs every column set once.
+
+**Generated Art**: [`lib/generated-art/trusted-storage.ts`](../lib/generated-art/trusted-storage.ts)
+implements the service-role-isolated Storage boundary approved above —
+`uploadGeneratedAsset`/`moveGeneratedAsset`/`removeGeneratedAsset` only,
+`getServiceRoleClient()` never exported, every path validated
+(`{userId}/{caseRef}/{filename}`, no traversal, no cross-user prefix, a
+legacy seed tolerated only as a migration source, never a destination) —
+proven by 15 static tests in
+`lib/generated-art/__tests__/trusted-storage-boundary.test.ts` (server-only
+marker, no Client Component/gameplay-module import anywhere in the repo,
+`SUPABASE_SERVICE_ROLE_KEY` referenced nowhere else, no value ever
+interpolated into a thrown error). **Not yet wired into
+`lib/art/generation/asset-store.ts`** — the module exists and is tested in
+isolation, but `asset-store.ts`'s 7 write functions and the `caseline_ga_*`
+metadata RPCs from `0009` are not yet connected to it; this is the next
+APP-2 increment, deliberately sequenced after the Storage boundary itself
+was proven safe on its own.
+
+Tests: `lib/game-session/__tests__/app2-security.test.ts` (12 tests —
+evidence transitions, mandate/surveillance server authority and
+idempotency, event-seen gating, hint monotonicity, internal time cost) plus
+`sessionToPlayerOwnedRow` structural tests in `supabase-store.test.ts`.
+Full suite: 911 passed, 1 skipped. Typecheck/lint/`next build` all clean.
+
 ## S1 — active-case seed confidentiality
 
 ### Why the seed is a secret

@@ -15,14 +15,20 @@ import { buildCCTVFrameDescriptor, describeCCTVObservation, identifiedNamesForCC
 import { CCTV_QUALITY_LABEL } from "@/lib/art/cctv-renderer";
 import { buildCCTVSequence, type CCTVSequenceDescriptor } from "@/lib/art/cctv-sequence";
 import { getLabReport, labResultEventId, type LabReportView } from "./lab-report";
-import { markEventSeen } from "./events";
+import { findEvent } from "./events";
 import { escalateHint, getHintHistoryView, getNextHint, type HintHistoryView, type HintPayload } from "./hints";
+import { mandateKey } from "./mandates";
+import { commitEventSeen, commitHintProgress, commitMandateRequest, commitRevealedEvidence, payInternalTime } from "./trusted-mutations";
+import type { InternalTimeCost } from "./persistence/types";
 
 /** Every search-type action pays a small, believable amount of in-game time
  * — real bureaucratic lookups aren't instant — advancing the clock so the
- * player feels the cost of casting a wide net. */
-function payTime(session: SessionContext["session"], minutes: number) {
-  discovery.advanceTime(session, minutes);
+ * player feels the cost of casting a wide net. Security S2 EXPAND-2: these
+ * are fixed, server-computed constants (never a player-chosen value),
+ * routed through `caseline_advance_time_internal` rather than the
+ * player-facing `caseline_advance_time`'s TopBar-only allow-list. */
+async function payTime(userId: string, session: SessionContext["session"], minutes: InternalTimeCost) {
+  await payInternalTime(userId, session, minutes);
 }
 
 export interface RecordLine {
@@ -52,13 +58,13 @@ export interface PhoneSearchResult {
 }
 
 export async function searchPhoneAction(query: string): Promise<PhoneSearchResult> {
-  const result = await withSession(({ session, truth }) => {
+  const result = await withSession(async ({ session, truth, userId }) => {
     const normalizedQuery = normalizePhone(query);
     // Real dispatcher/operator work: identifying who a number belongs
     // to. Unchanged from before this milestone — this step was always
     // instant and stays instant; only the deeper record retrieval below
     // is now asynchronous.
-    payTime(session, 5);
+    await payTime(userId, session, 5);
 
     if (normalizedQuery.length < 6) return { query, found: false, status: "not_found" as const, lines: [] };
 
@@ -70,7 +76,8 @@ export async function searchPhoneAction(query: string): Promise<PhoneSearchResul
       return { query, found: true, personId: owner.id, ownerName: `${owner.firstName} ${owner.lastName}`, status: outcome.status, lines: [] };
     }
 
-    discovery.checkDigitalRecords(truth, session, owner.id);
+    const revealed = discovery.checkDigitalRecords(truth, session, owner.id);
+    await commitRevealedEvidence(userId, session, revealed.revealedEvidenceIds);
     const lines: RecordLine[] = getVisibleEvidenceForPerson(truth, session, owner.id)
       .filter((ev) => ev.family === "digital")
       .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
@@ -99,8 +106,8 @@ function normalizePlate(value: string): string {
 }
 
 export async function searchVehicleAction(query: string): Promise<VehicleSearchResult> {
-  const result = await withSession(({ session, truth }) => {
-    payTime(session, 3);
+  const result = await withSession(async ({ session, truth, userId }) => {
+    await payTime(userId, session, 3);
     const normalizedQuery = normalizePlate(query);
     if (normalizedQuery.length < 3) return { query, matches: [] };
 
@@ -126,8 +133,8 @@ export interface CriminalRecordResult {
 }
 
 export async function searchCriminalRecordAction(personId: string): Promise<CriminalRecordResult> {
-  const result = await withSession(({ session, truth }) => {
-    payTime(session, 4);
+  const result = await withSession(async ({ session, truth, userId }) => {
+    await payTime(userId, session, 4);
     const person = truth.people.find((p) => p.id === personId);
     if (!person) throw new Error("Personne introuvable.");
     return { personId, ownerName: `${person.firstName} ${person.lastName}`, entries: getCriminalRecord(person) };
@@ -168,7 +175,7 @@ export interface CameraSearchResult {
 }
 
 export async function searchCameraAction(locationId: string, windowStart: number, windowEnd: number): Promise<CameraSearchResult> {
-  const result = await withSession(({ session, truth }) => {
+  const result = await withSession(async ({ session, truth, userId }) => {
     const location = truth.locations.find((l) => l.id === locationId);
     if (!location || !location.hasCameras) {
       return {
@@ -183,11 +190,14 @@ export async function searchCameraAction(locationId: string, windowStart: number
     }
 
     const outcome = requestCctvFootage(session, locationId);
+    const cctvEvent = findEvent(session, "cctv_footage", { kind: "location", id: locationId }) ?? null;
+    await commitRevealedEvidence(userId, session, [], cctvEvent);
     if (outcome.status !== "ready") {
       return { locationName: displayLocationName(location), available: true, status: outcome.status, windowStart, windowEnd, lines: [], moreOutsideWindow: false };
     }
 
-    discovery.checkCameraFootage(truth, session, locationId);
+    const revealed = discovery.checkCameraFootage(truth, session, locationId);
+    await commitRevealedEvidence(userId, session, revealed.revealedEvidenceIds);
     const visibleAtLocation = truth.evidence.filter(
       (ev) => ev.type === "camera_footage" && ev.relatedLocationIds.includes(locationId) && session.evidenceStatus[ev.id] && session.evidenceStatus[ev.id] !== "undiscovered",
     );
@@ -234,24 +244,43 @@ export interface BankSearchResult {
   lines: FinancialRecordLine[];
 }
 
+/** Commits a mandate decision `evaluateMandate`/`requestMandateWithDelay`
+ * already computed and stored locally, plus its paired warrant-decision
+ * event — see `trusted-mutations.ts#commitMandateRequest`. */
+async function commitMandateWithDelay(userId: string, session: SessionContext["session"], kind: "bank" | "search", personId: string) {
+  const key = mandateKey(kind, personId);
+  const record = session.mandates[key];
+  if (!record) return;
+  const eventType = kind === "bank" ? "bank_warrant" : "search_warrant";
+  const event = findEvent(session, eventType, { kind: "mandate", id: key }) ?? null;
+  await commitMandateRequest(userId, session, record, event);
+}
+
 export async function requestBankMandateAppAction(personId: string): Promise<MandateRequestOutcome> {
-  const result = await withSession(({ session, truth }) => requestMandateWithDelay(truth, session, "bank", personId));
+  const result = await withSession(async ({ session, truth, userId }) => {
+    const outcome = requestMandateWithDelay(truth, session, "bank", personId);
+    await commitMandateWithDelay(userId, session, "bank", personId);
+    return outcome;
+  });
   revalidatePath("/investigation", "layout");
   return result;
 }
 
 export async function searchBankAction(personId: string): Promise<BankSearchResult> {
-  const result = await withSession(({ session, truth }) => {
+  const result = await withSession(async ({ session, truth, userId }) => {
     const person = truth.people.find((p) => p.id === personId);
     if (!person) throw new Error("Personne introuvable.");
     const ownerName = `${person.firstName} ${person.lastName}`;
 
     const outcome = evaluateBankRecordsRequest(session, personId);
+    const recordsEvent = findEvent(session, "bank_records", { kind: "mandate", id: mandateKey("bank", personId) }) ?? null;
+    await commitRevealedEvidence(userId, session, [], recordsEvent);
     if (outcome.status !== "ready") {
       return { personId, ownerName, status: outcome.status, mandateReason: outcome.reason, lines: [] };
     }
 
-    discovery.checkBankRecords(truth, session, personId);
+    const revealed = discovery.checkBankRecords(truth, session, personId);
+    await commitRevealedEvidence(userId, session, revealed.revealedEvidenceIds);
     const lines: FinancialRecordLine[] = getVisibleEvidenceForPerson(truth, session, personId)
       .filter((ev) => ev.family === "financial")
       .map((ev) => ({
@@ -273,7 +302,11 @@ export async function searchBankAction(personId: string): Promise<BankSearchResu
 }
 
 export async function requestSearchMandateAppAction(personId: string): Promise<MandateRequestOutcome> {
-  const result = await withSession(({ session, truth }) => requestMandateWithDelay(truth, session, "search", personId));
+  const result = await withSession(async ({ session, truth, userId }) => {
+    const outcome = requestMandateWithDelay(truth, session, "search", personId);
+    await commitMandateWithDelay(userId, session, "search", personId);
+    return outcome;
+  });
   revalidatePath("/investigation", "layout");
   return result;
 }
@@ -288,7 +321,7 @@ export interface SearchWarrantResult {
 }
 
 export async function executeSearchWarrantAction(personId: string): Promise<SearchWarrantResult> {
-  const result = await withSession(({ session, truth }) => {
+  const result = await withSession(async ({ session, truth, userId }) => {
     const person = truth.people.find((p) => p.id === personId);
     if (!person) throw new Error("Personne introuvable.");
     const ownerName = `${person.firstName} ${person.lastName}`;
@@ -308,8 +341,9 @@ export async function executeSearchWarrantAction(personId: string): Promise<Sear
     // Physical execution time — distinct from the administrative
     // decision delay above; this is the cost of actually going and
     // searching, paid once the player explicitly chooses to execute.
-    payTime(session, 20);
-    discovery.searchLocation(truth, session, person.homeLocationId);
+    await payTime(userId, session, 20);
+    const revealed = discovery.searchLocation(truth, session, person.homeLocationId);
+    await commitRevealedEvidence(userId, session, revealed.revealedEvidenceIds);
     const lines: RecordLine[] = truth.evidence
       .filter((ev) => ev.family === "physical" && ev.relatedLocationIds.includes(person.homeLocationId) && session.evidenceStatus[ev.id] && session.evidenceStatus[ev.id] !== "undiscovered")
       .map((ev) => ({ id: ev.id, timeLabel: formatGameTime(ev.timestamp), time: ev.timestamp, typeLabel: RECORD_TYPE_LABEL[ev.type], detail: ev.description }))
@@ -335,9 +369,9 @@ export async function getLabReportAction(evidenceId: string): Promise<LabReportV
  * no-op if no such event was ever scheduled (shouldn't happen for
  * lab-eligible evidence, but never throws either way). */
 export async function consultLabReportAction(evidenceId: string): Promise<void> {
-  await withSession(({ session }) => {
+  await withSession(async ({ session, userId }) => {
     const eventId = labResultEventId(session, evidenceId);
-    if (eventId) markEventSeen(session, eventId);
+    if (eventId) await commitEventSeen(userId, session, eventId);
   });
   revalidatePath("/investigation", "layout");
 }
@@ -350,7 +384,11 @@ export async function consultLabReportAction(evidenceId: string): Promise<void> 
  * full truth-safety accounting.
  */
 export async function getNextHintAction(): Promise<HintPayload> {
-  const result = await withSession(({ session, truth }) => getNextHint(truth, session));
+  const result = await withSession(async ({ session, truth, userId }) => {
+    const payload = getNextHint(truth, session);
+    await commitHintProgress(userId, session, payload.hintId);
+    return payload;
+  });
   revalidatePath("/investigation", "layout");
   return result;
 }
@@ -359,7 +397,11 @@ export async function getNextHintAction(): Promise<HintPayload> {
  * currently looking at (the client passes back the `hintId` from the
  * payload it already received) by exactly one level. */
 export async function escalateHintAction(hintId: string): Promise<HintPayload> {
-  const result = await withSession(({ session, truth }) => escalateHint(truth, session, hintId));
+  const result = await withSession(async ({ session, truth, userId }) => {
+    const payload = escalateHint(truth, session, hintId);
+    await commitHintProgress(userId, session, payload.hintId);
+    return payload;
+  });
   revalidatePath("/investigation", "layout");
   return result;
 }

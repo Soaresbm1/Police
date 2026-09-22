@@ -227,6 +227,49 @@ revoke all on function public.caseline_submit_to_lab(text, uuid, text, text, int
 grant execute on function public.caseline_submit_to_lab(text, uuid, text, text, integer, jsonb) to authenticated;
 
 -- ---------------------------------------------------------------------
+-- Shared helper: given already-fetched lab_queue/evidence_status/
+-- investigation_events and the new current_time_minutes, completes any due
+-- lab job and flips any due event to "ready". Pure/immutable — no table
+-- access — factored out so both caseline_advance_time (player-facing,
+-- fixed 30/60/240 delays) and caseline_advance_time_internal (server-
+-- computed small action costs, e.g. a 5-minute interrogation) share the
+-- exact same completion logic instead of two copies drifting apart.
+-- ---------------------------------------------------------------------
+create or replace function public.caseline_apply_time_effects(p_lab_queue jsonb, p_evidence_status jsonb, p_investigation_events jsonb, p_new_time integer)
+returns table (evidence_status jsonb, investigation_events jsonb)
+language plpgsql
+immutable
+as $$
+declare
+  v_status jsonb := p_evidence_status;
+  v_events jsonb;
+  v_job jsonb;
+begin
+  for v_job in select jsonb_array_elements(p_lab_queue) loop
+    if (v_job ->> 'readyAt')::int <= p_new_time
+       and v_status ->> (v_job ->> 'evidenceId') = 'sent_to_lab' then
+      v_status := jsonb_set(v_status, array[v_job ->> 'evidenceId'], '"analyzed"');
+    end if;
+  end loop;
+
+  select coalesce(jsonb_agg(
+    case
+      when (e ->> 'status') = 'scheduled' and (e ->> 'scheduledAt')::int <= p_new_time
+        then jsonb_set(e, '{status}', '"ready"')
+      else e
+    end
+  ), '[]'::jsonb)
+  into v_events
+  from jsonb_array_elements(p_investigation_events) e;
+
+  return query select v_status, v_events;
+end;
+$$;
+
+revoke all on function public.caseline_apply_time_effects(jsonb, jsonb, jsonb, integer) from public, anon;
+grant execute on function public.caseline_apply_time_effects(jsonb, jsonb, jsonb, integer) to authenticated;
+
+-- ---------------------------------------------------------------------
 -- caseline_advance_time — SUPERSEDES the EXPAND-1 version with the SAME
 -- signature (p_session_uuid, p_minutes) but an extended return shape, so it
 -- must be DROPped first (CREATE OR REPLACE cannot change a function's
@@ -239,12 +282,22 @@ grant execute on function public.caseline_submit_to_lab(text, uuid, text, text, 
 -- functions above and this one, that forgery surface is closed once
 -- CONTRACT revokes the plain UPDATE grant).
 --
+-- This is exclusively the player-facing TopBar clock (allow-list matches
+-- components/shell/TopBar.tsx exactly, verified by the structural test).
+-- Small, server-computed action costs (interrogation, phone/vehicle/bank
+-- lookups, executing a granted search warrant, ...) never went through
+-- this allow-list even before EXPAND-2 — they were a separate, unchecked
+-- local `discovery.advanceTime` mutation persisted by the old broad
+-- `saveSession`. EXPAND-2 closes that gap with a SEPARATE function,
+-- caseline_advance_time_internal below, rather than widening this one's
+-- allow-list to include costs a player never directly triggers by clicking
+-- a time button — conflating the two would make this function's allow-list
+-- no longer mean "exactly the UI buttons".
+--
 -- Backward compatible with the existing APP-1 caller
 -- (`SupabaseSessionStore#advanceTime`, which only reads the
 -- `current_time_minutes` field of the returned row) — extra columns are
--- additive from a JS destructuring caller's point of view; APP-2 updates
--- that caller to also consume the new fields instead of recomputing them
--- locally via `discovery.advanceTime`.
+-- additive from a JS destructuring caller's point of view.
 -- ---------------------------------------------------------------------
 drop function if exists public.caseline_advance_time(uuid, integer);
 
@@ -260,7 +313,7 @@ declare
   v_queue jsonb;
   v_status jsonb;
   v_events jsonb;
-  v_job jsonb;
+  v_effects record;
 begin
   v_uid := auth.uid();
   if v_uid is null then
@@ -279,33 +332,71 @@ begin
     raise exception 'caseline: no matching active session';
   end if;
 
-  for v_job in select jsonb_array_elements(v_queue) loop
-    if (v_job ->> 'readyAt')::int <= v_new_time
-       and v_status ->> (v_job ->> 'evidenceId') = 'sent_to_lab' then
-      v_status := jsonb_set(v_status, array[v_job ->> 'evidenceId'], '"analyzed"');
-    end if;
-  end loop;
-
-  select coalesce(jsonb_agg(
-    case
-      when (e ->> 'status') = 'scheduled' and (e ->> 'scheduledAt')::int <= v_new_time
-        then jsonb_set(e, '{status}', '"ready"')
-      else e
-    end
-  ), '[]'::jsonb)
-  into v_events
-  from jsonb_array_elements(v_events) e;
+  select * into v_effects from public.caseline_apply_time_effects(v_queue, v_status, v_events, v_new_time);
 
   update public.investigation_sessions
-    set evidence_status = v_status, investigation_events = v_events, updated_at = now()
+    set evidence_status = v_effects.evidence_status, investigation_events = v_effects.investigation_events, updated_at = now()
     where user_id = v_uid and session_uuid = p_session_uuid;
 
-  return query select v_new_time, v_status, v_events;
+  return query select v_new_time, v_effects.evidence_status, v_effects.investigation_events;
 end;
 $$;
 
 revoke all on function public.caseline_advance_time(uuid, integer) from public, anon;
 grant execute on function public.caseline_advance_time(uuid, integer) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- caseline_advance_time_internal — the small, fixed, server-computed time
+-- costs baked into other actions (never a player-chosen value): 3
+-- (vehicle lookup), 4 (criminal record lookup), 5 (interrogation question,
+-- confrontation, phone lookup), 20 (executing a granted search warrant).
+-- AUTHENTICATED-SEMANTIC, same as caseline_advance_time — no CaseTruth
+-- needed, only the fixed allow-list below (a sanity bound matching the
+-- literal constants call sites use today, not an open range).
+-- ---------------------------------------------------------------------
+create or replace function public.caseline_advance_time_internal(p_session_uuid uuid, p_minutes integer)
+returns table (current_time_minutes integer, evidence_status jsonb, investigation_events jsonb)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid uuid;
+  v_new_time integer;
+  v_queue jsonb;
+  v_status jsonb;
+  v_events jsonb;
+  v_effects record;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'caseline: authentication required';
+  end if;
+  if p_minutes not in (3, 4, 5, 20) then
+    raise exception 'caseline: invalid internal time cost';
+  end if;
+
+  update public.investigation_sessions s
+    set current_time_minutes = s.current_time_minutes + p_minutes, updated_at = now()
+    where s.user_id = v_uid and s.session_uuid = p_session_uuid
+    returning s.current_time_minutes, s.lab_queue, s.evidence_status, s.investigation_events
+    into v_new_time, v_queue, v_status, v_events;
+  if not found then
+    raise exception 'caseline: no matching active session';
+  end if;
+
+  select * into v_effects from public.caseline_apply_time_effects(v_queue, v_status, v_events, v_new_time);
+
+  update public.investigation_sessions
+    set evidence_status = v_effects.evidence_status, investigation_events = v_effects.investigation_events, updated_at = now()
+    where user_id = v_uid and session_uuid = p_session_uuid;
+
+  return query select v_new_time, v_effects.evidence_status, v_effects.investigation_events;
+end;
+$$;
+
+revoke all on function public.caseline_advance_time_internal(uuid, integer) from public, anon;
+grant execute on function public.caseline_advance_time_internal(uuid, integer) to authenticated;
 
 -- =======================================================================
 -- 3. MANDATES / WARRANTS

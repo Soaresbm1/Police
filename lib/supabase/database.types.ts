@@ -136,11 +136,71 @@ export interface Database {
         Args: { asset_id: string; owner_id: string };
         Returns: undefined;
       };
-      /** Security S2 (draft, not yet applied) — player-callable, ownership-
-       * scoped, no server capability required. See migration 0007. */
+      /** Security S2 EXPAND-2 (draft, not yet applied) — player-callable,
+       * ownership-scoped, no server capability required. Superseded return
+       * shape (see migration 0009): also completes due lab jobs and
+       * resolves due events atomically alongside the clock. */
       caseline_advance_time: {
         Args: { p_session_uuid: string; p_minutes: number };
-        Returns: { current_time_minutes: number }[];
+        Returns: { current_time_minutes: number; evidence_status: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — same shape as
+       * `caseline_advance_time` but a separate, narrower allow-list for
+       * fixed action-cost deltas (3/4/5/20). See migration 0009. */
+      caseline_advance_time_internal: {
+        Args: { p_session_uuid: string; p_minutes: number };
+        Returns: { current_time_minutes: number; evidence_status: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — ownership-scoped,
+       * no server capability required (pure DB-state check). See migration
+       * 0009. */
+      caseline_collect_evidence: {
+        Args: { p_session_uuid: string; p_evidence_id: string };
+        Returns: { evidence_status: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; the caller has already filtered
+       * `p_evidence_ids` against CaseTruth. See migration 0009. */
+      caseline_reveal_evidence: {
+        Args: { p_server_token: string; p_session_uuid: string; p_evidence_ids: Json; p_event: Json | null };
+        Returns: { evidence_status: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; `p_analysis_type`/`p_ready_at` are
+       * derived from CaseTruth by the caller. See migration 0009. */
+      caseline_submit_to_lab: {
+        Args: { p_server_token: string; p_session_uuid: string; p_evidence_id: string; p_analysis_type: string; p_ready_at: number; p_event: Json | null };
+        Returns: { lab_queue: Json; evidence_status: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; `p_granted`/`p_reason` are derived
+       * from CaseTruth by the caller (`evaluateMandate`). See migration
+       * 0009. */
+      caseline_request_mandate: {
+        Args: { p_server_token: string; p_session_uuid: string; p_key: string; p_granted: boolean; p_reason: string; p_requested_at: number; p_event: Json | null };
+        Returns: { mandates: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; `p_record` (including
+       * `observations`) is derived from CaseTruth by the caller. See
+       * migration 0009. */
+      caseline_start_surveillance: {
+        Args: { p_server_token: string; p_session_uuid: string; p_key: string; p_record: Json; p_event: Json | null };
+        Returns: { surveillance: Json; investigation_events: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; eligibility/text derived from
+       * CaseTruth by the caller. See migration 0009. */
+      caseline_record_hint: {
+        Args: { p_server_token: string; p_session_uuid: string; p_hint_id: string; p_level: number; p_history_entry: Json };
+        Returns: { hint_state: Json }[];
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — ownership-scoped,
+       * no server capability required (only allows ready -> seen). See
+       * migration 0009. */
+      caseline_mark_event_seen: {
+        Args: { p_session_uuid: string; p_event_id: string };
+        Returns: { investigation_events: Json }[];
       };
       caseline_update_profile_preferences: {
         Args: { p_sound_muted?: boolean | null; p_reduce_motion?: boolean | null; p_hints_disabled?: boolean | null };

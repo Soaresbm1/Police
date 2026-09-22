@@ -355,9 +355,13 @@ describe("S1 — reconstruction and archived cases unchanged", () => {
     currentUserId = "user-recon";
     const seed = generateCaseSeed();
     const store = new SupabaseSessionStore();
-    const session = await store.createSession(currentUserId, seed, "investigator", 480);
-    session.accusation = accusation;
-    await store.saveSession(currentUserId, session);
+    await store.createSession(currentUserId, seed, "investigator", 480);
+    // Security S2 EXPAND-2: `accusation` is authoritative (written only by
+    // `caseline_finalize_case`/`caseline_request_mandate`-style trusted
+    // mutations), so `saveSession` no longer persists it — poke the fake
+    // table row directly, matching this file's existing pattern for
+    // exercising the READ side independent of how a real write happens.
+    fake.tables.investigation_sessions[0].accusation = accusation as never;
 
     const release = await getActiveCaseReconstruction();
     expect(release.available).toBe(true);

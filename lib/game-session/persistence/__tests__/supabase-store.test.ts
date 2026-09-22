@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: async () => ({}),
 }));
 
-import { rowToSession, sessionToRow, type SessionRow } from "../supabase-store";
+import { rowToSession, sessionToRow, sessionToPlayerOwnedRow, type SessionRow } from "../supabase-store";
 import { computeHintPenalty } from "../../scoring";
 import type { GameSession, HintState } from "../../types";
 
@@ -66,6 +66,27 @@ function makeSession(overrides: Partial<GameSession> = {}): GameSession {
     ...overrides,
   };
 }
+
+describe("sessionToPlayerOwnedRow — Security S2 EXPAND-2 saveSession narrowing", () => {
+  it("never includes any authoritative column — only player-owned/bookkeeping fields plus the resealed seed", () => {
+    const session = makeSession();
+    const row = sessionToPlayerOwnedRow(session, "s1e.v1.fake.envelope.here");
+    const keys = Object.keys(row);
+    for (const forbidden of ["current_time_minutes", "evidence_status", "lab_queue", "mandates", "surveillance", "investigation_events", "hint_state", "accusation", "session_uuid", "user_id", "difficulty"]) {
+      expect(keys).not.toContain(forbidden);
+    }
+    expect(keys.sort()).toEqual(
+      ["seed", "notes", "board", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids", "updated_at"].sort(),
+    );
+  });
+
+  it("writes exactly the sealed seed it was given, never the plaintext session.seed directly", () => {
+    const session = makeSession({ seed: "CASE-PLAINTEXT" });
+    const row = sessionToPlayerOwnedRow(session, "s1e.v1.sealed.envelope");
+    expect(row.seed).toBe("s1e.v1.sealed.envelope");
+    expect(row.seed).not.toBe("CASE-PLAINTEXT");
+  });
+});
 
 describe("rowToSession — backward compatibility (req. 12)", () => {
   it("deserializes investigation_events into events: [] when the column is null (a session persisted before this migration)", () => {

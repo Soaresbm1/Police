@@ -41,7 +41,8 @@ revoke update on public.investigation_sessions from authenticated;
 grant update (
   notes, board, player_timeline,
   crime_scene_examined, crime_scene_inspected_zone_ids,
-  last_action_message, last_revealed_evidence_ids
+  last_action_message, last_revealed_evidence_ids,
+  seed
 ) on public.investigation_sessions to authenticated;
 -- The four crime-scene/UI-bookkeeping columns join the grant here per the
 -- EXPAND-2 audit: they carry no CaseTruth content and forging them changes
@@ -50,8 +51,22 @@ grant update (
 -- player_timeline, not the evidence/mandate/lab/surveillance/hint columns
 -- below.
 --
+-- KNOWN GAP, NOT YET RESOLVED: `seed` is granted here only because S1's
+-- lazy-migration fallback depends on an ordinary `saveSession` being able
+-- to re-seal it (see `sessionToPlayerOwnedRow`'s own doc comment and
+-- `s1-session-persistence.test.ts`'s "a failed upgrade... the next load or
+-- save completes it"). A forged direct `UPDATE ... SET seed = ...` is still
+-- possible through this grant — bypassing S1 entirely for that row (S1
+-- protects confidentiality of a legitimately-sealed seed, not integrity of
+-- the column against a malicious owner-role write, and this was already
+-- true before EXPAND-2/APP-2). Closing this needs a dedicated
+-- capability-gated `caseline_reseal_seed`-style function so `seed` can join
+-- the revoked set too; out of scope for this pass (S2 targets game-state
+-- write authority, not seed confidentiality, which S1 already owns) and
+-- explicitly flagged rather than silently left as a "player-owned" column.
+--
 -- Everything else — current_time_minutes, evidence_status, accusation,
--- seed, mandates, surveillance, hint_state, investigation_events,
+-- mandates, surveillance, hint_state, investigation_events,
 -- session_uuid — is writable only through caseline_advance_time /
 -- caseline_finalize_case / caseline_collect_evidence /
 -- caseline_reveal_evidence / caseline_submit_to_lab /

@@ -11,7 +11,22 @@ import { migrateLegacyCaseArt } from "@/lib/art/generation/legacy-case-migration
 import { normalizeHintState } from "../hints";
 import { rememberStoredSeed, storedSeedForSave, upgradeLegacySessionSeed, type SessionSeedColumnOps } from "./session-seed";
 import { getS2ServerCapabilityToken } from "@/lib/security/s2-server-capability";
-import type { AllowedTimeDelta, CaseHistoryEntry, FinalizeCaseInput, FinalizeCaseResult, PlayerProfile, PlayerSettings, SessionStore } from "./types";
+import type {
+  AdvanceTimeResult,
+  AllowedTimeDelta,
+  CaseHistoryEntry,
+  EvidenceMutationResult,
+  FinalizeCaseInput,
+  FinalizeCaseResult,
+  InternalTimeCost,
+  LabSubmissionResult,
+  MandateMutationResult,
+  PlayerProfile,
+  PlayerSettings,
+  SessionStore,
+  SurveillanceMutationResult,
+} from "./types";
+import type { EvidencePlayerStatus, HintHistoryEntry, HintState, InvestigationEvent } from "../types";
 
 /** jsonb columns round-trip through `Json` — every read needs a two-step
  * cast (there's no structural overlap TypeScript can verify on its own)
@@ -178,6 +193,44 @@ export function sessionToRow(
   };
 }
 
+/** Security S2 EXPAND-2 — the columns an ordinary `saveSession` call
+ * writes: the player-owned/bookkeeping set `0008` (CONTRACT, updated)
+ * grants back to `authenticated` after the broad `UPDATE` is revoked,
+ * PLUS the sealed `seed` (still written here — see the note below). Every
+ * OTHER authoritative column (`evidence_status`, `lab_queue`, `mandates`,
+ * `surveillance`, `investigation_events`, `hint_state`, `accusation`,
+ * `current_time_minutes`, `session_uuid`) is persisted ONLY by its own
+ * trusted mutation (`caseline_advance_time`/`caseline_finalize_case`/the
+ * EXPAND-2 `caseline_*` functions) — never by this whole-row path. This is
+ * deliberately narrower than `sessionToRow`, which `createSession`'s
+ * initial INSERT still uses (a brand-new row legitimately needs every
+ * column set once). See SECURITY.md §S2 "session broad-save analysis".
+ *
+ * `seed` stays here, unlike the other authoritative columns, because S1's
+ * lazy-migration fallback depends on an ordinary `saveSession` re-sealing
+ * it (see `s1-session-persistence.test.ts`'s "a failed upgrade... the next
+ * load or save completes it") — `0008` does NOT yet revoke `seed`'s grant
+ * for exactly this reason. Closing this (a dedicated
+ * `caseline_reseal_seed`-style capability-gated function, so `seed` can
+ * also lose its broad grant under CONTRACT) is flagged as unresolved
+ * EXPAND-2/3 follow-up work, not attempted here — S2's game-state-integrity
+ * scope was never about seed confidentiality (S1 already owns that; a
+ * forged/regressed `seed` write is a correctness bug, not the write-authority
+ * exposure this pass targets). */
+export function sessionToPlayerOwnedRow(session: GameSession, storedSeed: string): Database["public"]["Tables"]["investigation_sessions"]["Update"] {
+  return {
+    seed: storedSeed,
+    notes: session.notes,
+    board: session.board as unknown as Json,
+    player_timeline: session.playerTimeline as unknown as Json,
+    crime_scene_examined: session.crimeSceneExamined,
+    crime_scene_inspected_zone_ids: session.crimeSceneInspectedZoneIds as unknown as Json,
+    last_action_message: session.lastActionMessage,
+    last_revealed_evidence_ids: session.lastRevealedEvidenceIds as unknown as Json,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function rowToProfile(row: ProfileRow): PlayerProfile {
   return {
     userId: row.id,
@@ -297,10 +350,18 @@ export class SupabaseSessionStore implements SessionStore {
     return session;
   }
 
+  /** Security S2 EXPAND-2 — writes ONLY the player-owned columns
+   * (`sessionToPlayerOwnedRow`), never the authoritative ones. Every
+   * authoritative field (evidence, mandates, lab, surveillance, events,
+   * hints, time, accusation, seed) is persisted by its own trusted
+   * mutation the moment it changes — this call is deliberately a no-op for
+   * all of them, so it survives once CONTRACT revokes the broad `UPDATE`
+   * grant down to exactly this column set. No seed sealing/S1 involvement
+   * here either — `seed` is never part of this payload. */
   async saveSession(userId: string, session: GameSession): Promise<void> {
     const storedSeed = sealForWrite(session, userId);
     const supabase = await this.client();
-    const { error } = await supabase.from("investigation_sessions").upsert(sessionToRow(userId, session, storedSeed), { onConflict: "user_id" });
+    const { error } = await supabase.from("investigation_sessions").update(sessionToPlayerOwnedRow(session, storedSeed)).eq("user_id", userId);
     if (error) throw new Error(`Supabase saveSession failed: ${error.message}`);
   }
 
@@ -343,18 +404,41 @@ export class SupabaseSessionStore implements SessionStore {
     return this.getProfile(userId);
   }
 
-  /** Security S2 — the game clock's only sanctioned mutation path once
-   * CONTRACT lands; routes through `caseline_advance_time`, which enforces
-   * both ownership (`auth.uid()`) and the delta allow-list at the database
-   * layer, independent of anything this TypeScript call site does. */
-  async advanceTime(userId: string, sessionUuid: string, minutes: AllowedTimeDelta): Promise<number> {
+  /** Security S2 EXPAND-2 — the game clock's only sanctioned mutation path
+   * once CONTRACT lands; routes through the extended `caseline_advance_time`,
+   * which enforces ownership + the delta allow-list AND atomically completes
+   * any due lab jobs / resolves any due events alongside the clock — see
+   * migration 0009. Independent of anything this TypeScript call site does. */
+  async advanceTime(userId: string, sessionUuid: string, minutes: AllowedTimeDelta): Promise<AdvanceTimeResult> {
     const supabase = await this.client();
     const { data, error } = await supabase.rpc("caseline_advance_time", { p_session_uuid: sessionUuid, p_minutes: minutes });
     if (error) throw new Error(`Supabase advanceTime failed: ${error.message}`);
-    const row = (Array.isArray(data) ? data[0] : data) as { current_time_minutes: number } | undefined;
+    const row = (Array.isArray(data) ? data[0] : data) as { current_time_minutes: number; evidence_status: Json; investigation_events: Json } | undefined;
     if (!row) throw new Error("Supabase advanceTime returned no row");
     void userId; // ownership is enforced inside the function via auth.uid(), not by this argument
-    return row.current_time_minutes;
+    return {
+      currentTimeMinutes: row.current_time_minutes,
+      evidenceStatus: fromJson<Record<string, EvidencePlayerStatus>>(row.evidence_status),
+      events: fromJson<InvestigationEvent[]>(row.investigation_events),
+    };
+  }
+
+  /** Security S2 EXPAND-2 — the fixed, server-computed action-cost time
+   * deltas (see `ALLOWED_INTERNAL_TIME_COSTS`), routed through the separate
+   * `caseline_advance_time_internal` rather than widening the player-facing
+   * `caseline_advance_time`'s allow-list. */
+  async advanceTimeInternal(userId: string, sessionUuid: string, minutes: InternalTimeCost): Promise<AdvanceTimeResult> {
+    const supabase = await this.client();
+    const { data, error } = await supabase.rpc("caseline_advance_time_internal", { p_session_uuid: sessionUuid, p_minutes: minutes });
+    if (error) throw new Error(`Supabase advanceTimeInternal failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { current_time_minutes: number; evidence_status: Json; investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase advanceTimeInternal returned no row");
+    void userId;
+    return {
+      currentTimeMinutes: row.current_time_minutes,
+      evidenceStatus: fromJson<Record<string, EvidencePlayerStatus>>(row.evidence_status),
+      events: fromJson<InvestigationEvent[]>(row.investigation_events),
+    };
   }
 
   /** Security S2 — one atomic, idempotent resolution via
@@ -381,6 +465,121 @@ export class SupabaseSessionStore implements SessionStore {
     if (!row) throw new Error("Supabase finalizeCase returned no row");
     const profile = await this.getProfile(userId);
     return { historyId: row.history_id, alreadyFinalized: row.already_finalized, profile };
+  }
+
+  // -----------------------------------------------------------------
+  // Security S2 EXPAND-2 (draft, not yet applied — see
+  // supabase/migrations/0009_s2_expand2_trusted_mutations.sql). Every
+  // method below persists a result the caller already computed from
+  // `CaseTruth`, then returns the authoritative post-write value for the
+  // caller to overwrite its local session fields with.
+  // -----------------------------------------------------------------
+
+  async collectEvidence(userId: string, sessionUuid: string, evidenceId: string): Promise<EvidenceMutationResult> {
+    const supabase = await this.client();
+    const { data, error } = await supabase.rpc("caseline_collect_evidence", { p_session_uuid: sessionUuid, p_evidence_id: evidenceId });
+    if (error) throw new Error(`Supabase collectEvidence failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { evidence_status: Json } | undefined;
+    if (!row) throw new Error("Supabase collectEvidence returned no row");
+    void userId;
+    return { evidenceStatus: fromJson(row.evidence_status), events: [] };
+  }
+
+  async revealEvidence(userId: string, sessionUuid: string, evidenceIds: string[], event: InvestigationEvent | null): Promise<EvidenceMutationResult> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_reveal_evidence", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_evidence_ids: evidenceIds as unknown as Json,
+      p_event: event as unknown as Json,
+    });
+    if (error) throw new Error(`Supabase revealEvidence failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { evidence_status: Json; investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase revealEvidence returned no row");
+    void userId;
+    return { evidenceStatus: fromJson(row.evidence_status), events: fromJson(row.investigation_events) };
+  }
+
+  async submitToLab(userId: string, sessionUuid: string, job: LabJob, event: InvestigationEvent | null): Promise<LabSubmissionResult> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_submit_to_lab", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_evidence_id: job.evidenceId,
+      p_analysis_type: job.analysisType,
+      p_ready_at: job.readyAt,
+      p_event: event as unknown as Json,
+    });
+    if (error) throw new Error(`Supabase submitToLab failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { lab_queue: Json; evidence_status: Json; investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase submitToLab returned no row");
+    void userId;
+    return { labQueue: fromJson(row.lab_queue), evidenceStatus: fromJson(row.evidence_status), events: fromJson(row.investigation_events) };
+  }
+
+  async requestMandate(userId: string, sessionUuid: string, record: MandateRecord, event: InvestigationEvent | null): Promise<MandateMutationResult> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_request_mandate", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_key: record.key,
+      p_granted: record.granted,
+      p_reason: record.reason,
+      p_requested_at: record.requestedAt,
+      p_event: event as unknown as Json,
+    });
+    if (error) throw new Error(`Supabase requestMandate failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { mandates: Json; investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase requestMandate returned no row");
+    void userId;
+    return { mandates: fromJson(row.mandates), events: fromJson(row.investigation_events) };
+  }
+
+  async startSurveillance(userId: string, sessionUuid: string, key: string, record: SurveillanceRecord, event: InvestigationEvent | null): Promise<SurveillanceMutationResult> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_start_surveillance", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_key: key,
+      p_record: record as unknown as Json,
+      p_event: event as unknown as Json,
+    });
+    if (error) throw new Error(`Supabase startSurveillance failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { surveillance: Json; investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase startSurveillance returned no row");
+    void userId;
+    return { surveillance: fromJson(row.surveillance), events: fromJson(row.investigation_events) };
+  }
+
+  async recordHint(userId: string, sessionUuid: string, entry: HintHistoryEntry): Promise<HintState> {
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_record_hint", {
+      p_server_token: token,
+      p_session_uuid: sessionUuid,
+      p_hint_id: entry.hintId,
+      p_level: entry.level,
+      p_history_entry: entry as unknown as Json,
+    });
+    if (error) throw new Error(`Supabase recordHint failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { hint_state: Json } | undefined;
+    if (!row) throw new Error("Supabase recordHint returned no row");
+    void userId;
+    return normalizeHintState(row.hint_state);
+  }
+
+  async markEventSeen(userId: string, sessionUuid: string, eventId: string): Promise<InvestigationEvent[]> {
+    const supabase = await this.client();
+    const { data, error } = await supabase.rpc("caseline_mark_event_seen", { p_session_uuid: sessionUuid, p_event_id: eventId });
+    if (error) throw new Error(`Supabase markEventSeen failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { investigation_events: Json } | undefined;
+    if (!row) throw new Error("Supabase markEventSeen returned no row");
+    void userId;
+    return fromJson(row.investigation_events);
   }
 
   async listCaseHistory(userId: string): Promise<CaseHistoryEntry[]> {

@@ -8,7 +8,6 @@ import { generateCaseSeed } from "@/lib/game-engine/random/rng";
 import type { Difficulty } from "@/lib/game-engine/types/case";
 import { isAutoPortraitGenerationEnabled, runAutoPortraitGeneration } from "@/lib/art/generation/auto-portrait-trigger";
 import { isAutoCrimeSceneGenerationEnabled, runAutoCrimeSceneGeneration } from "@/lib/art/generation/auto-scene-trigger";
-import { markEventSeen } from "./events";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { activeGeneratedAssetProvider } from "@/lib/art/generation/active-provider";
 import { caseAssetKeysFor } from "@/lib/security/case-ref";
@@ -22,7 +21,9 @@ import { scoreAccusation } from "./scoring";
 import { getInterrogationTopics, markAsked } from "./interrogation-view";
 import { markWitnessCallbackSeen, scheduleWitnessCallbackIfEligible } from "./witness-callbacks";
 import { performConfrontation } from "./confrontations";
-import { isSurveillanceDuration, startSurveillance, SURVEILLANCE_REJECTION_LABEL } from "./surveillance";
+import { isSurveillanceDuration, startSurveillance, SURVEILLANCE_REJECTION_LABEL, surveillanceKey } from "./surveillance";
+import { findEvent } from "./events";
+import { commitCollectedEvidence, commitEventSeen, commitLabSubmission, commitRevealedEvidence, commitSurveillance, payInternalTime } from "./trusted-mutations";
 import type { BoardNodeKind, PlayerTimelineStatus } from "./types";
 
 const DIFFICULTIES: Difficulty[] = ["recruit", "investigator", "inspector", "expert"];
@@ -98,9 +99,7 @@ export async function startNewCase(formData: FormData) {
 }
 
 export async function markEventSeenAction(eventId: string) {
-  await withSession(({ session }) => {
-    markEventSeen(session, eventId);
-  });
+  await withSession(({ session, userId }) => commitEventSeen(userId, session, eventId));
   refreshInvestigation();
 }
 
@@ -119,10 +118,11 @@ export async function endCurrentCase() {
 }
 
 export async function examineCrimeSceneAction() {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     const result = discovery.examineCrimeScene(truth, session);
     session.lastActionMessage = result.message;
     session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
+    await commitRevealedEvidence(userId, session, result.revealedEvidenceIds);
   });
   refreshInvestigation();
 }
@@ -131,10 +131,11 @@ export async function examineCrimeSceneAction() {
  * item (if it's part of the legitimate crime-scene set); a null id means a
  * decoy prop with nothing to find, which is only recorded as "inspected". */
 export async function inspectCrimeSceneZoneAction(zoneId: string, evidenceId: string | null) {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     if (evidenceId) {
       const result = discovery.inspectCrimeSceneHotspot(truth, session, evidenceId);
       session.lastRevealedEvidenceIds = result.revealedEvidenceIds;
+      await commitRevealedEvidence(userId, session, result.revealedEvidenceIds);
     } else {
       session.crimeSceneExamined = true;
       if (!session.crimeSceneInspectedZoneIds.includes(zoneId)) {
@@ -146,51 +147,55 @@ export async function inspectCrimeSceneZoneAction(zoneId: string, evidenceId: st
 }
 
 export async function collectEvidenceAction(evidenceId: string) {
-  await withSession(({ session }) => {
+  await withSession(async ({ session, userId }) => {
     discovery.collectEvidence(session, evidenceId);
+    await commitCollectedEvidence(userId, session, evidenceId);
   });
   refreshInvestigation();
 }
 
 export async function sendToLabAction(evidenceId: string) {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     const result = discovery.sendToLab(truth, session, evidenceId);
     session.lastActionMessage = result.message;
+    if (result.ok) await commitLabSubmission(userId, session, evidenceId);
   });
   refreshInvestigation();
 }
 
-/** Security S2 — `minutes` is validated against the same allow-list the
- * database enforces (`caseline_advance_time`, `ALLOWED_TIME_DELTAS`)
- * before ever reaching `getStore().advanceTime`, which is the actual
- * authoritative gate; this is defense in depth at the Server Action
- * layer, not the boundary itself. A tampered/malformed request (the UI
- * only ever binds 30/60/240 — see components/shell/TopBar.tsx) is
- * silently ignored rather than partially applied.
+/** Security S2 EXPAND-2 — `minutes` is validated against the same
+ * allow-list the database enforces (`caseline_advance_time`,
+ * `ALLOWED_TIME_DELTAS`) before ever reaching `getStore().advanceTime`,
+ * which is the actual authoritative gate; this is defense in depth at the
+ * Server Action layer, not the boundary itself. A tampered/malformed
+ * request (the UI only ever binds 30/60/240 — see
+ * components/shell/TopBar.tsx) is silently ignored rather than partially
+ * applied.
  *
- * The RPC's returned new time is applied to the local `session` directly
- * (`session.currentTime = newTime`, never `+=`) before running
- * `discovery.advanceTime(session, 0)` for its lab-queue-completion/event
- * side effects only — calling it with the real `delta` here would advance
- * the clock a second time locally, and `withSession`'s trailing
- * `saveSession` would then persist that doubled, non-authoritative value
- * right back over what the RPC just wrote. */
+ * The RPC now atomically completes due lab jobs and resolves due events
+ * alongside the clock (see `0009_s2_expand2_trusted_mutations.sql`'s
+ * extended `caseline_advance_time`), so its three returned fields are
+ * applied directly to the local `session` — never recomputed locally via
+ * `discovery.advanceTime` (which would both duplicate the clock advance,
+ * the APP-1 bug already fixed once, AND rely on evidence_status/events
+ * columns `saveSession` no longer even writes post-EXPAND-2). */
 export async function advanceTimeAction(minutes: number) {
   const delta = (ALLOWED_TIME_DELTAS as readonly number[]).includes(minutes) ? (minutes as AllowedTimeDelta) : null;
   await withSession(async ({ session, userId }) => {
     if (!delta) return;
-    session.currentTime = await getStore().advanceTime(userId, session.sessionUuid, delta);
-    const result = discovery.advanceTime(session, 0);
-    session.lastActionMessage =
-      result.completedEvidenceIds.length > 0
-        ? `Le temps passe... ${result.completedEvidenceIds.length} résultat(s) de laboratoire sont arrivés.`
-        : "Le temps passe...";
+    const before = session.evidenceStatus;
+    const result = await getStore().advanceTime(userId, session.sessionUuid, delta);
+    session.currentTime = result.currentTimeMinutes;
+    session.evidenceStatus = result.evidenceStatus;
+    session.events = result.events;
+    const completedCount = Object.keys(result.evidenceStatus).filter((id) => result.evidenceStatus[id] === "analyzed" && before[id] !== "analyzed").length;
+    session.lastActionMessage = completedCount > 0 ? `Le temps passe... ${completedCount} résultat(s) de laboratoire sont arrivés.` : "Le temps passe...";
   });
   refreshInvestigation();
 }
 
 export async function askQuestionAction(personId: string, factId: string) {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     // A witness's callback (if any) is scheduled the moment the player
     // first engages them at all — the interview only decides WHEN it
     // becomes relevant, never WHAT it contains (Phase 3, req. 9).
@@ -204,7 +209,9 @@ export async function askQuestionAction(personId: string, factId: string) {
     const topic = topics.find((t) => t.factId === factId);
     session.lastActionMessage = topic ? `Réponse obtenue à propos de : ${topic.topicLabel}.` : null;
     session.lastRevealedEvidenceIds = revealed;
-    discovery.advanceTime(session, 5);
+    const callbackEvent = isFirstInterview ? (findEvent(session, "witness_callback", { kind: "person", id: personId }) ?? null) : null;
+    await commitRevealedEvidence(userId, session, revealed, callbackEvent);
+    await payInternalTime(userId, session, 5);
   });
   refreshInvestigation();
 }
@@ -219,10 +226,14 @@ export async function askQuestionAction(personId: string, factId: string) {
  * `null`). Same interrogation-time economy as asking a question.
  */
 export async function confrontAction(personId: string, opportunityId: string) {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     const result = performConfrontation(truth, session, personId, opportunityId);
     session.lastActionMessage = result ? `Confrontation : ${result.evidenceLabel}.` : null;
-    discovery.advanceTime(session, 5);
+    if (result) {
+      const confrontationEvent = findEvent(session, "confrontation", { kind: "confrontation", id: opportunityId }) ?? null;
+      await commitRevealedEvidence(userId, session, [], confrontationEvent);
+    }
+    await payInternalTime(userId, session, 5);
   });
   refreshInvestigation();
 }
@@ -235,7 +246,7 @@ export async function confrontAction(personId: string, opportunityId: string) {
  * or an ineligible/overlapping window simply does nothing.
  */
 export async function startSurveillanceAction(personId: string, durationMinutes: number) {
-  await withSession(({ session, truth }) => {
+  await withSession(async ({ session, truth, userId }) => {
     if (!isSurveillanceDuration(durationMinutes)) {
       session.lastActionMessage = "Durée de surveillance invalide.";
       return;
@@ -244,6 +255,11 @@ export async function startSurveillanceAction(personId: string, durationMinutes:
     session.lastActionMessage = result.ok
       ? `Surveillance en cours (${durationMinutes / 60}h).`
       : (result.reason && SURVEILLANCE_REJECTION_LABEL[result.reason]) || "Surveillance impossible.";
+    if (result.ok && result.record) {
+      const key = surveillanceKey(personId, result.record.startedAt);
+      const event = findEvent(session, "surveillance_result", { kind: "surveillance", id: key }) ?? null;
+      await commitSurveillance(userId, session, key, result.record, event);
+    }
   });
   refreshInvestigation();
 }

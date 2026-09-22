@@ -31,7 +31,7 @@ const EXPAND2_CAPABILITY_REQUIRED = [
   "caseline_ga_repoint_path",
   "caseline_ga_relabel",
 ];
-const EXPAND2_AUTHENTICATED_SEMANTIC = ["caseline_collect_evidence", "caseline_mark_event_seen"];
+const EXPAND2_AUTHENTICATED_SEMANTIC = ["caseline_collect_evidence", "caseline_mark_event_seen", "caseline_advance_time_internal"];
 
 describe("S2 EXPAND migration — must stay inert for current Production", () => {
   it("never revokes a pre-S2 table's existing grant or drops an existing policy", () => {
@@ -156,9 +156,9 @@ describe("S2 CONTRACT migration (draft) — the eventual restrictive end state",
     const grantLine = contractSql.match(/grant update \(([\s\S]+?)\) on public\.investigation_sessions to authenticated/i)?.[1] ?? "";
     const grantedColumns = grantLine.split(",").map((c) => c.trim());
     expect(grantedColumns.sort()).toEqual(
-      ["board", "notes", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids"].sort(),
+      ["board", "notes", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids", "seed"].sort(),
     );
-    for (const forbidden of ["seed", "accusation", "current_time_minutes", "evidence_status", "hint_state", "mandates", "surveillance", "investigation_events", "lab_queue", "session_uuid"]) {
+    for (const forbidden of ["accusation", "current_time_minutes", "evidence_status", "hint_state", "mandates", "surveillance", "investigation_events", "lab_queue", "session_uuid"]) {
       expect(grantedColumns).not.toContain(forbidden);
     }
   });
@@ -199,7 +199,7 @@ describe("S2 EXPAND-2 migration (draft) — evidence/mandate/lab/surveillance/hi
   });
 
   it("every function is revoked from anon and never from authenticated", () => {
-    const allFns = [...EXPAND2_CAPABILITY_REQUIRED, ...EXPAND2_AUTHENTICATED_SEMANTIC, "caseline_advance_time"];
+    const allFns = [...EXPAND2_CAPABILITY_REQUIRED, ...EXPAND2_AUTHENTICATED_SEMANTIC, "caseline_advance_time", "caseline_apply_time_effects"];
     for (const fn of allFns) {
       const revokeBlock = expand2Sql.match(new RegExp(`revoke all on function public\\.${fn}\\([^;]*;`, "i"))?.[0] ?? "";
       expect(revokeBlock, `${fn} missing revoke-from-anon`).toMatch(/\banon\b/);
@@ -221,8 +221,21 @@ describe("S2 EXPAND-2 migration (draft) — evidence/mandate/lab/surveillance/hi
   });
 
   it("caseline_advance_time still validates the same allowed time deltas as EXPAND-1", () => {
-    const fnBody = expand2Sql.match(/create or replace function public\.caseline_advance_time[\s\S]*?\$\$;/i)?.[0] ?? "";
+    const fnBody = expand2Sql.match(/create or replace function public\.caseline_advance_time\(p_session_uuid[\s\S]*?\$\$;/i)?.[0] ?? "";
     expect(fnBody).toMatch(/p_minutes not in \(30, 60, 240\)/i);
+  });
+
+  it("caseline_advance_time_internal only allows the fixed action-cost constants actually used by call sites", () => {
+    const fnBody = expand2Sql.match(/create or replace function public\.caseline_advance_time_internal[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnBody).toMatch(/p_minutes not in \(3, 4, 5, 20\)/i);
+    expect(fnBody).not.toMatch(/caseline_check_server_capability/i);
+  });
+
+  it("caseline_advance_time and caseline_advance_time_internal share the same time-effects helper (no duplicated completion logic)", () => {
+    const publicBody = expand2Sql.match(/create or replace function public\.caseline_advance_time\(p_session_uuid[\s\S]*?\$\$;/i)?.[0] ?? "";
+    const internalBody = expand2Sql.match(/create or replace function public\.caseline_advance_time_internal[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(publicBody).toMatch(/caseline_apply_time_effects/i);
+    expect(internalBody).toMatch(/caseline_apply_time_effects/i);
   });
 
   it("evidence reveal never downgrades an already-advanced evidence status (monotonic)", () => {
