@@ -157,11 +157,18 @@ describe("S2 CONTRACT migration (draft) — the eventual restrictive end state",
     const grantLine = contractSql.match(/grant update \(([\s\S]+?)\) on public\.investigation_sessions to authenticated/i)?.[1] ?? "";
     const grantedColumns = grantLine.split(",").map((c) => c.trim());
     expect(grantedColumns.sort()).toEqual(
-      ["board", "notes", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids", "seed"].sort(),
+      ["board", "notes", "player_timeline", "crime_scene_examined", "crime_scene_inspected_zone_ids", "last_action_message", "last_revealed_evidence_ids"].sort(),
     );
-    for (const forbidden of ["accusation", "current_time_minutes", "evidence_status", "hint_state", "mandates", "surveillance", "investigation_events", "lab_queue", "session_uuid"]) {
+    for (const forbidden of ["seed", "accusation", "current_time_minutes", "evidence_status", "hint_state", "mandates", "surveillance", "investigation_events", "lab_queue", "session_uuid"]) {
       expect(grantedColumns).not.toContain(forbidden);
     }
+  });
+
+  it("removes the Storage insert/update policies for a normal player, keeps select, adds no delete policy", () => {
+    expect(contractSql).toMatch(/drop policy if exists "generated_art_insert_own" on storage\.objects/i);
+    expect(contractSql).toMatch(/drop policy if exists "generated_art_update_own" on storage\.objects/i);
+    expect(contractSql).not.toMatch(/drop policy if exists "generated_art_select_own"/i);
+    expect(contractSql).not.toMatch(/create policy[^;]*generated_art[^;]*delete/i);
   });
 
   it("is a separate file from EXPAND, so it can be reviewed/applied independently", () => {

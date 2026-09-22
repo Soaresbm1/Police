@@ -12,23 +12,24 @@
 --      preferences, finalization via the EXPAND-1 functions) — DONE,
 --      validated on Preview;
 --   2. EXPAND-2 applied (0009_s2_expand2_trusted_mutations.sql — evidence,
---      lab, mandates, surveillance, hint-state, investigation_events, and
---      Generated Art metadata trusted functions; Generated Art STORAGE
---      writes remain unresolved, see that file's closing section);
+--      lab, mandates, surveillance, hint-state, investigation_events,
+--      Generated Art metadata, and seed-reseal trusted functions);
 --   3. APP-2 live everywhere (actions.ts/discovery.ts/mandates.ts/
---      surveillance.ts/hints.ts/events.ts rewired to call the EXPAND-2
---      functions instead of mutating the session object in place and
---      relying on saveSession's broad upsert — see the EXPAND-2 return
---      report's "session broad-save analysis" for why saveSession itself
---      must stop touching these columns before this file can apply);
---   4. normal gameplay + offensive re-audit both pass;
---   5. explicit user approval for this specific file.
+--      surveillance.ts/hints.ts/events.ts/asset-store.ts/session-seed.ts
+--      rewired to call the EXPAND-2 functions instead of mutating state in
+--      place and relying on saveSession's broad upsert — see the EXPAND-2
+--      return report's "session broad-save analysis" for why saveSession
+--      itself must stop touching these columns before this file can
+--      apply) — DONE locally, not yet deployed to Preview;
+--   4. `SUPABASE_SERVICE_ROLE_KEY` configured (Production + Preview,
+--      identical value) and `lib/generated-art/trusted-storage.ts` wired
+--      into `asset-store.ts` — DONE locally;
+--   5. normal gameplay + offensive re-audit both pass;
+--   6. explicit user approval for this specific file.
 --
 -- Do NOT apply piecemeal — a partial CONTRACT (e.g. investigation_sessions
 -- restricted before EXPAND-2/APP-2 exist for evidence/mandates/lab) would
 -- break those flows for every player using the still-live application.
--- Generated Art Storage policies are explicitly OUT of this file's scope
--- until the service-role/credential question is resolved with the user.
 
 -- ---------------------------------------------------------------------
 -- investigation_sessions — replace "own the whole row" with "own these
@@ -41,8 +42,7 @@ revoke update on public.investigation_sessions from authenticated;
 grant update (
   notes, board, player_timeline,
   crime_scene_examined, crime_scene_inspected_zone_ids,
-  last_action_message, last_revealed_evidence_ids,
-  seed
+  last_action_message, last_revealed_evidence_ids
 ) on public.investigation_sessions to authenticated;
 -- The four crime-scene/UI-bookkeeping columns join the grant here per the
 -- EXPAND-2 audit: they carry no CaseTruth content and forging them changes
@@ -51,27 +51,23 @@ grant update (
 -- player_timeline, not the evidence/mandate/lab/surveillance/hint columns
 -- below.
 --
--- KNOWN GAP, NOT YET RESOLVED: `seed` is granted here only because S1's
--- lazy-migration fallback depends on an ordinary `saveSession` being able
--- to re-seal it (see `sessionToPlayerOwnedRow`'s own doc comment and
--- `s1-session-persistence.test.ts`'s "a failed upgrade... the next load or
--- save completes it"). A forged direct `UPDATE ... SET seed = ...` is still
--- possible through this grant — bypassing S1 entirely for that row (S1
--- protects confidentiality of a legitimately-sealed seed, not integrity of
--- the column against a malicious owner-role write, and this was already
--- true before EXPAND-2/APP-2). Closing this needs a dedicated
--- capability-gated `caseline_reseal_seed`-style function so `seed` can join
--- the revoked set too; out of scope for this pass (S2 targets game-state
--- write authority, not seed confidentiality, which S1 already owns) and
--- explicitly flagged rather than silently left as a "player-owned" column.
+-- `seed` is deliberately NOT in this grant (an earlier draft of this file
+-- left it here as a known gap — resolved once `caseline_reseal_seed`
+-- existed, see 0009 and `sessionToPlayerOwnedRow`'s own doc comment).
+-- `SupabaseSessionStore#saveSession` no longer includes `seed` in its
+-- payload at all; the one legitimate write path (a load-time legacy-seed
+-- upgrade, or its save-time fallback) goes exclusively through
+-- `caseline_reseal_seed`, which never accepts plaintext and is scoped by
+-- both `user_id` and `session_uuid`.
 --
 -- Everything else — current_time_minutes, evidence_status, accusation,
--- mandates, surveillance, hint_state, investigation_events,
+-- mandates, surveillance, hint_state, investigation_events, seed,
 -- session_uuid — is writable only through caseline_advance_time /
--- caseline_finalize_case / caseline_collect_evidence /
--- caseline_reveal_evidence / caseline_submit_to_lab /
--- caseline_request_mandate / caseline_start_surveillance /
--- caseline_record_hint / caseline_mark_event_seen (0007 + 0009), all of
+-- caseline_advance_time_internal / caseline_finalize_case /
+-- caseline_collect_evidence / caseline_reveal_evidence /
+-- caseline_submit_to_lab / caseline_request_mandate /
+-- caseline_start_surveillance / caseline_record_hint /
+-- caseline_mark_event_seen / caseline_reseal_seed (0007 + 0009), all of
 -- which run as this table's owner and are not subject to the column grant
 -- above.
 
@@ -122,18 +118,32 @@ comment on policy generated_assets_update_own on public.generated_assets is
   'Retained for documentation only — see generated_assets_insert_own.';
 
 -- ---------------------------------------------------------------------
--- Storage — `generated-art` bucket. Players keep read access (signed URLs
--- continue to work, per S1); direct INSERT/UPDATE from the player's own
--- browser session is removed. The trusted server path
--- (uploadAssetBytes()/the EXPAND-2 move-on-migration path) must upload
--- using the same per-user-authenticated client it uses today — since
--- there is no service-role client, its write capability must come from a
--- source these policies still allow, e.g. a narrow policy scoped to
--- paths only trusted server code can name (requires EXPAND-2 design; not
--- resolved by this draft alone — see the interim report's Storage
--- section for the same capability-model question that applies here).
+-- Storage — `generated-art` bucket. FINAL policy set, now that
+-- `lib/generated-art/trusted-storage.ts` (a `service_role` client, isolated
+-- to that one module, wired into `asset-store.ts`) is in place and proven
+-- safe (15+ static boundary tests, a production-build leak scan with a
+-- canary secret value). `service_role` bypasses RLS/Storage policies
+-- entirely by design — it needs no policy of its own here, which is
+-- exactly why removing the player's own insert/update policies is
+-- sufficient to fully lock this bucket down: after this, the ONLY way to
+-- write a `generated-art` object at all is through that one trusted
+-- module, regardless of what any authenticated player's own client
+-- attempts directly.
+--
+-- Before → after for a normal authenticated player:
+--   - own signed/read access:  works        -> unchanged (still works)
+--   - upload into own prefix:  works today   -> DENIED
+--   - overwrite own object:    works today   -> DENIED
+--   - delete own object:       never granted -> still DENIED (unaffected)
+--   - write another user's
+--     prefix:                  already denied by RLS -> still DENIED
+-- For the trusted server module: upload/move/remove all continue to work,
+-- unconditionally, via `service_role` — never subject to these policies.
 -- ---------------------------------------------------------------------
 drop policy if exists "generated_art_insert_own" on storage.objects;
 drop policy if exists "generated_art_update_own" on storage.objects;
 -- generated_art_select_own is untouched — reading a signed URL for one's
--- own generated art keeps working exactly as it does under S1.
+-- own generated art keeps working exactly as it does under S1. No delete
+-- policy exists today (see 0002_generated_assets.sql) and none is added
+-- here — a normal player could never delete a generated-art object before
+-- this file, and still cannot after it.

@@ -401,13 +401,51 @@ inside `saveSession` itself, gated on `isAlreadySealed()` so the common
 case (already-enveloped seed) never calls it at all.
 
 Tests: `lib/game-session/__tests__/app2-security.test.ts` (12), Generated
-Art boundary + metadata wiring (19, `trusted-storage-boundary.test.ts`),
+Art boundary + metadata wiring (19+2, `trusted-storage-boundary.test.ts`),
 seed reseal (6, `s2-reseal.test.ts`), plus updated S1/migration-structure
-suites. Full suite: 922 passed, 1 skipped. Typecheck/lint/`next build` all
-clean. Client-bundle leak scan: built with a canary
-`SUPABASE_SERVICE_ROLE_KEY` value, grepped `.next/static` (client-served)
-and the rest of `.next` — the value appears nowhere; the variable *name*
-appears only in server-side SSR chunks, never in a client chunk.
+suites (35). Full suite: 923 passed, 1 skipped. Typecheck/lint/`next build`
+all clean. Client-bundle leak scan run twice (once per wiring pass): built
+with a canary `SUPABASE_SERVICE_ROLE_KEY` value, grepped `.next/static`
+(client-served) and the rest of `.next` — the value appears nowhere in
+either pass; the variable *name* appears only in server-side SSR chunks,
+never in a client chunk.
+
+### APP-2 completion — Generated Art wiring, seed reseal, final CONTRACT/Storage draft
+
+`SUPABASE_SERVICE_ROLE_KEY` is now configured in Vercel (Production +
+Preview, identical value, confirmed by the user — never seen or handled by
+this session). With that in place:
+
+- `lib/art/generation/asset-store.ts`'s 7 metadata write functions
+  (`createQueuedRecord`, `createReusedRecord`, `markGenerating`,
+  `markReady`, `markFailed`, `repointStoragePath`, `relabelRow`) route
+  through their matching `caseline_ga_*` RPC; `uploadAssetBytes`/
+  `moveObject` route through `trusted-storage.ts`. `pipeline.ts` and every
+  other caller needed zero changes — only `asset-store.ts`'s internals
+  changed, its exported signatures stayed identical (`moveObject` gained a
+  `userId` parameter its one caller already had in scope).
+- Two signature mismatches found and fixed while wiring: `caseline_ga_
+  repoint_path` now matches by `storage_path` (not a single asset id — a
+  reused row can share a legacy path with its canonical source, so more
+  than one row may legitimately need repointing); `caseline_ga_relabel`
+  gained the `fromCaseKey` guard the original `relabelRow` always had
+  (idempotent — a retried/duplicate call is a no-op).
+- `seed` removed from `0008`'s column grant entirely (was a documented,
+  tracked gap in the prior draft) — `caseline_reseal_seed` is the only
+  write path now, for every column on `investigation_sessions`.
+- `0008`'s Storage section rewritten from a placeholder to the actual
+  final policy: drops the player's own `insert`/`update` policies on
+  `storage.objects` (no `delete` policy ever existed, so nothing to drop
+  there); `service_role` bypasses RLS by construction, so the trusted
+  module needs no policy of its own — after this, a `generated-art` object
+  can only ever be written through `trusted-storage.ts`, regardless of the
+  Postgres role a request would otherwise run as.
+- Extended `lib/security/__tests__/fake-supabase.ts` with a `.rpc()`
+  simulation for the `caseline_ga_*`/`caseline_reseal_seed` families and a
+  `currentUserId` test seam (the real functions derive ownership from
+  `auth.uid()`, which a fake has no equivalent of) — kept the S1
+  integration tests exercising the real code path end to end rather than
+  mocking the security boundary itself away.
 
 ## S1 — active-case seed confidentiality
 
