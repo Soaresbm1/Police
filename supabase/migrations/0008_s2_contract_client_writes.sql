@@ -9,18 +9,26 @@
 -- Production `ae2a2b0`, and any application that hasn't finished APP-1 +
 -- APP-2, depends on) stop working. Sequencing requirement:
 --   1. APP-1 live everywhere writing this shared database (time advance,
---      preferences, finalization via the EXPAND-1 functions);
---   2. EXPAND-2 applied (evidence/mandate/lab/surveillance/hint trusted
---      functions, Generated Art capability-gated writes — not yet
---      designed/drafted; this file assumes they exist under the naming
---      convention `caseline_*`, same pattern as EXPAND-1);
---   3. APP-2 live everywhere;
+--      preferences, finalization via the EXPAND-1 functions) — DONE,
+--      validated on Preview;
+--   2. EXPAND-2 applied (0009_s2_expand2_trusted_mutations.sql — evidence,
+--      lab, mandates, surveillance, hint-state, investigation_events, and
+--      Generated Art metadata trusted functions; Generated Art STORAGE
+--      writes remain unresolved, see that file's closing section);
+--   3. APP-2 live everywhere (actions.ts/discovery.ts/mandates.ts/
+--      surveillance.ts/hints.ts/events.ts rewired to call the EXPAND-2
+--      functions instead of mutating the session object in place and
+--      relying on saveSession's broad upsert — see the EXPAND-2 return
+--      report's "session broad-save analysis" for why saveSession itself
+--      must stop touching these columns before this file can apply);
 --   4. normal gameplay + offensive re-audit both pass;
 --   5. explicit user approval for this specific file.
 --
 -- Do NOT apply piecemeal — a partial CONTRACT (e.g. investigation_sessions
 -- restricted before EXPAND-2/APP-2 exist for evidence/mandates/lab) would
 -- break those flows for every player using the still-live application.
+-- Generated Art Storage policies are explicitly OUT of this file's scope
+-- until the service-role/credential question is resolved with the user.
 
 -- ---------------------------------------------------------------------
 -- investigation_sessions — replace "own the whole row" with "own these
@@ -30,15 +38,27 @@
 -- list with a permission error before RLS is even evaluated.
 -- ---------------------------------------------------------------------
 revoke update on public.investigation_sessions from authenticated;
-grant update (notes, board, player_timeline) on public.investigation_sessions to authenticated;
+grant update (
+  notes, board, player_timeline,
+  crime_scene_examined, crime_scene_inspected_zone_ids,
+  last_action_message, last_revealed_evidence_ids
+) on public.investigation_sessions to authenticated;
+-- The four crime-scene/UI-bookkeeping columns join the grant here per the
+-- EXPAND-2 audit: they carry no CaseTruth content and forging them changes
+-- nothing authoritative (see 0009's header and the EXPAND-2 return report's
+-- crime-scene-state section) — same trust level as notes/board/
+-- player_timeline, not the evidence/mandate/lab/surveillance/hint columns
+-- below.
+--
 -- Everything else — current_time_minutes, evidence_status, accusation,
 -- seed, mandates, surveillance, hint_state, investigation_events,
--- crime_scene_examined, crime_scene_inspected_zone_ids,
--- last_action_message, last_revealed_evidence_ids, session_uuid — is
--- writable only through caseline_advance_time / caseline_finalize_case /
--- the EXPAND-2 evidence/mandate/lab/surveillance/hint functions, all of
--- which run as this table's owner and are not subject to the column
--- grant above.
+-- session_uuid — is writable only through caseline_advance_time /
+-- caseline_finalize_case / caseline_collect_evidence /
+-- caseline_reveal_evidence / caseline_submit_to_lab /
+-- caseline_request_mandate / caseline_start_surveillance /
+-- caseline_record_hint / caseline_mark_event_seen (0007 + 0009), all of
+-- which run as this table's owner and are not subject to the column grant
+-- above.
 
 comment on policy sessions_update_own on public.investigation_sessions is
   'Ownership only — NOT sufficient for authoritative columns (time, evidence, accusation, seed, mandates, hint_state, ...), which are restricted to a narrow column grant (see migration 0008) and written only through caseline_* SECURITY DEFINER functions. Do not widen this policy to plain "auth.uid() = user_id" UPDATE access without re-adding the column grant restriction.';

@@ -195,13 +195,134 @@ column-level grants for genuinely player-owned content (`notes`, `board`,
 `player_timeline`; profile preferences via function only). See the two
 migration files' own comments for the exact SQL and reasoning.
 
-### Deferred to a later pass (P1)
+### EXPAND-2 (design + local draft SQL — NOT applied)
 
-`generated_assets` metadata and `generated-art` Storage object writes use the
-same broad ownership-only policy shape and share the same fix (route through
-a capability-gated function before revoking direct grants) — not included in
-this EXPAND/CONTRACT pair so the P0 identity/XP/history/seed fix stays
-reviewable on its own.
+Completes the trusted-mutation architecture for every remaining
+authoritative column: evidence/discovery, mandates/warrants, lab
+queue/results, surveillance, investigation_events, hint-state/penalties, and
+Generated Art metadata. Draft migration:
+`supabase/migrations/0009_s2_expand2_trusted_mutations.sql` — additive only,
+same discipline as EXPAND-1 (verified by
+`lib/security/__tests__/s2-migration-structure.test.ts`: never revokes an
+existing grant, no dropped policies, every capability-required function
+checks the token before its first write, every function sets an explicit
+`search_path`).
+
+**Audit finding, all three subsystems (evidence, mandates/lab/surveillance,
+events/Generated Art):** every authoritative field found during S1/EXPAND-1
+still rides the same single whole-row `saveSession` upsert
+(`supabase-store.ts`, `authenticated` role) that time/XP/seed used to. A
+direct REST `UPDATE investigation_sessions` can today forge: arbitrary
+evidence as discovered/analyzed with no elapsed lab time
+(`evidence_status`/`lab_queue`), a warrant's `granted` decision
+(`mandates` — the existing ESLint rule around `MandateRecord.granted` is a
+lint-only protection, not a database boundary), fabricated surveillance
+observations (`surveillance`), fabricated investigation-event narrative text
+or a premature `scheduled→ready` transition (`investigation_events`), and a
+zeroed-out hint penalty that would otherwise reduce accusation score
+(`hint_state` — `computeHintPenalty` reads it at scoring time). By contrast,
+`crime_scene_examined`/`crime_scene_inspected_zone_ids` carry no CaseTruth
+content — forging them is harmless UI bookkeeping, so 0008 (CONTRACT) now
+grants them alongside `notes`/`board`/`player_timeline` rather than routing
+them through an RPC.
+
+**RPC capability classification** (mirrors §"Capability model" above — every
+function whose authoritative result needs `CaseTruth`, which no SQL function
+can compute, requires the existing `CASELINE_S2_SERVER_CAPABILITY`; every
+function whose validation is fully derivable from already-stored DB state
+does not):
+
+| Function | Classification | Why |
+|---|---|---|
+| `caseline_collect_evidence` | AUTHENTICATED-SEMANTIC | Only checks the evidence is already `"discovered"` — pure DB-state |
+| `caseline_reveal_evidence` | SERVER-CAPABILITY-REQUIRED | Which ids are genuinely part of `truth.evidence` for this query |
+| `caseline_submit_to_lab` | SERVER-CAPABILITY-REQUIRED | `analysisType`/`readyAt` derived from `truth.evidence` |
+| `caseline_advance_time` (extended) | AUTHENTICATED-SEMANTIC | Lab completion/event-ready are pure `currentTime` comparisons, no `CaseTruth` |
+| `caseline_request_mandate` | SERVER-CAPABILITY-REQUIRED | `granted`/`reason` computed by `evaluateMandate(truth, ...)` |
+| `caseline_start_surveillance` | SERVER-CAPABILITY-REQUIRED | `observations` computed by `projectSurveillanceObservations(truth, ...)` |
+| `caseline_record_hint` | SERVER-CAPABILITY-REQUIRED | Eligibility/text computed by `computeHintOpportunities(truth, session)` |
+| `caseline_mark_event_seen` | AUTHENTICATED-SEMANTIC | Only allows `ready→seen`, no content/timing decision |
+| `caseline_ga_*` (Generated Art metadata, 7 functions) | SERVER-CAPABILITY-REQUIRED | Only ever called by trusted background code; capability closes off direct-REST forgery uniformly with everything else |
+
+No generic `caseline_update_investigation_state(jsonb)`-style patch function
+exists anywhere — every function takes narrow, purpose-specific arguments
+for one semantic operation (guarded by a structural test).
+
+**Idempotency:** every function is safe to retry. `caseline_collect_evidence`
+and `caseline_submit_to_lab` no-op if the evidence is already past the
+relevant status; `caseline_request_mandate`/`caseline_start_surveillance`
+no-op if their key already exists (a mandate/surveillance decision is made
+once, at request time, by design — a repeat request must never re-decide
+it); `caseline_record_hint` no-ops if the requested level is at or below
+already-recorded progress; `caseline_reveal_evidence` is monotonic (never
+downgrades a more-advanced status back to `"discovered"`).
+
+**Session broad-save analysis (blocks CONTRACT until resolved):**
+`SupabaseSessionStore#saveSession` still upserts every column on every call,
+including the ones EXPAND-2 moves behind RPCs. This is harmless *before*
+CONTRACT (the column grant is still broad), but CONTRACT's column-level
+grant (`notes, board, player_timeline, crime_scene_examined,
+crime_scene_inspected_zone_ids, last_action_message,
+last_revealed_evidence_ids` only) would make every ordinary `saveSession`
+call fail outright, since it still tries to write `evidence_status`,
+`mandates`, etc. **APP-2 must narrow `saveSession`/`sessionToRow` to only
+ever send the player-owned column list before CONTRACT can be applied** —
+this is the concrete blocker `0008`'s header now calls out explicitly. Not
+yet implemented (APP-2 code, pending this design being accepted).
+
+**Generated Art Storage — deliberately unresolved, needs explicit user
+decision before any code changes:**
+
+A PostgreSQL `SECURITY DEFINER` function has no mechanism to elevate a
+Supabase Storage REST call's privilege — Storage authorizes purely via
+`storage.objects` RLS evaluated against the caller's own JWT, and object
+bytes never pass through a SQL function body at all. This is a fundamentally
+different execution boundary than every RPC above, which is why the pattern
+that solved every table-write gap does not solve this one.
+
+Today, `lib/art/generation/asset-store.ts#uploadAssetBytes`/`moveObject` use
+the same per-request, cookie-derived `authenticated`-role client as
+everything else (`lib/supabase/server.ts#createServerSupabaseClient`) — no
+`service_role` key exists anywhere in this codebase (confirmed: only textual
+mentions in `0007`'s own comments, discussing it as the alternative that was
+rejected in favor of SECURITY DEFINER). The existing Storage policies
+(`0002_generated_assets.sql`) grant any authenticated player read/insert/
+update on their own `{userId}/...` prefix — broader than needed (a player
+could already overwrite/move their own generated-art objects via direct
+Storage REST, though never another user's), and CONTRACT's current draft
+only removes the insert/update policies without proposing a trusted
+replacement.
+
+Two realistic options:
+1. **A narrowly-scoped `service_role` credential, isolated to one tiny
+   server-only Storage module.** `service_role` bypasses all RLS
+   project-wide — its blast radius if leaked is total (every table, every
+   user's data), categorically larger than the S2 capability token's
+   (self-row-only). Mitigation: confine it to a single file
+   (e.g. `lib/art/generation/storage-admin-client.ts`) used only for
+   `upload`/`move` calls into the `generated-art` bucket, never imported by
+   any gameplay-mutation code path, never used for a table read/write that
+   the existing SECURITY DEFINER functions already cover.
+2. A custom-claim JWT scheme (Supabase's Custom Access Token Hook) that
+   marks a request as "from trusted server code" for `storage.objects`
+   policies to check — investigated and rejected as **not actually
+   lower-blast-radius**: minting such a claim for arbitrary requests
+   requires equivalent administrative access to configure, and Supabase's
+   hook applies per real authenticated user, not a distinct "server"
+   identity, so it doesn't cleanly express "this Storage call has server
+   authority independent of any one player's session."
+
+**Recommendation:** option 1, if and when Storage write-locking becomes a
+priority — but this requires a **new secret**
+(`SUPABASE_SERVICE_ROLE_KEY`, server-only Vercel env var, never
+`NEXT_PUBLIC_`), obtained from Supabase Dashboard → Project Settings → API →
+`service_role` secret. Per explicit instruction, **this has not been
+introduced or configured** — no code in this repository references it. If
+the user wants to proceed, that is a distinct, explicit decision separate
+from the rest of EXPAND-2 (which needs no new secret at all, reusing
+`CASELINE_S2_SERVER_CAPABILITY` throughout). Until then, Generated Art
+Storage write-locking stays out of CONTRACT's scope — `0008`'s Storage
+section is left as a draft placeholder only.
 
 ## S1 — active-case seed confidentiality
 
