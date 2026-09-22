@@ -24,6 +24,26 @@ export function rememberStoredSeed(session: GameSession, stored: string): void {
   storedSeeds.set(session, { seed: session.seed, stored });
 }
 
+/** Security S2 EXPAND-2 — true only when the currently-remembered stored
+ * value for this exact logical seed is already a valid `s1e.v1...`
+ * envelope. `saveSession` uses this to skip the reseal fallback entirely in
+ * the common case (nothing to reseal) and only attempt
+ * `caseline_reseal_seed` when a legacy plaintext value is still on record
+ * (the load-time upgrade attempt failed under contention). */
+export function isAlreadySealed(session: GameSession): boolean {
+  const memo = storedSeeds.get(session);
+  return memo !== undefined && memo.seed === session.seed && isSeedEnvelope(memo.stored);
+}
+
+/** The raw value currently on record for this session object (whatever
+ * `rememberStoredSeed` last saw) — used as the CAS `expected` value for a
+ * reseal fallback attempt. `undefined` if nothing has been remembered yet
+ * for this exact logical seed. */
+export function currentStoredSeed(session: GameSession): string | undefined {
+  const memo = storedSeeds.get(session);
+  return memo && memo.seed === session.seed ? memo.stored : undefined;
+}
+
 /** The value to persist for `session.seed`: the envelope already stored for
  * this exact logical seed when there is one, otherwise a fresh seal. Never
  * returns plaintext. */
@@ -36,10 +56,16 @@ export function storedSeedForSave(session: GameSession, userId: string, keys: S1
 }
 
 export interface SessionSeedColumnOps {
-  /** `UPDATE investigation_sessions SET seed = next WHERE user_id = userId
-   * AND seed = expected` touching no other column. Resolves true when a row
-   * was updated, false when none matched, and rejects on a query error. */
-  compareAndSwapSeed(userId: string, expected: string, next: string): Promise<boolean>;
+  /** Security S2 EXPAND-2 — compare-and-swaps the `seed` column only,
+   * scoped to both `userId` and `sessionUuid` (never touches any other
+   * column). Routes through `caseline_reseal_seed` in the Supabase
+   * implementation (capability-gated — see that migration's own doc
+   * comment for why a plain authenticated compare-and-swap isn't safe
+   * here) rather than a direct `.update()`. Resolves true when the swap
+   * applied, false when `expected` no longer matched (a concurrent
+   * reseal already won, or this is a stale retry), and rejects on a
+   * genuine query error. */
+  compareAndSwapSeed(userId: string, sessionUuid: string, expected: string, next: string): Promise<boolean>;
   readStoredSeed(userId: string): Promise<string | null>;
 }
 
@@ -58,12 +84,13 @@ export type LegacySeedUpgradeOutcome = "upgraded" | "already_upgraded" | "not_up
 export async function upgradeLegacySessionSeed(
   ops: SessionSeedColumnOps,
   userId: string,
+  sessionUuid: string,
   legacySeed: string,
   keys: S1Keys,
 ): Promise<{ outcome: LegacySeedUpgradeOutcome; stored: string }> {
   try {
     const envelope = sealSessionSeed(legacySeed, userId, keys);
-    if (await ops.compareAndSwapSeed(userId, legacySeed, envelope)) return { outcome: "upgraded", stored: envelope };
+    if (await ops.compareAndSwapSeed(userId, sessionUuid, legacySeed, envelope)) return { outcome: "upgraded", stored: envelope };
 
     const current = await ops.readStoredSeed(userId);
     if (current && isSeedEnvelope(current) && openSessionSeed(current, userId, keys) === legacySeed) {

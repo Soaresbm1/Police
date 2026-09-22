@@ -164,9 +164,151 @@ export class FakeSupabase {
   failNext = new Map<string, number>();
   failMoves = new Set<string>();
   nextId = 0;
+  /** Security S2 EXPAND-2 test seam — the real `caseline_*`/`caseline_ga_*`
+   * functions derive ownership from `auth.uid()`, which this fake has no
+   * real equivalent of. Test setup keeps this in sync with whatever
+   * `getCurrentIdentity()` is mocked to return for the current call, so
+   * `.rpc(...)` simulations can scope by "current user" the same way the
+   * real functions do — this fake still never simulates RLS itself. */
+  currentUserId: string | null = null;
 
   from(table: string) {
     return new FakeQuery(this, table);
+  }
+
+  /** Security S2 EXPAND-2 — minimal simulation of `caseline_reseal_seed`
+   * (the only RPC this fake needs to support today): a compare-and-swap on
+   * `seed`, matched by `session_uuid` only (this fake has no real
+   * `auth.uid()` context — tests keep one row per `session_uuid`, same
+   * discipline as `.eq("user_id", ...)` trusting the caller-supplied value
+   * elsewhere in this file). Reuses the `investigation_sessions:update`
+   * failure-injection key so existing tests that simulate a lost race at
+   * the update step keep working unchanged regardless of which client
+   * method actually performs it. */
+  async rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {
+    if (name === "caseline_reseal_seed") return this.rpcResealSeed(args);
+    if (name.startsWith("caseline_ga_")) return this.rpcGeneratedArt(name, args);
+    return { data: null, error: { message: `fake: unsupported rpc ${name}` } };
+  }
+
+  private async rpcResealSeed(args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {
+    const injected = this.failNext.get("investigation_sessions:update");
+    if (injected && injected > 0) {
+      this.failNext.set("investigation_sessions:update", injected - 1);
+      return { data: null, error: { message: "injected failure" } };
+    }
+    const rows = this.tables.investigation_sessions;
+    const row = rows.find((r) => r.session_uuid === args.p_session_uuid);
+    if (!row) return { data: null, error: { message: "no matching active session" } };
+    if (row.seed === args.p_expected_seed) {
+      row.seed = args.p_new_seed;
+      this.writes.push({ table: "investigation_sessions", op: "update", payload: { seed: args.p_new_seed } });
+    }
+    return { data: [{ seed: row.seed }], error: null };
+  }
+
+  /** Security S2 EXPAND-2 — minimal simulation of the `caseline_ga_*`
+   * Generated Art metadata functions, scoped by `this.currentUserId` (see
+   * its own doc comment) the same way the real functions scope by
+   * `auth.uid()`. */
+  private async rpcGeneratedArt(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {
+    const rows = this.tables.generated_assets;
+    const uid = this.currentUserId;
+
+    if (name === "caseline_ga_create_queued") {
+      const existing = rows.find(
+        (r) => r.user_id === uid && r.descriptor_hash === args.p_descriptor_hash && r.generation_version === args.p_generation_version && r.provider === args.p_provider,
+      );
+      if (existing) return { data: [{ id: existing.id }], error: null };
+      const row = {
+        id: `ga-${++this.nextId}`,
+        user_id: uid,
+        case_seed: args.p_case_seed,
+        asset_kind: args.p_asset_kind,
+        descriptor_hash: args.p_descriptor_hash,
+        generation_version: args.p_generation_version,
+        provider: args.p_provider,
+        status: "queued",
+        reuse_key: args.p_reuse_key ?? null,
+        source_asset_id: null,
+        attempt_count: 0,
+        reuse_count: 0,
+      };
+      rows.push(row);
+      this.writes.push({ table: "generated_assets", op: "insert", payload: { ...row } });
+      return { data: [{ id: row.id }], error: null };
+    }
+
+    if (name === "caseline_ga_create_reused") {
+      const source = rows.find((r) => r.id === args.p_source_asset_id && r.user_id === uid && (r.source_asset_id ?? null) === null);
+      if (!source) return { data: null, error: { message: "caseline: invalid reuse source" } };
+      const existing = rows.find(
+        (r) => r.user_id === uid && r.descriptor_hash === args.p_descriptor_hash && r.generation_version === args.p_generation_version && r.provider === args.p_provider,
+      );
+      if (existing) return { data: [{ id: existing.id }], error: null };
+      const row = {
+        id: `ga-${++this.nextId}`,
+        user_id: uid,
+        case_seed: args.p_case_seed,
+        asset_kind: args.p_asset_kind,
+        descriptor_hash: args.p_descriptor_hash,
+        generation_version: args.p_generation_version,
+        provider: args.p_provider,
+        provider_model: args.p_provider_model,
+        status: "ready",
+        reuse_key: args.p_reuse_key,
+        storage_path: args.p_storage_path,
+        width: args.p_width,
+        height: args.p_height,
+        prompt_version: args.p_prompt_version,
+        source_asset_id: args.p_source_asset_id,
+        attempt_count: 0,
+        reuse_count: 0,
+      };
+      rows.push(row);
+      source.reuse_count = ((source.reuse_count as number) ?? 0) + 1;
+      this.writes.push({ table: "generated_assets", op: "insert", payload: { ...row } });
+      return { data: [{ id: row.id }], error: null };
+    }
+
+    if (name === "caseline_ga_mark_generating" || name === "caseline_ga_mark_ready" || name === "caseline_ga_mark_failed") {
+      const row = rows.find((r) => r.id === args.p_asset_id && r.user_id === uid);
+      if (!row) return { data: null, error: { message: "no matching asset" } };
+      if (name === "caseline_ga_mark_generating") row.status = "generating";
+      if (name === "caseline_ga_mark_ready") {
+        Object.assign(row, {
+          status: "ready",
+          storage_path: args.p_storage_path,
+          width: args.p_width,
+          height: args.p_height,
+          provider_model: args.p_provider_model,
+          prompt_version: args.p_prompt_version,
+        });
+      }
+      if (name === "caseline_ga_mark_failed") {
+        Object.assign(row, { status: "failed", error_message: args.p_error_message, attempt_count: ((row.attempt_count as number) ?? 0) + 1, failed_at: new Date().toISOString() });
+      }
+      this.writes.push({ table: "generated_assets", op: "update", payload: { ...row } });
+      return { data: null, error: null };
+    }
+
+    if (name === "caseline_ga_repoint_path") {
+      const hit = rows.filter((r) => r.user_id === uid && r.storage_path === args.p_from_path);
+      for (const r of hit) r.storage_path = args.p_to_path;
+      this.writes.push({ table: "generated_assets", op: "update", payload: { storage_path: args.p_to_path } });
+      return { data: null, error: null };
+    }
+
+    if (name === "caseline_ga_relabel") {
+      const row = rows.find((r) => r.id === args.p_asset_id && r.user_id === uid && r.case_seed === args.p_from_case_key);
+      if (row) {
+        row.case_seed = args.p_to_case_key;
+        this.writes.push({ table: "generated_assets", op: "update", payload: { case_seed: args.p_to_case_key } });
+      }
+      return { data: null, error: null };
+    }
+
+    return { data: null, error: { message: `fake: unsupported rpc ${name}` } };
   }
 
   storage = {

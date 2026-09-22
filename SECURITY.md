@@ -375,18 +375,39 @@ proven by 15 static tests in
 `lib/generated-art/__tests__/trusted-storage-boundary.test.ts` (server-only
 marker, no Client Component/gameplay-module import anywhere in the repo,
 `SUPABASE_SERVICE_ROLE_KEY` referenced nowhere else, no value ever
-interpolated into a thrown error). **Not yet wired into
-`lib/art/generation/asset-store.ts`** — the module exists and is tested in
-isolation, but `asset-store.ts`'s 7 write functions and the `caseline_ga_*`
-metadata RPCs from `0009` are not yet connected to it; this is the next
-APP-2 increment, deliberately sequenced after the Storage boundary itself
-was proven safe on its own.
+interpolated into a thrown error, no exported function accepts a bucket
+parameter). **Now wired into `lib/art/generation/asset-store.ts`**: all 7
+metadata write functions (`createQueuedRecord`, `createReusedRecord`,
+`markGenerating`, `markReady`, `markFailed`, `repointStoragePath`,
+`relabelRow`) route through the matching `caseline_ga_*` RPC (0009);
+`uploadAssetBytes`/`moveObject` route through
+`uploadGeneratedAsset`/`moveGeneratedAsset` in `trusted-storage.ts`. Read
+paths (`findAssetRecord`, `findReusableAssetCandidates`,
+`findReadyAssetsByHashes`, `countAssetsForCase`, signed-URL generation)
+stay on the ordinary per-request client — S2's threat model is about
+writes, not reads. `pipeline.ts`'s `AssetStoreLike` interface (and every
+caller) needed zero changes: the function signatures asset-store.ts
+exposes were kept identical, only their internals changed.
 
-Tests: `lib/game-session/__tests__/app2-security.test.ts` (12 tests —
-evidence transitions, mandate/surveillance server authority and
-idempotency, event-seen gating, hint monotonicity, internal time cost) plus
-`sessionToPlayerOwnedRow` structural tests in `supabase-store.test.ts`.
-Full suite: 911 passed, 1 skipped. Typecheck/lint/`next build` all clean.
+**Seed reseal (closes the last direct-write gap)**: `caseline_reseal_seed`
+(capability-gated compare-and-swap, scoped by both `user_id` and
+`session_uuid`, never sees plaintext) replaces the direct
+`.update({seed:...})` in `session-seed.ts`'s `compareAndSwapSeed`.
+`sessionToPlayerOwnedRow` no longer includes `seed` at all —
+`SupabaseSessionStore#saveSession` now writes exactly 7 columns, zero
+authoritative ones. The rare fallback case (a load-time legacy-seed upgrade
+lost a race) is handled by one best-effort `caseline_reseal_seed` call
+inside `saveSession` itself, gated on `isAlreadySealed()` so the common
+case (already-enveloped seed) never calls it at all.
+
+Tests: `lib/game-session/__tests__/app2-security.test.ts` (12), Generated
+Art boundary + metadata wiring (19, `trusted-storage-boundary.test.ts`),
+seed reseal (6, `s2-reseal.test.ts`), plus updated S1/migration-structure
+suites. Full suite: 922 passed, 1 skipped. Typecheck/lint/`next build` all
+clean. Client-bundle leak scan: built with a canary
+`SUPABASE_SERVICE_ROLE_KEY` value, grepped `.next/static` (client-served)
+and the rest of `.next` — the value appears nowhere; the variable *name*
+appears only in server-side SSR chunks, never in a client chunk.
 
 ## S1 — active-case seed confidentiality
 

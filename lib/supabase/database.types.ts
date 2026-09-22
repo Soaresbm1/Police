@@ -202,8 +202,61 @@ export interface Database {
         Args: { p_session_uuid: string; p_event_id: string };
         Returns: { investigation_events: Json }[];
       };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — requires the
+       * trusted server capability token; both arguments are opaque strings
+       * (never plaintext) — Next.js does all S1 cryptography before
+       * calling this. See migration 0009. */
+      caseline_reseal_seed: {
+        Args: { p_server_token: string; p_session_uuid: string; p_expected_seed: string; p_new_seed: string };
+        Returns: { seed: string }[];
+      };
       caseline_update_profile_preferences: {
         Args: { p_sound_muted?: boolean | null; p_reduce_motion?: boolean | null; p_hints_disabled?: boolean | null };
+        Returns: undefined;
+      };
+      /** Security S2 EXPAND-2 (draft, not yet applied) — Generated Art
+       * metadata, all require the trusted server capability token (only
+       * ever called from trusted background code). See migration 0009. */
+      caseline_ga_create_queued: {
+        Args: { p_server_token: string; p_case_seed: string; p_asset_kind: string; p_descriptor_hash: string; p_generation_version: number; p_provider: string; p_reuse_key: string | null };
+        Returns: { id: string }[];
+      };
+      caseline_ga_create_reused: {
+        Args: {
+          p_server_token: string;
+          p_case_seed: string;
+          p_asset_kind: string;
+          p_descriptor_hash: string;
+          p_generation_version: number;
+          p_provider: string;
+          p_provider_model: string | null;
+          p_reuse_key: string;
+          p_storage_path: string;
+          p_width: number;
+          p_height: number;
+          p_prompt_version: number;
+          p_source_asset_id: string;
+        };
+        Returns: { id: string }[];
+      };
+      caseline_ga_mark_generating: {
+        Args: { p_server_token: string; p_asset_id: string };
+        Returns: undefined;
+      };
+      caseline_ga_mark_ready: {
+        Args: { p_server_token: string; p_asset_id: string; p_storage_path: string; p_width: number; p_height: number; p_provider_model: string; p_prompt_version: number };
+        Returns: undefined;
+      };
+      caseline_ga_mark_failed: {
+        Args: { p_server_token: string; p_asset_id: string; p_error_message: string };
+        Returns: undefined;
+      };
+      caseline_ga_repoint_path: {
+        Args: { p_server_token: string; p_from_path: string; p_to_path: string };
+        Returns: undefined;
+      };
+      caseline_ga_relabel: {
+        Args: { p_server_token: string; p_asset_id: string; p_from_case_key: string; p_to_case_key: string };
         Returns: undefined;
       };
       /** Security S2 (draft, not yet applied) — requires the trusted

@@ -23,6 +23,7 @@ const EXPAND2_CAPABILITY_REQUIRED = [
   "caseline_request_mandate",
   "caseline_start_surveillance",
   "caseline_record_hint",
+  "caseline_reseal_seed",
   "caseline_ga_create_queued",
   "caseline_ga_create_reused",
   "caseline_ga_mark_generating",
@@ -272,5 +273,17 @@ describe("S2 EXPAND-2 migration (draft) — evidence/mandate/lab/surveillance/hi
 
   it("never embeds a literal secret value", () => {
     expect(expand2Sql).not.toMatch(/CASELINE_S2_SERVER_CAPABILITY\s*=\s*['"]/i);
+  });
+
+  it("caseline_reseal_seed is scoped by both user_id and session_uuid, and never touches any column but seed", () => {
+    const fnBody = expand2Sql.match(/create or replace function public\.caseline_reseal_seed[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnBody).toMatch(/where s\.user_id = v_uid and s\.session_uuid = p_session_uuid and s\.seed = p_expected_seed/i);
+    expect(fnBody).toMatch(/set seed = p_new_seed/i);
+    expect(fnBody).not.toMatch(/set[^;]*evidence_status|set[^;]*mandates|set[^;]*current_time_minutes/i);
+  });
+
+  it("caseline_reseal_seed never references plaintext/decryption — it only compares opaque strings", () => {
+    const fnBody = expand2Sql.match(/create or replace function public\.caseline_reseal_seed[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnBody).not.toMatch(/decrypt|plaintext|aes/i);
   });
 });

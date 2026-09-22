@@ -4,6 +4,10 @@ import { FakeSupabase } from "./fake-supabase";
 
 let fake = new FakeSupabase();
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: async () => fake }));
+// Security S2 EXPAND-2 — lib/generated-art/trusted-storage.ts builds its own
+// client via @supabase/supabase-js's createClient (never the request-scoped
+// helper above), so it needs its own mock, returning the SAME fake instance.
+vi.mock("@supabase/supabase-js", () => ({ createClient: () => fake }));
 
 let currentUserId = "user-s1";
 vi.mock("@/lib/game-session/identity", () => ({
@@ -24,6 +28,7 @@ import { hashDescriptor } from "@/lib/art/asset-cache";
 import { ACTIVE_PROVIDER_NAME, CHARACTER_PORTRAIT_GENERATION_VERSION } from "@/lib/art/generation/asset-kinds";
 import { caseAssetKeysFor, computeCaseRef } from "../case-ref";
 import { S1ConfigError, S1_MASTER_SECRET_ENV } from "../s1-keys";
+import { __testing as trustedStorageTesting } from "@/lib/generated-art/trusted-storage";
 import { SeedEnvelopeError } from "../seed-envelope";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -55,6 +60,7 @@ function signedUrlLeaksSeed(url: string, seed: string): boolean {
 function legacyRow(userId: string, seed: string) {
   return {
     user_id: userId,
+    session_uuid: `session-${userId}`,
     seed,
     difficulty: "investigator",
     current_time_minutes: 612,
@@ -80,11 +86,18 @@ function legacyRow(userId: string, seed: string) {
 
 beforeEach(() => {
   fake = new FakeSupabase();
+  trustedStorageTesting.resetClientCache();
   process.env = {
     ...ORIGINAL_ENV,
     NEXT_PUBLIC_SUPABASE_URL: "https://fakeprojectref00000000.supabase.co",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "publishable-test-key",
     [S1_MASTER_SECRET_ENV]: randomBytes(32).toString("base64url"),
+    // Security S2 EXPAND-2 — the seed-reseal fallback in `saveSession` and
+    // Generated Art metadata writes route through capability-gated RPCs;
+    // Storage writes route through the service-role-isolated
+    // trusted-storage.ts module (mocked to the same fake client above).
+    CASELINE_S2_SERVER_CAPABILITY: randomBytes(32).toString("base64url"),
+    SUPABASE_SERVICE_ROLE_KEY: randomBytes(32).toString("base64url"),
   };
 });
 
@@ -223,6 +236,7 @@ describe("S1 — Generated Art keyed by caseRef", () => {
   it("a new asset's row, storage path and signed URL carry the caseRef and never the seed", async () => {
     const seed = generateCaseSeed();
     const { caseRef, lookupKeys } = caseAssetKeysFor(seed);
+    fake.currentUserId = "user-art";
     const result = await getOrGenerateAsset(
       { store: assetStore, provider: new MockGeneratedAssetProvider() },
       {
@@ -299,6 +313,7 @@ describe("S1 — lazy migration of a legacy case's Generated Art", () => {
     const userId = "user-legacy-art";
     const seed = "CASE-DG83V3";
     const { truth, people } = seedLegacyArt(userId, seed);
+    fake.currentUserId = userId;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     const beforeUrls = await getReadyPortraitUrls(userId, truth);
@@ -326,6 +341,7 @@ describe("S1 — lazy migration of a legacy case's Generated Art", () => {
     const userId = "user-legacy-art-retry";
     const seed = "CASE-67P3IE";
     const { truth, people } = seedLegacyArt(userId, seed);
+    fake.currentUserId = userId;
     vi.spyOn(console, "log").mockImplementation(() => {});
     const failing = String(fake.tables.generated_assets[0].storage_path);
     fake.failMoves.add(failing);

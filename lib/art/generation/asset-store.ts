@@ -1,6 +1,8 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 import { isCaseRef } from "@/lib/security/case-ref";
+import { getS2ServerCapabilityToken } from "@/lib/security/s2-server-capability";
+import { moveGeneratedAsset, uploadGeneratedAsset } from "@/lib/generated-art/trusted-storage";
 import type { AssetStatus, GeneratedAssetKind, GeneratedAssetRecord } from "./types";
 
 const BUCKET = "generated-art";
@@ -80,6 +82,23 @@ export async function findAssetRecord(
   return data ? rowToRecord(data) : null;
 }
 
+/** Security S2 EXPAND-2 — re-fetches a row by id after a trusted RPC only
+ * hands back `{ id }`. Plain SELECT, unaffected by write-authority
+ * hardening (S2's threat model is about writes, not reads — see
+ * SECURITY.md). Filters by `user_id` explicitly, same defense-in-depth
+ * discipline as every other function in this file. */
+async function findAssetById(userId: string, id: string): Promise<GeneratedAssetRecord> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.from("generated_assets").select("*").eq("id", id).eq("user_id", userId).single();
+  if (error) throw new Error(`Supabase findAssetById failed: ${error.message}`);
+  return rowToRecord(data);
+}
+
+/** Security S2 EXPAND-2 — routes through the capability-gated
+ * `caseline_ga_create_queued` (see migration 0009) instead of a direct
+ * `INSERT`. Only ever called from trusted background code
+ * (`pipeline.ts`, invoked from `auto-portrait-trigger.ts`/
+ * `auto-scene-trigger.ts`), never from a client-chosen semantic action. */
 export async function createQueuedRecord(
   userId: string,
   caseRef: string,
@@ -96,25 +115,20 @@ export async function createQueuedRecord(
 ): Promise<GeneratedAssetRecord> {
   assertWritableCaseKey(caseRef);
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("generated_assets")
-    .insert({
-      user_id: userId,
-      case_seed: caseRef,
-      asset_kind: assetKind,
-      descriptor_hash: descriptorHash,
-      generation_version: generationVersion,
-      provider,
-      status: "queued",
-      reuse_key: reuseKey,
-      // A freshly-generated row is always canonical — see the
-      // source_asset_id doc comment on GeneratedAssetRecord.
-      source_asset_id: null,
-    })
-    .select("*")
-    .single();
+  const token = getS2ServerCapabilityToken();
+  const { data, error } = await supabase.rpc("caseline_ga_create_queued", {
+    p_server_token: token,
+    p_case_seed: caseRef,
+    p_asset_kind: assetKind,
+    p_descriptor_hash: descriptorHash,
+    p_generation_version: generationVersion,
+    p_provider: provider,
+    p_reuse_key: reuseKey,
+  });
   if (error) throw new Error(`Supabase createQueuedRecord failed: ${error.message}`);
-  return rowToRecord(data);
+  const row = (Array.isArray(data) ? data[0] : data) as { id: string } | undefined;
+  if (!row) throw new Error("Supabase createQueuedRecord returned no row");
+  return findAssetById(userId, row.id);
 }
 
 /**
@@ -182,6 +196,11 @@ export async function findReusableAssetCandidates(
  * `findReusableAssetCandidates`'s own filter — this function trusts
  * whatever id it's given and never re-derives one from `source` itself.
  */
+/** Security S2 EXPAND-2 — routes through `caseline_ga_create_reused`,
+ * which additionally verifies server-side that `canonicalSourceId` really
+ * is this same user's own canonical row (`source_asset_id IS NULL`) before
+ * inserting — closing off a forged cross-user reuse pointer that a direct
+ * `INSERT` could otherwise express. */
 export async function createReusedRecord(
   userId: string,
   caseRef: string,
@@ -194,29 +213,28 @@ export async function createReusedRecord(
   canonicalSourceId: string,
 ): Promise<GeneratedAssetRecord> {
   assertWritableCaseKey(caseRef);
+  if (!source.storagePath) throw new Error("createReusedRecord requires a source with a storage path");
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("generated_assets")
-    .insert({
-      user_id: userId,
-      case_seed: caseRef,
-      asset_kind: assetKind,
-      descriptor_hash: descriptorHash,
-      generation_version: generationVersion,
-      provider,
-      provider_model: source.providerModel,
-      status: "ready",
-      storage_path: source.storagePath,
-      width: source.width,
-      height: source.height,
-      prompt_version: source.promptVersion,
-      reuse_key: reuseKey,
-      source_asset_id: canonicalSourceId,
-    })
-    .select("*")
-    .single();
+  const token = getS2ServerCapabilityToken();
+  const { data, error } = await supabase.rpc("caseline_ga_create_reused", {
+    p_server_token: token,
+    p_case_seed: caseRef,
+    p_asset_kind: assetKind,
+    p_descriptor_hash: descriptorHash,
+    p_generation_version: generationVersion,
+    p_provider: provider,
+    p_provider_model: source.providerModel,
+    p_reuse_key: reuseKey,
+    p_storage_path: source.storagePath,
+    p_width: source.width ?? 0,
+    p_height: source.height ?? 0,
+    p_prompt_version: source.promptVersion ?? 0,
+    p_source_asset_id: canonicalSourceId,
+  });
   if (error) throw new Error(`Supabase createReusedRecord failed: ${error.message}`);
-  return rowToRecord(data);
+  const row = (Array.isArray(data) ? data[0] : data) as { id: string } | undefined;
+  if (!row) throw new Error("Supabase createReusedRecord returned no row");
+  return findAssetById(userId, row.id);
 }
 
 /** Generated Art V2B — atomic (DB-side, single UPDATE statement) increment
@@ -233,12 +251,10 @@ export async function incrementReuseCount(userId: string, assetId: string): Prom
 }
 
 export async function markGenerating(userId: string, id: string): Promise<void> {
+  void userId; // ownership enforced inside the function via auth.uid()
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("generated_assets")
-    .update({ status: "generating", updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", userId);
+  const token = getS2ServerCapabilityToken();
+  const { error } = await supabase.rpc("caseline_ga_mark_generating", { p_server_token: token, p_asset_id: id });
   if (error) throw new Error(`Supabase markGenerating failed: ${error.message}`);
 }
 
@@ -247,36 +263,27 @@ export async function markReady(
   id: string,
   fields: { storagePath: string; width: number; height: number; providerModel: string; promptVersion: number },
 ): Promise<void> {
+  void userId;
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("generated_assets")
-    .update({
-      status: "ready",
-      storage_path: fields.storagePath,
-      width: fields.width,
-      height: fields.height,
-      provider_model: fields.providerModel,
-      prompt_version: fields.promptVersion,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("user_id", userId);
+  const token = getS2ServerCapabilityToken();
+  const { error } = await supabase.rpc("caseline_ga_mark_ready", {
+    p_server_token: token,
+    p_asset_id: id,
+    p_storage_path: fields.storagePath,
+    p_width: fields.width,
+    p_height: fields.height,
+    p_provider_model: fields.providerModel,
+    p_prompt_version: fields.promptVersion,
+  });
   if (error) throw new Error(`Supabase markReady failed: ${error.message}`);
 }
 
 export async function markFailed(userId: string, id: string, errorMessage: string, attemptCount: number): Promise<void> {
+  void userId;
+  void attemptCount; // caseline_ga_mark_failed increments attempt_count server-side atomically
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("generated_assets")
-    .update({
-      status: "failed",
-      error_message: errorMessage,
-      attempt_count: attemptCount,
-      failed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("user_id", userId);
+  const token = getS2ServerCapabilityToken();
+  const { error } = await supabase.rpc("caseline_ga_mark_failed", { p_server_token: token, p_asset_id: id, p_error_message: errorMessage });
   if (error) throw new Error(`Supabase markFailed failed: ${error.message}`);
 }
 
@@ -326,26 +333,15 @@ export async function countAssetsForCase(userId: string, caseKeys: string[]): Pr
   return count ?? 0;
 }
 
-/** Uploads generated image bytes to the private `generated-art` bucket at
- * `{userId}/{caseRef}/{descriptorHash}.{ext}` — the leading `userId`
- * segment is what the storage RLS policy checks (see
- * `supabase/migrations/0002_generated_assets.sql`). Security S1: the second
- * segment is the opaque caseRef because this path is visible inside every
- * signed image URL; before S1 it was the plaintext seed. */
-export async function uploadAssetBytes(
-  userId: string,
-  caseRef: string,
-  descriptorHash: string,
-  bytes: Uint8Array,
-  contentType: string,
-): Promise<{ path: string }> {
+/** Security S2 EXPAND-2 — uploads via the service-role-isolated
+ * `lib/generated-art/trusted-storage.ts` module instead of the ordinary
+ * per-request authenticated client. Path shape and S1 discipline
+ * (`{userId}/{caseRef}/{descriptorHash}.{ext}`, opaque caseRef never a raw
+ * seed) unchanged — `trusted-storage.ts` re-validates the exact same
+ * invariants server-side regardless of what this caller intended. */
+export async function uploadAssetBytes(userId: string, caseRef: string, descriptorHash: string, bytes: Uint8Array, contentType: string): Promise<{ path: string }> {
   assertWritableCaseKey(caseRef);
-  const supabase = await createServerSupabaseClient();
-  const ext = contentType.split("/")[1] ?? "bin";
-  const path = `${userId}/${caseRef}/${descriptorHash}.${ext}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, { contentType, upsert: true });
-  if (error) throw new Error(`Supabase uploadAssetBytes failed: ${error.message}`);
-  return { path };
+  return uploadGeneratedAsset(userId, caseRef, descriptorHash, bytes, contentType);
 }
 
 /** Private bucket — every read goes through a short-lived signed URL
@@ -395,10 +391,12 @@ export async function listCaseRows(userId: string, caseKey: string): Promise<{ i
   return (data ?? []).map((row) => ({ id: row.id, storagePath: row.storage_path }));
 }
 
-export async function moveObject(fromPath: string, toPath: string): Promise<boolean> {
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.storage.from(BUCKET).move(fromPath, toPath);
-  return !error;
+/** Security S2 EXPAND-2 — `userId` is required now (the trusted module
+ * validates every path against the authenticated caller's own prefix,
+ * including the legacy source segment) — `listCaseRows`'s caller already
+ * has it. */
+export async function moveObject(userId: string, fromPath: string, toPath: string): Promise<boolean> {
+  return moveGeneratedAsset(userId, fromPath, toPath);
 }
 
 export async function objectExists(path: string): Promise<boolean> {
@@ -408,23 +406,18 @@ export async function objectExists(path: string): Promise<boolean> {
 }
 
 export async function repointStoragePath(userId: string, fromPath: string, toPath: string): Promise<void> {
+  void userId;
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("generated_assets")
-    .update({ storage_path: toPath })
-    .eq("user_id", userId)
-    .eq("storage_path", fromPath);
+  const token = getS2ServerCapabilityToken();
+  const { error } = await supabase.rpc("caseline_ga_repoint_path", { p_server_token: token, p_from_path: fromPath, p_to_path: toPath });
   if (error) throw new Error(`Supabase repointStoragePath failed: ${error.message}`);
 }
 
 export async function relabelRow(userId: string, id: string, fromCaseKey: string, toCaseKey: string): Promise<void> {
+  void userId;
   assertWritableCaseKey(toCaseKey);
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("generated_assets")
-    .update({ case_seed: toCaseKey })
-    .eq("user_id", userId)
-    .eq("id", id)
-    .eq("case_seed", fromCaseKey);
+  const token = getS2ServerCapabilityToken();
+  const { error } = await supabase.rpc("caseline_ga_relabel", { p_server_token: token, p_asset_id: id, p_from_case_key: fromCaseKey, p_to_case_key: toCaseKey });
   if (error) throw new Error(`Supabase relabelRow failed: ${error.message}`);
 }

@@ -125,3 +125,40 @@ describe("trusted-storage — path validation", () => {
     expect(() => validate("user-1/cr1_00000000000000000000000000000000/", "user-1")).toThrow(TrustedStoragePathError);
   });
 });
+
+describe("trusted-storage — bucket cannot be chosen by any caller", () => {
+  it("no exported function accepts a bucket parameter — the bucket is a hardcoded module constant", () => {
+    const src = readFileSync(path.resolve(__dirname, "../trusted-storage.ts"), "utf8");
+    expect(src).toMatch(/const BUCKET = "generated-art" as const;/);
+    const exportedSignatures = [...src.matchAll(/^export async function \w+\(([^)]*)\)/gm)].map((m) => m[1]);
+    for (const params of exportedSignatures) {
+      expect(params.toLowerCase()).not.toMatch(/bucket/);
+    }
+  });
+});
+
+describe("Generated Art metadata — client cannot choose trusted RPC results", () => {
+  it("every asset-store.ts write function that persists trusted metadata requires the S2 capability token", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../art/generation/asset-store.ts"), "utf8");
+    const capabilityGated = ["createQueuedRecord", "createReusedRecord", "markGenerating", "markReady", "markFailed", "repointStoragePath", "relabelRow"];
+    for (const fn of capabilityGated) {
+      const body = src.match(new RegExp(`export async function ${fn}\\([\\s\\S]*?\\n\\}`))?.[0] ?? "";
+      expect(body, `${fn} should exist`).not.toBe("");
+      expect(body, `${fn} should require the S2 capability`).toMatch(/getS2ServerCapabilityToken\(\)/);
+    }
+  });
+
+  it("no asset-store.ts write function performs a direct .from(\"generated_assets\").insert/update — every write goes through a caseline_ga_* RPC", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../art/generation/asset-store.ts"), "utf8");
+    expect(src).not.toMatch(/\.from\("generated_assets"\)\s*\.\s*insert\(/);
+    expect(src).not.toMatch(/\.from\("generated_assets"\)\s*\.\s*update\(/);
+  });
+
+  it("Storage byte writes route through the trusted-storage module, never the ordinary per-request client's .storage", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../art/generation/asset-store.ts"), "utf8");
+    expect(src).toMatch(/uploadGeneratedAsset\(/);
+    expect(src).toMatch(/moveGeneratedAsset\(/);
+    expect(src).not.toMatch(/supabase\.storage\.from\(BUCKET\)\.upload\(/);
+    expect(src).not.toMatch(/supabase\.storage\.from\(BUCKET\)\.move\(/);
+  });
+});

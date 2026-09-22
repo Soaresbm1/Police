@@ -659,6 +659,73 @@ revoke all on function public.caseline_mark_event_seen(uuid, text) from public, 
 grant execute on function public.caseline_mark_event_seen(uuid, text) to authenticated;
 
 -- =======================================================================
+-- 6b. SEED RESEAL (S1 compatibility) — the one remaining direct
+-- authenticated write over `investigation_sessions.seed` that CONTRACT must
+-- also close. Next.js does ALL the cryptography (decrypting/verifying the
+-- expected envelope, computing the new one) — this function never sees a
+-- plaintext seed, only two opaque strings (the currently-stored value and
+-- the new one to compare-and-swap in), and is a pure ownership+identity
+-- scoped compare-and-swap, mirroring `SessionSeedColumnOps.compareAndSwapSeed`
+-- (session-seed.ts) exactly.
+--
+-- SERVER-CAPABILITY-REQUIRED even though no CaseTruth is involved: a plain
+-- authenticated-callable compare-and-swap would let a player replace their
+-- own stored envelope with ANY ciphertext blob of their choosing (the
+-- function has no way to verify a caller-supplied "new seed" is genuinely a
+-- reseal of the SAME logical plaintext without decrypting it, which
+-- requires K_seed — only ever held in Next.js). The capability check proves
+-- this call carries a value Next.js already verified, exactly the same
+-- trust argument as `caseline_finalize_case`'s score/XP.
+--
+-- Idempotent: if `p_expected_seed` no longer matches (a concurrent reseal
+-- already won, or this is a harmless retry), returns whatever is currently
+-- stored rather than erroring — a retried reseal is a no-op, never a
+-- corruption. Scoped by BOTH `user_id` and `session_uuid`, so this can
+-- never touch a different investigation instance's seed, even a past one
+-- for the same user (case_history.seed is a separate column, untouched).
+-- =======================================================================
+create or replace function public.caseline_reseal_seed(
+  p_server_token text,
+  p_session_uuid uuid,
+  p_expected_seed text,
+  p_new_seed text
+)
+returns table (seed text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid uuid;
+  v_seed text;
+begin
+  perform public.caseline_check_server_capability(p_server_token);
+
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'caseline: authentication required';
+  end if;
+
+  update public.investigation_sessions s
+    set seed = p_new_seed, updated_at = now()
+    where s.user_id = v_uid and s.session_uuid = p_session_uuid and s.seed = p_expected_seed
+    returning s.seed into v_seed;
+
+  if not found then
+    select s.seed into v_seed from public.investigation_sessions s where s.user_id = v_uid and s.session_uuid = p_session_uuid;
+    if v_seed is null then
+      raise exception 'caseline: no matching active session';
+    end if;
+  end if;
+
+  return query select v_seed;
+end;
+$$;
+
+revoke all on function public.caseline_reseal_seed(text, uuid, text, text) from public, anon;
+grant execute on function public.caseline_reseal_seed(text, uuid, text, text) to authenticated;
+
+-- =======================================================================
 -- 7. GENERATED ART METADATA (generated_assets table — NOT Storage; see
 -- SECURITY.md §S2 "Storage architecture" for why Storage itself cannot be
 -- closed this way and remains explicitly unresolved/deferred).
@@ -717,6 +784,7 @@ create or replace function public.caseline_ga_create_reused(
   p_descriptor_hash text,
   p_generation_version integer,
   p_provider text,
+  p_provider_model text,
   p_reuse_key text,
   p_storage_path text,
   p_width integer,
@@ -749,10 +817,10 @@ begin
   end if;
 
   insert into public.generated_assets
-    (user_id, case_seed, asset_kind, descriptor_hash, generation_version, provider, status,
+    (user_id, case_seed, asset_kind, descriptor_hash, generation_version, provider, provider_model, status,
      reuse_key, storage_path, width, height, prompt_version, source_asset_id)
   values
-    (v_uid, p_case_seed, p_asset_kind, p_descriptor_hash, p_generation_version, p_provider, 'ready',
+    (v_uid, p_case_seed, p_asset_kind, p_descriptor_hash, p_generation_version, p_provider, p_provider_model, 'ready',
      p_reuse_key, p_storage_path, p_width, p_height, p_prompt_version, p_source_asset_id)
   on conflict (user_id, descriptor_hash, generation_version, provider)
     do update set updated_at = now()
@@ -764,8 +832,8 @@ begin
 end;
 $$;
 
-revoke all on function public.caseline_ga_create_reused(text, text, text, text, integer, text, text, text, integer, integer, integer, uuid) from public, anon;
-grant execute on function public.caseline_ga_create_reused(text, text, text, text, integer, text, text, text, integer, integer, integer, uuid) to authenticated;
+revoke all on function public.caseline_ga_create_reused(text, text, text, text, integer, text, text, text, text, integer, integer, integer, uuid) from public, anon;
+grant execute on function public.caseline_ga_create_reused(text, text, text, text, integer, text, text, text, text, integer, integer, integer, uuid) to authenticated;
 
 create or replace function public.caseline_ga_mark_generating(p_server_token text, p_asset_id uuid)
 returns void
@@ -843,9 +911,15 @@ $$;
 revoke all on function public.caseline_ga_mark_failed(text, uuid, text) from public, anon;
 grant execute on function public.caseline_ga_mark_failed(text, uuid, text) to authenticated;
 
--- S1 lazy-migration helpers (legacy-case-migration.ts) — repoint/relabel a
--- row after its Storage object has been moved to the caseRef-keyed path.
-create or replace function public.caseline_ga_repoint_path(p_server_token text, p_asset_id uuid, p_storage_path text)
+-- S1 lazy-migration helpers (legacy-case-migration.ts). Signatures mirror
+-- the existing TypeScript ops exactly (`repointStoragePath(userId, fromPath,
+-- toPath)` matches by `storage_path`, not a single row id — a reused row
+-- can share the same legacy `storage_path` as its canonical source, so more
+-- than one row may legitimately need repointing in one call;
+-- `relabelRow(userId, id, fromCaseKey, toCaseKey)` additionally guards on
+-- the row still carrying the OLD case key, so a retried/duplicate call is a
+-- harmless no-op rather than an unconditional overwrite).
+create or replace function public.caseline_ga_repoint_path(p_server_token text, p_from_path text, p_to_path text)
 returns void
 language plpgsql
 security definer
@@ -859,15 +933,15 @@ begin
     raise exception 'caseline: authentication required';
   end if;
   update public.generated_assets
-    set storage_path = p_storage_path, updated_at = now()
-    where id = p_asset_id and user_id = v_uid;
+    set storage_path = p_to_path, updated_at = now()
+    where user_id = v_uid and storage_path = p_from_path;
 end;
 $$;
 
-revoke all on function public.caseline_ga_repoint_path(text, uuid, text) from public, anon;
-grant execute on function public.caseline_ga_repoint_path(text, uuid, text) to authenticated;
+revoke all on function public.caseline_ga_repoint_path(text, text, text) from public, anon;
+grant execute on function public.caseline_ga_repoint_path(text, text, text) to authenticated;
 
-create or replace function public.caseline_ga_relabel(p_server_token text, p_asset_id uuid, p_case_seed text)
+create or replace function public.caseline_ga_relabel(p_server_token text, p_asset_id uuid, p_from_case_key text, p_to_case_key text)
 returns void
 language plpgsql
 security definer
@@ -881,13 +955,13 @@ begin
     raise exception 'caseline: authentication required';
   end if;
   update public.generated_assets
-    set case_seed = p_case_seed, updated_at = now()
-    where id = p_asset_id and user_id = v_uid;
+    set case_seed = p_to_case_key, updated_at = now()
+    where id = p_asset_id and user_id = v_uid and case_seed = p_from_case_key;
 end;
 $$;
 
-revoke all on function public.caseline_ga_relabel(text, uuid, text) from public, anon;
-grant execute on function public.caseline_ga_relabel(text, uuid, text) to authenticated;
+revoke all on function public.caseline_ga_relabel(text, uuid, text, text) from public, anon;
+grant execute on function public.caseline_ga_relabel(text, uuid, text, text) to authenticated;
 
 -- =======================================================================
 -- 8. STORAGE — deliberately NOT addressed by this migration.

@@ -138,6 +138,15 @@ export async function removeGeneratedAsset(userId: string, path: string): Promis
   return !error;
 }
 
-// Exported for the static path-validation tests only — never used by
-// application code outside this module.
-export const __testing = { assertValidGeneratedArtPath, TrustedStoragePathError, TrustedStorageConfigError };
+// Exported for tests only — never used by application code outside this
+// module. `resetClientCache` lets a test suite swap in a fresh mock
+// `@supabase/supabase-js#createClient` between tests without the module's
+// own lazy-singleton caching serving a stale client from an earlier test.
+export const __testing = {
+  assertValidGeneratedArtPath,
+  TrustedStoragePathError,
+  TrustedStorageConfigError,
+  resetClientCache: () => {
+    cachedClient = null;
+  },
+};

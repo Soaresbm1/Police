@@ -9,7 +9,7 @@ import { computeCaseRef } from "@/lib/security/case-ref";
 import * as generatedAssetStore from "@/lib/art/generation/asset-store";
 import { migrateLegacyCaseArt } from "@/lib/art/generation/legacy-case-migration";
 import { normalizeHintState } from "../hints";
-import { rememberStoredSeed, storedSeedForSave, upgradeLegacySessionSeed, type SessionSeedColumnOps } from "./session-seed";
+import { currentStoredSeed, isAlreadySealed, rememberStoredSeed, storedSeedForSave, upgradeLegacySessionSeed, type SessionSeedColumnOps } from "./session-seed";
 import { getS2ServerCapabilityToken } from "@/lib/security/s2-server-capability";
 import type {
   AdvanceTimeResult,
@@ -53,17 +53,25 @@ function sealForWrite(session: GameSession, userId: string): string {
   }
 }
 
+/** Security S2 EXPAND-2 — `compareAndSwapSeed` routes through the
+ * capability-gated `caseline_reseal_seed` RPC (see its own doc comment in
+ * 0009 for why a plain `.update()` compare-and-swap is not safe here)
+ * instead of a direct authenticated `UPDATE`. Both `expected`/`next` stay
+ * opaque strings end to end — this function never decrypts anything. */
 function sessionSeedColumnOps(supabase: ServerSupabaseClient): SessionSeedColumnOps {
   return {
-    async compareAndSwapSeed(userId, expected, next) {
-      const { data, error } = await supabase
-        .from("investigation_sessions")
-        .update({ seed: next })
-        .eq("user_id", userId)
-        .eq("seed", expected)
-        .select("user_id");
+    async compareAndSwapSeed(userId, sessionUuid, expected, next) {
+      const token = getS2ServerCapabilityToken();
+      const { data, error } = await supabase.rpc("caseline_reseal_seed", {
+        p_server_token: token,
+        p_session_uuid: sessionUuid,
+        p_expected_seed: expected,
+        p_new_seed: next,
+      });
       if (error) throw new Error("seed compare-and-swap failed");
-      return (data ?? []).length === 1;
+      const row = (Array.isArray(data) ? data[0] : data) as { seed: string } | undefined;
+      void userId; // ownership is enforced inside the function via auth.uid(), not by this argument
+      return row?.seed === next;
     },
     async readStoredSeed(userId) {
       const { data, error } = await supabase.from("investigation_sessions").select("seed").eq("user_id", userId).maybeSingle();
@@ -193,33 +201,16 @@ export function sessionToRow(
   };
 }
 
-/** Security S2 EXPAND-2 — the columns an ordinary `saveSession` call
- * writes: the player-owned/bookkeeping set `0008` (CONTRACT, updated)
- * grants back to `authenticated` after the broad `UPDATE` is revoked,
- * PLUS the sealed `seed` (still written here — see the note below). Every
- * OTHER authoritative column (`evidence_status`, `lab_queue`, `mandates`,
- * `surveillance`, `investigation_events`, `hint_state`, `accusation`,
- * `current_time_minutes`, `session_uuid`) is persisted ONLY by its own
- * trusted mutation (`caseline_advance_time`/`caseline_finalize_case`/the
- * EXPAND-2 `caseline_*` functions) — never by this whole-row path. This is
- * deliberately narrower than `sessionToRow`, which `createSession`'s
- * initial INSERT still uses (a brand-new row legitimately needs every
- * column set once). See SECURITY.md §S2 "session broad-save analysis".
- *
- * `seed` stays here, unlike the other authoritative columns, because S1's
- * lazy-migration fallback depends on an ordinary `saveSession` re-sealing
- * it (see `s1-session-persistence.test.ts`'s "a failed upgrade... the next
- * load or save completes it") — `0008` does NOT yet revoke `seed`'s grant
- * for exactly this reason. Closing this (a dedicated
- * `caseline_reseal_seed`-style capability-gated function, so `seed` can
- * also lose its broad grant under CONTRACT) is flagged as unresolved
- * EXPAND-2/3 follow-up work, not attempted here — S2's game-state-integrity
- * scope was never about seed confidentiality (S1 already owns that; a
- * forged/regressed `seed` write is a correctness bug, not the write-authority
- * exposure this pass targets). */
-export function sessionToPlayerOwnedRow(session: GameSession, storedSeed: string): Database["public"]["Tables"]["investigation_sessions"]["Update"] {
+/** Security S2 EXPAND-2 — the ONLY columns an ordinary `saveSession` call
+ * writes: exactly the set `0008` (CONTRACT, updated) grants back to
+ * `authenticated` after the broad `UPDATE` is revoked. Every authoritative
+ * column — including `seed`, now that `caseline_reseal_seed` exists — is
+ * persisted ONLY by its own trusted mutation, never by this whole-row path.
+ * `createSession`'s initial INSERT still uses the full `sessionToRow` (a
+ * brand-new row legitimately needs every column set once). See
+ * SECURITY.md §S2 "session broad-save analysis". */
+export function sessionToPlayerOwnedRow(session: GameSession): Database["public"]["Tables"]["investigation_sessions"]["Update"] {
   return {
-    seed: storedSeed,
     notes: session.notes,
     board: session.board as unknown as Json,
     player_timeline: session.playerTimeline as unknown as Json,
@@ -299,7 +290,7 @@ export class SupabaseSessionStore implements SessionStore {
     const session = rowToSession(data, resolved.seed);
     let stored = data.seed;
     if (resolved.kind === "legacy_plaintext") {
-      const upgrade = await upgradeLegacySessionSeed(sessionSeedColumnOps(supabase), userId, resolved.seed, keys);
+      const upgrade = await upgradeLegacySessionSeed(sessionSeedColumnOps(supabase), userId, data.session_uuid, resolved.seed, keys);
       if (upgrade.outcome === "not_upgraded") console.warn("[CASELINE] [S1] legacy session seed upgrade deferred (will retry on next load/save).");
       stored = upgrade.stored;
     }
@@ -353,15 +344,34 @@ export class SupabaseSessionStore implements SessionStore {
   /** Security S2 EXPAND-2 — writes ONLY the player-owned columns
    * (`sessionToPlayerOwnedRow`), never the authoritative ones. Every
    * authoritative field (evidence, mandates, lab, surveillance, events,
-   * hints, time, accusation, seed) is persisted by its own trusted
-   * mutation the moment it changes — this call is deliberately a no-op for
-   * all of them, so it survives once CONTRACT revokes the broad `UPDATE`
-   * grant down to exactly this column set. No seed sealing/S1 involvement
-   * here either — `seed` is never part of this payload. */
+   * hints, time, accusation) is persisted by its own trusted mutation the
+   * moment it changes — this call is deliberately a no-op for all of them,
+   * so it survives once CONTRACT revokes the broad `UPDATE` grant down to
+   * exactly this column set.
+   *
+   * `seed` is the one exception worth spelling out: it is NEVER part of
+   * this call's own payload, but if `getActiveSession`'s own load-time
+   * legacy-seed upgrade attempt lost a race (see `session-seed.ts`), this
+   * is the documented fallback — one best-effort `caseline_reseal_seed`
+   * call before the ordinary column update, exactly matching
+   * `s1-session-persistence.test.ts`'s "a failed upgrade... the next load
+   * or save completes it". A normal save (the overwhelming majority —
+   * `isAlreadySealed` true) never calls it at all. */
   async saveSession(userId: string, session: GameSession): Promise<void> {
-    const storedSeed = sealForWrite(session, userId);
     const supabase = await this.client();
-    const { error } = await supabase.from("investigation_sessions").update(sessionToPlayerOwnedRow(session, storedSeed)).eq("user_id", userId);
+    if (!isAlreadySealed(session)) {
+      const expected = currentStoredSeed(session);
+      if (expected !== undefined) {
+        try {
+          const envelope = sealForWrite(session, userId);
+          const ok = await sessionSeedColumnOps(supabase).compareAndSwapSeed(userId, session.sessionUuid, expected, envelope);
+          if (ok) rememberStoredSeed(session, envelope);
+        } catch (err) {
+          logS1Failure("reseal fallback on save deferred", err);
+        }
+      }
+    }
+    const { error } = await supabase.from("investigation_sessions").update(sessionToPlayerOwnedRow(session)).eq("user_id", userId);
     if (error) throw new Error(`Supabase saveSession failed: ${error.message}`);
   }
 

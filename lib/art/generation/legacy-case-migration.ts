@@ -24,7 +24,7 @@
 
 export interface LegacyArtMigrationOps {
   listCaseRows(userId: string, caseKey: string): Promise<{ id: string; storagePath: string | null }[]>;
-  moveObject(fromPath: string, toPath: string): Promise<boolean>;
+  moveObject(userId: string, fromPath: string, toPath: string): Promise<boolean>;
   objectExists(path: string): Promise<boolean>;
   repointStoragePath(userId: string, fromPath: string, toPath: string): Promise<void>;
   relabelRow(userId: string, id: string, fromCaseKey: string, toCaseKey: string): Promise<void>;
@@ -54,7 +54,7 @@ export async function migrateLegacyCaseArt(
   for (const fromPath of legacyPaths) {
     const toPath = `${userId}/${caseRef}/${fromPath.slice(legacyPrefix.length)}`;
     try {
-      const moved = await ops.moveObject(fromPath, toPath);
+      const moved = await ops.moveObject(userId, fromPath, toPath);
       if (moved) result.movedObjects++;
       else if (!(await ops.objectExists(toPath))) {
         failedPaths.add(fromPath);
