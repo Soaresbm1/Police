@@ -136,6 +136,15 @@ export interface Database {
         Args: { asset_id: string; owner_id: string };
         Returns: undefined;
       };
+      /** Security S2 forward-fix (draft, not yet applied) — requires the
+       * trusted server capability token; `p_seed` must already be a sealed
+       * s1e.v1 envelope. Generates a fresh `session_uuid` server-side and
+       * atomically installs/replaces the caller's one active investigation.
+       * See migration 0010. */
+      caseline_create_session: {
+        Args: { p_server_token: string; p_seed: string; p_difficulty: string; p_current_time_minutes: number };
+        Returns: { session_uuid: string }[];
+      };
       /** Security S2 EXPAND-2 (draft, not yet applied) — player-callable,
        * ownership-scoped, no server capability required. Superseded return
        * shape (see migration 0009): also completes due lab jobs and

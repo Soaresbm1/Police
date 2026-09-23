@@ -162,24 +162,21 @@ export function rowToSession(row: SessionRow, seed: string = resolveStoredSessio
  * lands in the `seed` column and is always an `s1e.v1.…` envelope — by
  * default a fresh seal of `session.seed` bound to `userId`.
  *
- * Security S2: `session_uuid` is deliberately OMITTED from this payload
- * unless `includeSessionUuid` is set. `createSession` is the only caller
- * that sets it, because it's the only moment a *new* investigation
- * instance exists — every ordinary `saveSession` upsert takes the UPDATE
- * arm (a row for this `user_id` already exists), and PostgREST/Postgres
- * only ever touch the columns present in the payload on that arm, so
- * omitting this key is what makes `session_uuid` survive unchanged across
- * every normal in-game save. See `GameSession#sessionUuid`. */
+ * Security S2 forward-fix: `session_uuid` is never part of this payload.
+ * Creating a brand-new investigation now goes through
+ * `caseline_create_session` (which generates `session_uuid` itself, at that
+ * trusted boundary), never this direct-write helper — see that function's
+ * own doc comment in `0010_s2_trusted_create_session.sql` for why. This
+ * function survives only as the round-trip counterpart `rowToSession`'s
+ * tests exercise. See `GameSession#sessionUuid`. */
 export function sessionToRow(
   userId: string,
   session: GameSession,
   storedSeed: string = sealSessionSeed(session.seed, userId),
-  options?: { includeSessionUuid?: boolean },
 ): Database["public"]["Tables"]["investigation_sessions"]["Insert"] {
   return {
     user_id: userId,
     seed: storedSeed,
-    ...(options?.includeSessionUuid ? { session_uuid: session.sessionUuid } : {}),
     difficulty: session.difficulty,
     current_time_minutes: session.currentTime,
     evidence_status: session.evidenceStatus as unknown as Json,
@@ -299,10 +296,43 @@ export class SupabaseSessionStore implements SessionStore {
     return session;
   }
 
+  /** Security S2 forward-fix — a player can only ever have one active
+   * investigation, so this always potentially replaces an existing row.
+   * Before this fix, that replacement went through a plain `.upsert()`,
+   * which takes the UPDATE arm of that statement for any returning player
+   * (the overwhelming majority) — after CONTRACT (0008) restricted direct
+   * authenticated UPDATE to exactly the 7 player-owned columns, that arm's
+   * full authoritative payload was correctly rejected by Postgres. Routed
+   * through `caseline_create_session` instead: the same
+   * SERVER-CAPABILITY-REQUIRED trusted-mutation pattern as
+   * `caseline_finalize_case`, with every universal initial value hardcoded
+   * inside the function and `session_uuid` generated at that trusted
+   * boundary (never client-chosen) — see the migration's own doc comment. */
   async createSession(userId: string, seed: string, difficulty: Difficulty, crimeTimestamp: number): Promise<GameSession> {
+    // Sealed before any network call: without S1 key material this throws
+    // and nothing is written — never a plaintext fallback for a new case.
+    let storedSeed: string;
+    try {
+      storedSeed = sealSessionSeed(seed, userId, getS1Keys());
+    } catch (err) {
+      logS1Failure("refusing to persist session seed", err);
+      throw err;
+    }
+    const supabase = await this.client();
+    const token = getS2ServerCapabilityToken();
+    const { data, error } = await supabase.rpc("caseline_create_session", {
+      p_server_token: token,
+      p_seed: storedSeed,
+      p_difficulty: difficulty,
+      p_current_time_minutes: crimeTimestamp,
+    });
+    if (error) throw new Error(`Supabase createSession failed: ${error.message}`);
+    const row = (Array.isArray(data) ? data[0] : data) as { session_uuid: string } | undefined;
+    if (!row) throw new Error("Supabase createSession returned no row");
+
     const session: GameSession = {
       id: userId,
-      sessionUuid: crypto.randomUUID(),
+      sessionUuid: row.session_uuid,
       seed,
       difficulty,
       createdAt: Date.now(),
@@ -323,20 +353,6 @@ export class SupabaseSessionStore implements SessionStore {
       hintState: { progress: {}, history: [], totalHintsUsed: 0 },
       lastActionMessage: null,
     };
-    // Sealed before any network call: without S1 key material this throws
-    // and nothing is written — never a plaintext fallback for a new case.
-    const storedSeed = sealForWrite(session, userId);
-    const supabase = await this.client();
-    // A player can only ever have one active investigation — replace
-    // rather than error if one somehow still exists (e.g. an abandoned
-    // case that was never explicitly ended). `includeSessionUuid: true`
-    // is what gives this brand-new investigation instance its own fresh
-    // identity even when this upsert takes the UPDATE arm (reusing an
-    // existing row) — see `sessionToRow`'s own doc comment.
-    const { error } = await supabase
-      .from("investigation_sessions")
-      .upsert(sessionToRow(userId, session, storedSeed, { includeSessionUuid: true }), { onConflict: "user_id" });
-    if (error) throw new Error(`Supabase createSession failed: ${error.message}`);
     return session;
   }
 

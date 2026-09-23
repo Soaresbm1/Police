@@ -85,6 +85,7 @@ describe("seed reseal — legacy plaintext to s1e.v1", () => {
 
   it("an already-encrypted seed survives a retry save without corruption or re-encryption drift", async () => {
     currentUserId = "user-already-sealed";
+    fake.currentUserId = currentUserId;
     const store = new SupabaseSessionStore();
     await store.createSession(currentUserId, generateCaseSeed(), "investigator", 480);
     const sealedOnce = fake.tables.investigation_sessions[0].seed;
@@ -137,6 +138,7 @@ describe("seed reseal — isolation and denial", () => {
 describe("seed reseal — saveSession never writes seed directly", () => {
   it("an ordinary saveSession on an already-sealed session makes no seed-column write at all", async () => {
     currentUserId = "user-ordinary";
+    fake.currentUserId = currentUserId;
     const store = new SupabaseSessionStore();
     await store.createSession(currentUserId, generateCaseSeed(), "investigator", 480);
     const session = (await store.getActiveSession(currentUserId))!;

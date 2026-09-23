@@ -16,6 +16,7 @@ const MIGRATIONS_DIR = path.resolve(__dirname, "../../../supabase/migrations");
 const expandSql = readFileSync(path.join(MIGRATIONS_DIR, "0007_s2_expand_authoritative_mutations.sql"), "utf8");
 const contractSql = readFileSync(path.join(MIGRATIONS_DIR, "0008_s2_contract_client_writes.sql"), "utf8");
 const expand2Sql = readFileSync(path.join(MIGRATIONS_DIR, "0009_s2_expand2_trusted_mutations.sql"), "utf8");
+const createSessionSql = readFileSync(path.join(MIGRATIONS_DIR, "0010_s2_trusted_create_session.sql"), "utf8");
 
 const EXPAND2_CAPABILITY_REQUIRED = [
   "caseline_reveal_evidence",
@@ -292,5 +293,94 @@ describe("S2 EXPAND-2 migration (draft) — evidence/mandate/lab/surveillance/hi
   it("caseline_reseal_seed never references plaintext/decryption — it only compares opaque strings", () => {
     const fnBody = expand2Sql.match(/create or replace function public\.caseline_reseal_seed[\s\S]*?\$\$;/i)?.[0] ?? "";
     expect(fnBody).not.toMatch(/decrypt|plaintext|aes/i);
+  });
+});
+
+describe("S2 forward-fix (0010) — trusted session creation/replacement", () => {
+  const fnBody = () => createSessionSql.match(/create or replace function public\.caseline_create_session[\s\S]*?\$\$;/i)?.[0] ?? "";
+
+  it("the function exists and is server-capability-required", () => {
+    const body = fnBody();
+    expect(body, "caseline_create_session should exist").not.toBe("");
+    const capLine = body.search(/caseline_check_server_capability/i);
+    const firstWrite = body.search(/\binsert into\s+public\./i);
+    expect(capLine, "missing capability check").toBeGreaterThan(-1);
+    expect(firstWrite, "never writes").toBeGreaterThan(-1);
+    expect(capLine).toBeLessThan(firstWrite);
+  });
+
+  it("never accepts user_id, session_uuid, or any authoritative snapshot as a parameter — ownership and session identity are server-derived", () => {
+    const signature = createSessionSql.match(/create or replace function public\.caseline_create_session\(([\s\S]*?)\)\s*\nreturns/i)?.[1] ?? "";
+    expect(signature).not.toMatch(/p_user_id/i);
+    expect(signature).not.toMatch(/p_session_uuid/i);
+    expect(signature).not.toMatch(/p_state|p_snapshot/i);
+    // Exactly the three genuinely case-specific inputs — everything else is
+    // a hardcoded initial default inside the function body.
+    expect(signature).toMatch(/p_server_token text/i);
+    expect(signature).toMatch(/p_seed text/i);
+    expect(signature).toMatch(/p_difficulty text/i);
+    expect(signature).toMatch(/p_current_time_minutes integer/i);
+  });
+
+  it("derives ownership exclusively from auth.uid(), denies when unauthenticated", () => {
+    const body = fnBody();
+    expect(body).toMatch(/v_uid\s*:=\s*auth\.uid\(\)/i);
+    expect(body).toMatch(/if v_uid is null then\s*\n\s*raise exception 'caseline: authentication required'/i);
+  });
+
+  it("generates session_uuid itself — never accepts one from the caller", () => {
+    const body = fnBody();
+    expect(body).toMatch(/v_new_uuid\s*:=\s*gen_random_uuid\(\)/i);
+  });
+
+  it("validates the seed is already a sealed s1e.v1 envelope — never accepts or stores plaintext", () => {
+    const body = fnBody();
+    expect(body).toMatch(/p_seed !~ '\^s1e\\\.v1\\\.'/);
+    expect(body).not.toMatch(/decrypt|aes/i);
+  });
+
+  it("validates difficulty against the same fixed set as the rest of the app", () => {
+    const body = fnBody();
+    expect(body).toMatch(/p_difficulty not in \('recruit', 'investigator', 'inspector', 'expert'\)/i);
+  });
+
+  it("every universal initial value is a hardcoded literal, not a parameter", () => {
+    const body = fnBody();
+    for (const literal of ["'{}'::jsonb", "'[]'::jsonb", "null", "false"]) {
+      expect(body).toContain(literal);
+    }
+  });
+
+  it("is a single atomic INSERT ... ON CONFLICT (user_id) DO UPDATE — never a two-step delete+insert that could leave a hybrid row", () => {
+    const body = fnBody();
+    expect(body).toMatch(/insert into public\.investigation_sessions/i);
+    expect(body).toMatch(/on conflict \(user_id\) do update set/i);
+    expect(body).not.toMatch(/delete from public\.investigation_sessions/i);
+  });
+
+  it("is revoked from anon and never from authenticated", () => {
+    const revokeBlock = createSessionSql.match(/revoke all on function public\.caseline_create_session\([^;]*;/i)?.[0] ?? "";
+    expect(revokeBlock).toMatch(/\banon\b/);
+    expect(revokeBlock).not.toMatch(/\bauthenticated\b/);
+    expect(createSessionSql).toMatch(/grant execute on function public\.caseline_create_session\([^;]*\) to authenticated/i);
+  });
+
+  it("sets an explicit search_path (SECURITY DEFINER hygiene, matching every other trusted function)", () => {
+    expect(fnBody()).toMatch(/set search_path = /i);
+  });
+
+  it("does not touch grants, RLS, or Storage policies — purely additive, like 0007/0009 before CONTRACT", () => {
+    expect(createSessionSql).not.toMatch(/\brevoke\b[^;]*\bon\b[^;]*(table|storage)/i);
+    expect(createSessionSql).not.toMatch(/\bdrop\s+policy\b/i);
+    expect(createSessionSql).not.toMatch(/\bcreate\s+policy\b/i);
+    expect(createSessionSql).not.toMatch(/\balter\s+table[\s\S]*?enable\s+row\s+level\s+security/i);
+  });
+
+  it("never re-opens any authoritative column on investigation_sessions to direct authenticated UPDATE", () => {
+    expect(createSessionSql).not.toMatch(/grant update[\s\S]*?on public\.investigation_sessions/i);
+  });
+
+  it("never embeds a literal secret value", () => {
+    expect(createSessionSql).not.toMatch(/CASELINE_S2_SERVER_CAPABILITY\s*=\s*['"]/i);
   });
 });

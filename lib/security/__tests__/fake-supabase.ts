@@ -187,8 +187,54 @@ export class FakeSupabase {
    * method actually performs it. */
   async rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {
     if (name === "caseline_reseal_seed") return this.rpcResealSeed(args);
+    if (name === "caseline_create_session") return this.rpcCreateSession(args);
     if (name.startsWith("caseline_ga_")) return this.rpcGeneratedArt(name, args);
     return { data: null, error: { message: `fake: unsupported rpc ${name}` } };
+  }
+
+  /** Security S2 forward-fix — minimal simulation of
+   * `caseline_create_session`: replaces (or creates) the current user's one
+   * `investigation_sessions` row with a fresh `session_uuid` and the
+   * server-computed initial state, mirroring the real function's INSERT ...
+   * ON CONFLICT (user_id) DO UPDATE. Scoped by `this.currentUserId`, same
+   * caveat as every other RPC simulation in this file — see its own doc
+   * comment. */
+  private async rpcCreateSession(args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {
+    const uid = this.currentUserId;
+    if (!uid) return { data: null, error: { message: "caseline: authentication required" } };
+    const seed = args.p_seed as string;
+    if (typeof seed !== "string" || !seed.startsWith("s1e.v1.")) {
+      return { data: null, error: { message: "caseline: seed must already be a sealed s1e.v1 envelope" } };
+    }
+    const sessionUuid = `fake-session-${++this.nextId}`;
+    const row: Row = {
+      user_id: uid,
+      session_uuid: sessionUuid,
+      seed,
+      difficulty: args.p_difficulty,
+      current_time_minutes: args.p_current_time_minutes,
+      evidence_status: {},
+      lab_queue: [],
+      investigation_events: [],
+      notes: "",
+      player_timeline: [],
+      interrogated: {},
+      mandates: {},
+      surveillance: {},
+      board: { nodes: [], edges: [] },
+      accusation: null,
+      crime_scene_examined: false,
+      crime_scene_inspected_zone_ids: [],
+      last_action_message: null,
+      last_revealed_evidence_ids: [],
+      hint_state: { progress: {}, history: [], totalHintsUsed: 0 },
+    };
+    const rows = this.tables.investigation_sessions;
+    const existingIndex = rows.findIndex((r) => r.user_id === uid);
+    if (existingIndex >= 0) rows[existingIndex] = row;
+    else rows.push(row);
+    this.writes.push({ table: "investigation_sessions", op: "upsert", payload: { ...row } });
+    return { data: [{ session_uuid: sessionUuid }], error: null };
   }
 
   private async rpcResealSeed(args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }> {

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
 
@@ -110,6 +112,7 @@ describe("S1 — encrypted active-session persistence (direct DB row)", () => {
   it("a new session row stores only a versioned envelope — the row a player can read contains no plaintext seed", async () => {
     const store = new SupabaseSessionStore();
     const seed = generateCaseSeed();
+    fake.currentUserId = "user-new";
     await store.createSession("user-new", seed, "investigator", 480);
 
     const row = fake.tables.investigation_sessions[0];
@@ -122,6 +125,7 @@ describe("S1 — encrypted active-session persistence (direct DB row)", () => {
 
   it("repeated saves of a loaded session reuse the stored ciphertext instead of re-encrypting", async () => {
     const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-save";
     await store.createSession("user-save", generateCaseSeed(), "investigator", 480);
     const stored = fake.tables.investigation_sessions[0].seed;
 
@@ -139,11 +143,13 @@ describe("S1 — encrypted active-session persistence (direct DB row)", () => {
 
   it("fails closed without S1 configuration: no new case is written and an encrypted session is an error, never 'no investigation'", async () => {
     const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-cfg";
     await store.createSession("user-cfg", generateCaseSeed(), "investigator", 480);
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
 
     delete process.env[S1_MASTER_SECRET_ENV];
     const writesBefore = fake.writes.length;
+    fake.currentUserId = "user-cfg-2";
     await expect(store.createSession("user-cfg-2", generateCaseSeed(), "investigator", 480)).rejects.toBeInstanceOf(S1ConfigError);
     expect(fake.writes.length).toBe(writesBefore);
     expect(fake.tables.investigation_sessions).toHaveLength(1);
@@ -156,6 +162,7 @@ describe("S1 — encrypted active-session persistence (direct DB row)", () => {
 
   it("an envelope copied onto another user's row fails authentication (AAD binding)", async () => {
     const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-a";
     await store.createSession("user-a", generateCaseSeed(), "investigator", 480);
     vi.spyOn(console, "error").mockImplementation(() => {});
     fake.tables.investigation_sessions.push({ ...legacyRow("user-b", "CASE-AAAAAA"), seed: fake.tables.investigation_sessions[0].seed });
@@ -163,6 +170,92 @@ describe("S1 — encrypted active-session persistence (direct DB row)", () => {
     const failure = await store.getActiveSession("user-b").catch((err: unknown) => err);
     expect(failure).toBeInstanceOf(SeedEnvelopeError);
     expect((failure as SeedEnvelopeError).code).toBe("AUTHENTICATION_FAILED");
+  });
+});
+
+describe("S2 forward-fix — starting a new case when one already exists (regression)", () => {
+  it("reproduces the exact Production bug's precondition (an existing row for this user) and proves the trusted path replaces it atomically", async () => {
+    const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-replace";
+    await store.createSession("user-replace", generateCaseSeed(), "investigator", 480);
+    const firstUuid = fake.tables.investigation_sessions[0].session_uuid;
+    fake.tables.investigation_sessions[0].notes = "leftover notes from the old case";
+    fake.tables.investigation_sessions[0].current_time_minutes = 9999;
+
+    // This is precisely the scenario that failed live on Production: a
+    // returning player (a row already exists for this user_id) starts
+    // "Nouvelle affaire". Before the fix, createSession's plain `.upsert()`
+    // took the UPDATE arm with the full authoritative row here and Postgres
+    // rejected it post-CONTRACT. The fix routes through
+    // `caseline_create_session` instead, which this fake now simulates as
+    // an atomic replace — so this call must succeed, never throw.
+    await expect(store.createSession("user-replace", generateCaseSeed(), "recruit", 10)).resolves.toBeTruthy();
+
+    expect(fake.tables.investigation_sessions).toHaveLength(1);
+    const replaced = fake.tables.investigation_sessions[0];
+    expect(replaced.session_uuid).not.toBe(firstUuid);
+    expect(replaced.notes).toBe("");
+    expect(replaced.current_time_minutes).toBe(10);
+    expect(replaced.difficulty).toBe("recruit");
+  });
+
+  it("never calls a direct .upsert()/.update() against investigation_sessions with a full authoritative payload — only the trusted RPC", () => {
+    const src = readFileSync(path.join(__dirname, "../../game-session/persistence/supabase-store.ts"), "utf8");
+    const createSessionBody = src.match(/async createSession\([\s\S]*?\n  \}/)?.[0] ?? "";
+    expect(createSessionBody, "createSession should exist").not.toBe("");
+    expect(createSessionBody).toMatch(/\.rpc\("caseline_create_session"/);
+    expect(createSessionBody).not.toMatch(/\.from\("investigation_sessions"\)\s*\.\s*upsert\(/);
+  });
+
+  it("rejects a plaintext (non-sealed) seed before ever reaching the network — fails closed, writes nothing", async () => {
+    const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-badseed";
+    delete process.env[S1_MASTER_SECRET_ENV];
+    const writesBefore = fake.writes.length;
+    await expect(store.createSession("user-badseed", generateCaseSeed(), "investigator", 480)).rejects.toBeInstanceOf(S1ConfigError);
+    expect(fake.writes.length).toBe(writesBefore);
+  });
+
+  it("creating/replacing user A's session never touches user B's row (ownership is per-caller, matching the real auth.uid() scoping)", async () => {
+    const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-cross-a";
+    await store.createSession("user-cross-a", generateCaseSeed(), "investigator", 480);
+    fake.currentUserId = "user-cross-b";
+    await store.createSession("user-cross-b", generateCaseSeed(), "investigator", 480);
+    const bBefore = structuredClone(fake.tables.investigation_sessions.find((r) => r.user_id === "user-cross-b"));
+
+    fake.currentUserId = "user-cross-a";
+    await store.createSession("user-cross-a", generateCaseSeed(), "expert", 999);
+
+    const bAfter = fake.tables.investigation_sessions.find((r) => r.user_id === "user-cross-b");
+    expect(bAfter).toEqual(bBefore);
+    expect(fake.tables.investigation_sessions).toHaveLength(2);
+  });
+
+  it("two near-simultaneous creates for the same player leave exactly one row, atomically installed by whichever call's statement lands last — never a hybrid of both", async () => {
+    const store = new SupabaseSessionStore();
+    fake.currentUserId = "user-doubleclick";
+    await store.createSession("user-doubleclick", generateCaseSeed(), "investigator", 480);
+
+    // Simulates a double-click / retried Server Action: two calls racing
+    // against the same existing row. Each is independently a fully valid,
+    // fully authenticated request — there is no natural "already done"
+    // state to collapse them into (unlike caseline_finalize_case's one-time
+    // claim on an existing accusation), so both are treated as distinct,
+    // legitimate "start a new case" actions. What matters is that the DB
+    // never ends up in a mixed state between them.
+    const [, second] = await Promise.all([
+      store.createSession("user-doubleclick", generateCaseSeed(), "inspector", 111),
+      store.createSession("user-doubleclick", generateCaseSeed(), "expert", 222),
+    ]);
+
+    expect(fake.tables.investigation_sessions).toHaveLength(1);
+    const finalRow = fake.tables.investigation_sessions[0];
+    // Whichever call's row is installed, it is fully self-consistent — the
+    // difficulty and current_time_minutes always come from the SAME call.
+    const consistentWithSecond = finalRow.difficulty === "expert" && finalRow.current_time_minutes === 222 && finalRow.session_uuid === second.sessionUuid;
+    const consistentWithFirst = finalRow.difficulty === "inspector" && finalRow.current_time_minutes === 111;
+    expect(consistentWithSecond || consistentWithFirst).toBe(true);
   });
 });
 
@@ -369,6 +462,7 @@ describe("S1 — reconstruction and archived cases unchanged", () => {
 
   it("an encrypted active session with an accusation still releases its reconstruction, with no seed in the payload", async () => {
     currentUserId = "user-recon";
+    fake.currentUserId = currentUserId;
     const seed = generateCaseSeed();
     const store = new SupabaseSessionStore();
     await store.createSession(currentUserId, seed, "investigator", 480);
