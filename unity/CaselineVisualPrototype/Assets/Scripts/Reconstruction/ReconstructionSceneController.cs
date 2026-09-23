@@ -106,7 +106,7 @@ namespace Caseline.Reconstruction
                     instance.name = $"Actor_{actorData.roleForReconstruction}";
                     var controller = instance.GetComponent<ReconstructionActorController>();
                     if (controller == null) controller = instance.AddComponent<ReconstructionActorController>();
-                    controller.Configure(actorData, data.events, data.environment);
+                    controller.Configure(actorData, data.events, data.environment, data.actors);
                     _spawnedActors.Add(controller);
                 }
             }
