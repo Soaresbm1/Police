@@ -256,6 +256,15 @@ namespace Caseline.ReconstructionEditor
             idle.SetCurve("Hips", typeof(Transform), "localPosition.y", AnimationCurve.Constant(0, 1, HipsStandingHeight));
             idle.SetCurve("Hips/Spine/Chest/LeftUpperArm", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 4f));
             idle.SetCurve("Hips/Spine/Chest/RightUpperArm", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 4f));
+            // U5.6 iteration 3 — deferred Idle audit found the original pose had a straight-arm, straight-leg
+            // "wooden soldier" stance (only the two curves above existed: a 4-degree shoulder lean, nothing at the
+            // elbow or knee), a likely contributor to the block/mannequin impression at gameplay camera distance.
+            // Fixed-constant curves (never a random/procedural offset) for a small, deterministic elbow-bend and
+            // knee-soften — the same absolute time still always reproduces the exact same pose.
+            idle.SetCurve(LeftLowerArm, typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 8f));
+            idle.SetCurve(RightLowerArm, typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 8f));
+            idle.SetCurve("Hips/LeftUpperLeg/LeftLowerLeg", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 3f));
+            idle.SetCurve("Hips/RightUpperLeg/RightLowerLeg", typeof(Transform), "localEulerAngles.x", AnimationCurve.Constant(0, 1, 3f));
 
             var walk = new AnimationClip { legacy = false, name = "Walk", wrapMode = WrapMode.Loop };
             var walkSettings = AnimationUtility.GetAnimationClipSettings(walk);
