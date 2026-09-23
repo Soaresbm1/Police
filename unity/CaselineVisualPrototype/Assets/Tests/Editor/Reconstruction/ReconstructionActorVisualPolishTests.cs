@@ -195,5 +195,148 @@ namespace Caseline.Reconstruction.Tests
             Assert.DoesNotThrow(() => ReconstructionActorVisualPolish.Apply(actor));
             Object.DestroyImmediate(actor);
         }
+
+        // ---- U5.6 iteration 3 — large-form silhouette (torso taper, pelvis bridge, limb taper, material bands) ----
+
+        [Test]
+        public void ChestTaper_ExistsBeneathChest_WithNonNullMaterial()
+        {
+            var actor = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(actor);
+
+            var chest = FindDeep(actor.transform, "Chest");
+            var taper = chest.Find("ChestTaper");
+            Assert.IsNotNull(taper, "Chest should gain a new ChestTaper child (torso/pelvis silhouette hierarchy)");
+            Assert.IsNotNull(taper.GetComponent<MeshRenderer>().sharedMaterial);
+            Assert.IsNull(taper.GetComponent<Collider>());
+
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void TorsoSilhouette_NarrowsMonotonically_FromChestToHips()
+        {
+            // Item 5 of the iteration-3 prompt: chest -> chestTaper -> waist -> hips should read as a gradient, not
+            // a single hard edge. Asserts the X-width step-down at each stage, not exact values (which are
+            // implementation detail free to tune).
+            var actor = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(actor);
+
+            var chestWidth = FindDeep(actor.transform, "Chest").Find("Visual").localScale.x;
+            var chestTaperWidth = FindDeep(actor.transform, "Chest").Find("ChestTaper").localScale.x;
+            var waistWidth = FindDeep(actor.transform, "Spine").Find("WaistBlend").localScale.x;
+            var hipsWidth = FindDeep(actor.transform, "Hips").Find("Visual").localScale.x;
+
+            Assert.Greater(chestWidth, chestTaperWidth, "chest should be wider than its own taper piece");
+            Assert.GreaterOrEqual(chestTaperWidth, waistWidth, "chest taper should be at least as wide as the waist blend");
+            Assert.GreaterOrEqual(waistWidth, hipsWidth, "waist blend should be at least as wide as the hips");
+
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void HipJointCap_BridgesPelvisAndThigh_WithoutExceedingPelvisWidth()
+        {
+            var actor = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(actor);
+
+            var pelvisWidth = FindDeep(actor.transform, "Hips").Find("Visual").localScale.x;
+            var thighWidth = FindDeep(actor.transform, "LeftUpperLeg").Find("Visual").localScale.x; // pre-taper thigh width baseline is read below instead
+            var hipCap = FindDeep(actor.transform, "LeftUpperLeg").Find("JointCap");
+
+            Assert.Greater(hipCap.localScale.x, thighWidth * 0.5f, "hip cap should be a visible bridge, not a barely-visible dot next to the thigh");
+            Assert.LessOrEqual(hipCap.localScale.x, pelvisWidth, "hip cap must never read as wider than the pelvis itself");
+
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void LimbTaper_WidensUpperSegment_AndNarrowsLowerSegment_WidthOnly()
+        {
+            var before = CCTVPrototypeBuilder.BuildActor();
+            var beforeUpperArmScale = FindDeep(before.transform, "LeftUpperArm").Find("Visual").localScale;
+            var beforeLowerArmScale = FindDeep(before.transform, "LeftLowerArm").Find("Visual").localScale;
+
+            var after = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(after);
+            var afterUpperArmScale = FindDeep(after.transform, "LeftUpperArm").Find("Visual").localScale;
+            var afterLowerArmScale = FindDeep(after.transform, "LeftLowerArm").Find("Visual").localScale;
+
+            Assert.Greater(afterUpperArmScale.x, beforeUpperArmScale.x, "upper arm should widen slightly (taper toward the elbow)");
+            Assert.Less(afterLowerArmScale.x, beforeLowerArmScale.x, "lower arm should narrow slightly (taper toward the wrist)");
+            Assert.AreEqual(beforeUpperArmScale.y, afterUpperArmScale.y, 0.0001f, "limb LENGTH (Y) must never change — only width");
+            Assert.AreEqual(beforeLowerArmScale.y, afterLowerArmScale.y, 0.0001f, "limb LENGTH (Y) must never change — only width");
+
+            Object.DestroyImmediate(before);
+            Object.DestroyImmediate(after);
+        }
+
+        [Test]
+        public void MaterialBands_AreAssigned_ToHeadTorsoAndLimbRenderers()
+        {
+            var actor = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(actor);
+
+            var head = FindDeep(actor.transform, "Head").Find("Visual");
+            var chest = FindDeep(actor.transform, "Chest").Find("Visual");
+            var upperArm = FindDeep(actor.transform, "LeftUpperArm").Find("Visual");
+
+            Assert.AreEqual(ReconstructionMaterialBand.Head, head.GetComponent<ReconstructionMaterialGroup>().band);
+            Assert.AreEqual(ReconstructionMaterialBand.Torso, chest.GetComponent<ReconstructionMaterialGroup>().band);
+            Assert.AreEqual(ReconstructionMaterialBand.Limb, upperArm.GetComponent<ReconstructionMaterialGroup>().band);
+
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void MaterialBands_AreDeterministic_AcrossSeparateActorInstances()
+        {
+            var a = CCTVPrototypeBuilder.BuildActor();
+            var b = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(a);
+            ReconstructionActorVisualPolish.Apply(b);
+
+            var bandA = FindDeep(a.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
+            var bandB = FindDeep(b.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
+            Assert.AreEqual(bandA, bandB);
+
+            Object.DestroyImmediate(a);
+            Object.DestroyImmediate(b);
+        }
+
+        [Test]
+        public void MaterialBandAssignment_IsRoleIndependent_NothingInThisFileBranchesOnRoleOrVisualId()
+        {
+            // Structural, not behavioral: ReconstructionActorVisualPolish.Apply takes only a GameObject — it has no
+            // parameter through which a role, visualId or any other identity-shaped value could even reach it, so
+            // two actors built identically always end up with identical bands regardless of what role/visualId
+            // ReconstructionActorController later assigns them.
+            var auteur = CCTVPrototypeBuilder.BuildActor();
+            var victime = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(auteur);
+            ReconstructionActorVisualPolish.Apply(victime);
+
+            var auteurBand = FindDeep(auteur.transform, "LeftUpperLeg").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
+            var victimeBand = FindDeep(victime.transform, "LeftUpperLeg").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
+            Assert.AreEqual(auteurBand, victimeBand);
+
+            Object.DestroyImmediate(auteur);
+            Object.DestroyImmediate(victime);
+        }
+
+        [Test]
+        public void CCTVActor_NeverGainsMaterialGroupComponent_OnlyReconstructionsOwnInstanceDoes()
+        {
+            var cctvOnly = CCTVPrototypeBuilder.BuildActor();
+            var reconstructionCopy = CCTVPrototypeBuilder.BuildActor();
+            ReconstructionActorVisualPolish.Apply(reconstructionCopy);
+
+            Assert.IsNull(FindDeep(cctvOnly.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>(),
+                "a CCTV-only actor instance must never gain the Reconstruction-only material-band marker");
+            Assert.IsNotNull(FindDeep(reconstructionCopy.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>());
+
+            Object.DestroyImmediate(cctvOnly);
+            Object.DestroyImmediate(reconstructionCopy);
+        }
     }
 }
