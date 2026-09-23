@@ -59,7 +59,15 @@ namespace Caseline.Reconstruction
             var tint = ReconstructionAppearanceUtil.ToneTint(genericAppearance);
             foreach (var renderer in GetComponentsInChildren<Renderer>())
             {
-                renderer.material.color = tint;
+                // U5.6 iteration 3 — a renderer tagged by ReconstructionActorVisualPolish (head/torso/limb) gets a
+                // fixed multiplier of the SAME base tint instead of the flat tint every renderer used to get, so the
+                // actor reads as more than one uniform block at gameplay camera distance. Anything untagged (should
+                // never happen for an actor built through BuildActorTemplate, but stays safe if it ever does) keeps
+                // the original flat behavior exactly as before this iteration.
+                var group = renderer.GetComponent<ReconstructionMaterialGroup>();
+                var bandTint = group != null ? tint * ReconstructionMaterialGroup.Multiplier(group.band) : tint;
+                bandTint.a = tint.a;
+                renderer.material.color = bandTint;
             }
         }
 
