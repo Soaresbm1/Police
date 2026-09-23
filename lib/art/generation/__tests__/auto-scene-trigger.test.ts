@@ -408,3 +408,102 @@ describe("runAutoCrimeSceneGeneration", () => {
     });
   });
 });
+
+describe("runAutoCrimeSceneGeneration — stale-session guard (Security S2 forward-fix)", () => {
+  it("[D][E] a superseded request generates 0 art, 0 rows, 0 provider calls", async () => {
+    const truth = makeTruth();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => false;
+
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(1);
+    expect(diagnostics.attempted).toBe(0);
+    expect(store.rows).toHaveLength(0);
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("a still-current request is unaffected — identical to no guard at all", async () => {
+    const truth = makeTruth();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => true;
+
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(0);
+    expect(diagnostics.ready).toBe(1);
+    expect(provider.calls).toHaveLength(1);
+  });
+
+  it("[C] the DB-reported winner decides, not promise-resolution order", async () => {
+    const truth = makeTruth();
+    const loserStore = new FakeAssetStore();
+    const winnerStore = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+
+    const loserIsStillCurrent = () => new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10));
+    const winnerIsStillCurrent = async () => true;
+
+    const [loserDiagnostics, winnerDiagnostics] = await Promise.all([
+      runAutoCrimeSceneGeneration({ store: loserStore, provider }, "user-1", truth, testCaseKeys(truth), loserIsStillCurrent),
+      runAutoCrimeSceneGeneration({ store: winnerStore, provider }, "user-1", truth, testCaseKeys(truth), winnerIsStillCurrent),
+    ]);
+
+    expect(loserDiagnostics.ready).toBe(0);
+    expect(loserStore.rows).toHaveLength(0);
+    expect(winnerDiagnostics.ready).toBe(1);
+    expect(winnerStore.rows).toHaveLength(1);
+  });
+
+  it("[F] a duplicate trigger for the SAME still-current session hits the cache — no duplicate rows/provider calls", async () => {
+    const truth = makeTruth();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => true;
+
+    await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+    const second = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(store.rows).toHaveLength(1);
+    expect(provider.calls).toHaveLength(1);
+    expect(second.cacheHits).toBe(1);
+    expect(second.staleSkipped).toBe(0);
+  });
+
+  it("re-checks immediately before the one provider call (TOCTOU-narrowing): stale-after-lookup still makes 0 provider calls", async () => {
+    const truth = makeTruth();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    let checks = 0;
+    // First check (top of function) passes; second check (right before the
+    // provider call) reports stale — simulates a supersede landing in that
+    // narrow window.
+    const isStillCurrent = async () => {
+      checks++;
+      return checks === 1;
+    };
+
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(1);
+    expect(diagnostics.attempted).toBe(0);
+    expect(provider.calls).toHaveLength(0);
+    expect(store.rows).toHaveLength(0);
+  });
+
+  it("a transient error reading current-session status fails closed (treated as stale, never throws)", async () => {
+    const truth = makeTruth();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => {
+      throw new Error("transient read failure");
+    };
+
+    const diagnostics = await runAutoCrimeSceneGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(1);
+    expect(provider.calls).toHaveLength(0);
+  });
+});

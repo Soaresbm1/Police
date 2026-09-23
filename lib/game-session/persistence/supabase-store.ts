@@ -390,6 +390,16 @@ export class SupabaseSessionStore implements SessionStore {
     if (error) throw new Error(`Supabase saveSession failed: ${error.message}`);
   }
 
+  /** Security S2 forward-fix — plain ownership-scoped SELECT of one column,
+   * exactly as safe/unrestricted as `getActiveSession`'s own read (0008
+   * never touched SELECT). Never reads or decrypts `seed`. */
+  async isCurrentSession(userId: string, sessionUuid: string): Promise<boolean> {
+    const supabase = await this.client();
+    const { data, error } = await supabase.from("investigation_sessions").select("session_uuid").eq("user_id", userId).maybeSingle();
+    if (error) throw new Error(`Supabase isCurrentSession failed: ${error.message}`);
+    return data?.session_uuid === sessionUuid;
+  }
+
   async deleteActiveSession(userId: string): Promise<void> {
     const supabase = await this.client();
     const { error } = await supabase.from("investigation_sessions").delete().eq("user_id", userId);

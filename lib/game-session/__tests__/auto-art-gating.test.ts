@@ -17,8 +17,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  */
 const { afterCallbacks, runAutoPortraitGenerationMock, runAutoCrimeSceneGenerationMock } = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void> | void>,
-  runAutoPortraitGenerationMock: vi.fn(async () => ({ attempted: 0, cacheHits: 0, ready: 0, failed: 0, skippedDueToCap: 0 })),
-  runAutoCrimeSceneGenerationMock: vi.fn(async () => ({ attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0 })),
+  runAutoPortraitGenerationMock: vi.fn(async (...args: unknown[]) => (void args, { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skippedDueToCap: 0, staleSkipped: 0 })),
+  runAutoCrimeSceneGenerationMock: vi.fn(async (...args: unknown[]) => (void args, { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0, staleSkipped: 0 })),
 }));
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -90,5 +90,43 @@ describe("startNewCase — automatic art generation gating", () => {
     await afterCallbacks[0]();
     expect(runAutoPortraitGenerationMock).toHaveBeenCalledTimes(1);
     expect(runAutoCrimeSceneGenerationMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("startNewCase — Security S2 forward-fix: stale-session guard wiring", () => {
+  beforeEach(() => {
+    afterCallbacks.length = 0;
+    runAutoPortraitGenerationMock.mockClear();
+    runAutoCrimeSceneGenerationMock.mockClear();
+    process.env.AUTO_GENERATED_PORTRAITS_ENABLED = "true";
+    process.env.AUTO_GENERATED_CRIME_SCENES_ENABLED = "true";
+  });
+
+  it("[B][G] two real startNewCase calls for the same user: the first call's isStillCurrent resolves false (superseded), the second (winning) call's resolves true — proven against the real MemoryStore, not a mock of the check itself", async () => {
+    // Simulates exactly the live incident: request A's createSession commits,
+    // then request B's createSession commits (replacing A's row) — BOTH
+    // requests' after() callbacks fire afterward, in whatever order, and
+    // each captures its own isStillCurrent closure at createSession time.
+    await startNewCase(makeFormData());
+    await startNewCase(makeFormData());
+    await afterCallbacks[0]();
+    await afterCallbacks[1]();
+
+    const firstIsStillCurrent = runAutoPortraitGenerationMock.mock.calls[0][4] as () => Promise<boolean>;
+    const firstSceneIsStillCurrent = runAutoCrimeSceneGenerationMock.mock.calls[0][4] as () => Promise<boolean>;
+    const secondIsStillCurrent = runAutoPortraitGenerationMock.mock.calls[1][4] as () => Promise<boolean>;
+    const secondSceneIsStillCurrent = runAutoCrimeSceneGenerationMock.mock.calls[1][4] as () => Promise<boolean>;
+
+    expect(await firstIsStillCurrent()).toBe(false);
+    expect(await firstSceneIsStillCurrent()).toBe(false);
+    expect(await secondIsStillCurrent()).toBe(true);
+    expect(await secondSceneIsStillCurrent()).toBe(true);
+  });
+
+  it("a single normal startNewCase call: isStillCurrent resolves true (nothing superseded it)", async () => {
+    await startNewCase(makeFormData());
+    await afterCallbacks[0]();
+    const isStillCurrent = runAutoPortraitGenerationMock.mock.calls[0][4] as () => Promise<boolean>;
+    expect(await isStillCurrent()).toBe(true);
   });
 });

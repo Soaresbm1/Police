@@ -112,6 +112,13 @@ export interface SurveillanceMutationResult {
 export interface SessionStore {
   getActiveSession(userId: string): Promise<GameSession | null>;
   createSession(userId: string, seed: string, difficulty: Difficulty, crimeTimestamp: number): Promise<GameSession>;
+  /** Security S2 forward-fix — a cheap, plaintext-only check (reads just the
+   * `session_uuid` column, never the seed, never decrypts anything) used to
+   * detect a `startNewCase` request that has been superseded by a later one
+   * for the same user before its automatic Generated Art trigger runs. See
+   * `lib/game-session/actions.ts#startNewCase` and
+   * `lib/art/generation/auto-portrait-trigger.ts`/`auto-scene-trigger.ts`. */
+  isCurrentSession(userId: string, sessionUuid: string): Promise<boolean>;
   saveSession(userId: string, session: GameSession): Promise<void>;
   deleteActiveSession(userId: string): Promise<void>;
 

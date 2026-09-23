@@ -88,6 +88,10 @@ export class MemoryStore implements SessionStore {
     return session;
   }
 
+  async isCurrentSession(userId: string, sessionUuid: string): Promise<boolean> {
+    return this.sessions.get(userId)?.sessionUuid === sessionUuid;
+  }
+
   async saveSession(userId: string, session: GameSession): Promise<void> {
     this.sessions.set(userId, session);
   }

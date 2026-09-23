@@ -42,6 +42,11 @@ export interface AutoCrimeSceneDiagnostics {
   /** Generated Art V2B — 1 if the scene was served by reusing a same-user
    * asset from a different case instead of a real Cloudflare call. */
   reuseHits: number;
+  /** Security S2 forward-fix — 1 if this request's session had already
+   * been superseded by a later `startNewCase` for the same user before
+   * generation started (a losing double-submit/retry). See
+   * `auto-portrait-trigger.ts`'s matching field for the full rationale. */
+  staleSkipped: number;
 }
 
 /**
@@ -77,8 +82,18 @@ export async function runAutoCrimeSceneGeneration(
   /** Security S1 — computed server-side by the caller
    * (`caseAssetKeysFor(truth.seed)`); rows, paths and logs use its caseRef. */
   caseKeys: CaseAssetKeys,
+  /** Security S2 forward-fix — see `auto-portrait-trigger.ts`'s matching
+   * parameter doc comment. Checked once up front and again immediately
+   * before the one provider call this trigger can make. */
+  isStillCurrent?: () => Promise<boolean>,
 ): Promise<AutoCrimeSceneDiagnostics> {
-  const diagnostics: AutoCrimeSceneDiagnostics = { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0, reuseHits: 0 };
+  const diagnostics: AutoCrimeSceneDiagnostics = { attempted: 0, cacheHits: 0, ready: 0, failed: 0, skipped: 0, reuseHits: 0, staleSkipped: 0 };
+
+  if (isStillCurrent && !(await isStillCurrent().catch(() => false))) {
+    diagnostics.staleSkipped = 1;
+    logSummary(caseKeys.caseRef, diagnostics);
+    return diagnostics;
+  }
 
   const location = truth.locations.find((l) => l.id === truth.crimeLocationId);
   if (!location) {
@@ -99,6 +114,12 @@ export async function runAutoCrimeSceneGeneration(
   }
   if (existing?.status === "ready") {
     diagnostics.cacheHits++;
+    logSummary(caseKeys.caseRef, diagnostics);
+    return diagnostics;
+  }
+
+  if (isStillCurrent && !(await isStillCurrent().catch(() => false))) {
+    diagnostics.staleSkipped = 1;
     logSummary(caseKeys.caseRef, diagnostics);
     return diagnostics;
   }
@@ -138,6 +159,7 @@ function logSummary(caseRef: string, d: AutoCrimeSceneDiagnostics): void {
   // same discipline as auto-portrait-trigger.ts's own summary line.
   console.log(
     `[CASELINE] [auto-crime-scene] case ${caseRef}: ` +
-      `attempted=${d.attempted}, cacheHits=${d.cacheHits}, ready=${d.ready}, reuseHits=${d.reuseHits}, failed=${d.failed}, skipped=${d.skipped}.`,
+      `attempted=${d.attempted}, cacheHits=${d.cacheHits}, ready=${d.ready}, reuseHits=${d.reuseHits}, failed=${d.failed}, skipped=${d.skipped}, ` +
+      `staleSkipped=${d.staleSkipped}.`,
   );
 }

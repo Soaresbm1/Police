@@ -349,6 +349,114 @@ describe("runAutoPortraitGeneration", () => {
   });
 });
 
+describe("runAutoPortraitGeneration — stale-session guard (Security S2 forward-fix)", () => {
+  it("[D][E] a request whose session was already superseded generates 0 art, creates 0 rows, and makes 0 provider calls", async () => {
+    const { truth } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => false; // this request already lost the race
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(diagnostics.attempted).toBe(0);
+    expect(diagnostics.ready).toBe(0);
+    expect(store.rows).toHaveLength(0);
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("[A/normal] a request that is still current is unaffected — identical result to no guard at all", async () => {
+    const { truth } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => true;
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(0);
+    expect(diagnostics.attempted).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(diagnostics.ready).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(store.rows).toHaveLength(MAX_AUTO_PORTRAITS_PER_CASE);
+  });
+
+  it("[C] the DB-reported winner decides, never which promise/callback happens to resolve first — a losing check that would resolve AFTER a winning one still yields 0 art for the loser", async () => {
+    const { truth } = makeCandidatePool();
+    const loserStore = new FakeAssetStore();
+    const winnerStore = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+
+    // The "loser" check resolves later in wall-clock time than the
+    // "winner" check, but still reports false — timing must never override
+    // the actual DB-reported answer.
+    const loserIsStillCurrent = () => new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10));
+    const winnerIsStillCurrent = async () => true;
+
+    const [loserDiagnostics, winnerDiagnostics] = await Promise.all([
+      runAutoPortraitGeneration({ store: loserStore, provider }, "user-1", truth, testCaseKeys(truth), loserIsStillCurrent),
+      runAutoPortraitGeneration({ store: winnerStore, provider }, "user-1", truth, testCaseKeys(truth), winnerIsStillCurrent),
+    ]);
+
+    expect(loserDiagnostics.ready).toBe(0);
+    expect(loserStore.rows).toHaveLength(0);
+    expect(winnerDiagnostics.ready).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(winnerStore.rows).toHaveLength(MAX_AUTO_PORTRAITS_PER_CASE);
+  });
+
+  it("[F] a duplicate trigger for the SAME still-current session hits the existing cache — no duplicate rows, no extra provider calls", async () => {
+    const { truth } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => true;
+
+    await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+    const rowsAfterFirst = store.rows.length;
+    const callsAfterFirst = provider.calls.length;
+
+    const second = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(store.rows).toHaveLength(rowsAfterFirst);
+    expect(provider.calls).toHaveLength(callsAfterFirst);
+    expect(second.cacheHits).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(second.staleSkipped).toBe(0);
+  });
+
+  it("re-checks per-candidate (TOCTOU-narrowing): a session that goes stale partway through the batch stops making new provider calls from that point on", async () => {
+    const { truth } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    let stillCurrent = true;
+    // Flip to stale after the very first check-then-act pass — simulates a
+    // supersede landing mid-batch, exactly like the live incident.
+    let checks = 0;
+    const isStillCurrent = async () => {
+      checks++;
+      if (checks > 1) stillCurrent = false;
+      return stillCurrent;
+    };
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    // At least the top-of-batch check passed (checks > 0 ever ran), but not
+    // every candidate could have generated once the flag flipped stale.
+    expect(diagnostics.staleSkipped).toBeGreaterThan(0);
+    expect(diagnostics.ready + diagnostics.staleSkipped).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+  });
+
+  it("a transient error reading current-session status degrades to treating the request as stale (fail closed, never throws)", async () => {
+    const { truth } = makeCandidatePool();
+    const store = new FakeAssetStore();
+    const provider = new MockGeneratedAssetProvider();
+    const isStillCurrent = async () => {
+      throw new Error("transient read failure");
+    };
+
+    const diagnostics = await runAutoPortraitGeneration({ store, provider }, "user-1", truth, testCaseKeys(truth), isStillCurrent);
+
+    expect(diagnostics.staleSkipped).toBe(MAX_AUTO_PORTRAITS_PER_CASE);
+    expect(provider.calls).toHaveLength(0);
+  });
+});
+
 /** A provider whose `generate()` only resolves once the test calls
  * `releaseOne()`/`releaseAll()` — used to force several candidates into
  * flight at the same time so concurrency bounds can be observed directly,

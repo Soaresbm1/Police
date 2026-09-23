@@ -43,8 +43,22 @@ export async function startNewCase(formData: FormData) {
   // Security S1: in Supabase mode this refuses (S1ConfigError) before
   // writing anything when the master secret is missing — a new case is
   // never stored with a plaintext seed.
-  await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
+  const newSession = await getStore().createSession(userId, seed, difficulty, truth.crimeTimestamp);
   const caseKeys = caseAssetKeysFor(seed);
+  // Security S2 forward-fix — found live: two concurrent/retried
+  // `startNewCase` requests both queued a full automatic-generation batch,
+  // and the DB-level winner-take-all in `caseline_create_session` doesn't
+  // stop the LOSING request's already-in-flight `after()` callback from
+  // still generating a complete, orphaned set of real Generated Art for a
+  // case_seed nothing will ever reference. `expectedSessionUuid` captures
+  // which investigation THIS request actually installed; `isStillCurrent`
+  // (passed into both triggers below) re-checks it against whatever is
+  // actually in `investigation_sessions` right now — a cheap,
+  // session_uuid-only read, never the seed — before any expensive/mutating
+  // Generated Art work happens, and again per-candidate for the portrait
+  // batch (see that trigger's own doc comment for why once isn't enough).
+  const expectedSessionUuid = newSession.sessionUuid;
+  const isStillCurrent = () => getStore().isCurrentSession(userId, expectedSessionUuid);
 
   // Pilot-gated (see `.env.example`): queues portrait/crime-scene
   // generation for this brand-new case to run after this response is
@@ -73,7 +87,7 @@ export async function startNewCase(formData: FormData) {
         (async () => {
           if (!isAutoPortraitGenerationEnabled()) return;
           try {
-            await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys);
+            await runAutoPortraitGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys, isStillCurrent);
           } catch (err) {
             console.error(
               `[CASELINE] Automatic portrait generation crashed unexpectedly for case ${caseKeys.caseRef}: ${err instanceof Error ? err.message : String(err)}`,
@@ -83,7 +97,7 @@ export async function startNewCase(formData: FormData) {
         (async () => {
           if (!isAutoCrimeSceneGenerationEnabled()) return;
           try {
-            await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys);
+            await runAutoCrimeSceneGeneration({ store: generatedAssetStore, provider: activeGeneratedAssetProvider }, userId, truth, caseKeys, isStillCurrent);
           } catch (err) {
             console.error(
               `[CASELINE] Automatic crime-scene generation crashed unexpectedly for case ${caseKeys.caseRef}: ${err instanceof Error ? err.message : String(err)}`,

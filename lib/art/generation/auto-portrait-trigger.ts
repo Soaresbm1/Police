@@ -84,6 +84,12 @@ export interface AutoPortraitDiagnostics {
    * same-user asset from a different case instead of a real Cloudflare
    * call. Diagnostics/measurement only. */
   reuseHits: number;
+  /** Security S2 forward-fix — how many candidates were skipped because
+   * `isStillCurrent` reported this case had already been superseded by a
+   * later `startNewCase` for the same user (a losing double-submit/retry).
+   * Distinct from `failed`: this is not a generation failure, it's a stale
+   * request correctly declining to do any work at all. */
+  staleSkipped: number;
 }
 
 /**
@@ -141,6 +147,20 @@ export async function runAutoPortraitGeneration(
   /** Security S1 — computed server-side by the caller
    * (`caseAssetKeysFor(truth.seed)`); rows, paths and logs use its caseRef. */
   caseKeys: CaseAssetKeys,
+  /** Security S2 forward-fix — resolves to `false` once this case's
+   * `session_uuid` is no longer the caller's current active investigation
+   * (superseded by a later `startNewCase` for the same user). Optional so
+   * every other caller of this function (none currently exist besides
+   * `startNewCase`, but the type stays honest) is unaffected. Checked once
+   * before this batch starts, and again for each candidate immediately
+   * before it would create a `generated_assets` row or call the provider —
+   * the first check is a cheap fast exit, the second narrows the race
+   * window from "this whole batch's duration" down to "one candidate's own
+   * check-then-act gap", per candidate, which is what actually matters:
+   * the live incident this defends against saw a losing request's entire
+   * ~10-second, 7-asset batch complete before the winning session existed
+   * long enough to matter. */
+  isStillCurrent?: () => Promise<boolean>,
 ): Promise<AutoPortraitDiagnostics> {
   const allImportant = importantPeopleForPortraits(truth);
   const candidates = selectAutoPortraitCandidates(truth);
@@ -151,7 +171,14 @@ export async function runAutoPortraitGeneration(
     failed: 0,
     skippedDueToCap: Math.max(0, allImportant.length - candidates.length),
     reuseHits: 0,
+    staleSkipped: 0,
   };
+
+  if (isStillCurrent && !(await isStillCurrent().catch(() => false))) {
+    diagnostics.staleSkipped = candidates.length;
+    console.log(`[CASELINE] [auto-portrait] case ${caseKeys.caseRef}: stale request (session superseded before batch started) — skipping.`);
+    return diagnostics;
+  }
 
   let remainingBudget: number;
   try {
@@ -198,6 +225,15 @@ export async function runAutoPortraitGeneration(
     }
     remainingBudget--;
 
+    // Security S2 forward-fix — the TOCTOU-narrowing re-check: re-verify
+    // immediately before this candidate would create a `generated_assets`
+    // row or call the provider, not just once at the top of the whole
+    // batch (see the doc comment on `isStillCurrent` above).
+    if (isStillCurrent && !(await isStillCurrent().catch(() => false))) {
+      diagnostics.staleSkipped++;
+      return;
+    }
+
     diagnostics.attempted++;
     const result = await getOrGenerateAsset(
       deps,
@@ -227,7 +263,8 @@ export async function runAutoPortraitGeneration(
   console.log(
     `[CASELINE] [auto-portrait] case ${caseKeys.caseRef}: ` +
       `attempted=${diagnostics.attempted}, cacheHits=${diagnostics.cacheHits}, ready=${diagnostics.ready}, ` +
-      `reuseHits=${diagnostics.reuseHits}, failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}.`,
+      `reuseHits=${diagnostics.reuseHits}, failed=${diagnostics.failed}, skippedDueToCap=${diagnostics.skippedDueToCap}, ` +
+      `staleSkipped=${diagnostics.staleSkipped}.`,
   );
   return diagnostics;
 }
