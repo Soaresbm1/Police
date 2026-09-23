@@ -207,6 +207,17 @@ namespace Caseline.ReconstructionEditor
             animator.runtimeAnimatorController = BuildAnimatorController(BuildAnimationClips());
 
             actor.AddComponent<ReconstructionActorController>().SetAnimator(animator);
+
+            // U5.6 iteration 2 — Reconstruction-only silhouette polish, applied AFTER CCTVPrototypeBuilder.BuildActor()
+            // returns its own freshly-instantiated GameObject tree (never CCTV's own scene/asset — see that method's
+            // own doc comment: this call always constructs a brand-new hierarchy). Every addition below is a NEW
+            // child GameObject parented under an EXISTING bone Transform CCTV already created; no bone is renamed,
+            // reparented, or removed, so every Animator curve path (which only ever addresses a bone's own
+            // localPosition/localRotation, never a child's) stays valid untouched. See
+            // ReconstructionActorVisualPolishTests for the structural proof this never touches CCTVPrototypeBuilder,
+            // a CCTV scene, or a shared animation asset.
+            ReconstructionActorVisualPolish.Apply(actor);
+
             return actor;
         }
 

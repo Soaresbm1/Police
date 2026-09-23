@@ -33,11 +33,18 @@ namespace Caseline.Reconstruction
         public List<ReconstructionEventData> Events { get; private set; }
         public string Environment { get; private set; }
 
-        public void Configure(ReconstructionActorData data, List<ReconstructionEventData> events, string environment)
+        /// <summary>U5.6 iteration 1 — the full spawned roster, so `Apply` can let this actor face whichever OTHER
+        /// actor is currently staged at the same slot (see `ReconstructionActorTimeline.FacingTowardColocatedActor`).
+        /// Optional/nullable: <see cref="ReconstructionSceneController"/> always supplies it, but this stays
+        /// backward-compatible with any other caller that doesn't.</summary>
+        public List<ReconstructionActorData> AllActors { get; private set; }
+
+        public void Configure(ReconstructionActorData data, List<ReconstructionEventData> events, string environment, List<ReconstructionActorData> allActors = null)
         {
             Data = data;
             Events = events;
             Environment = environment;
+            AllActors = allActors;
             ApplyGenericAppearance(data.genericAppearance);
         }
 
@@ -70,7 +77,7 @@ namespace Caseline.Reconstruction
         {
             if (Data == null) return;
 
-            var pose = ReconstructionActorTimeline.Evaluate(Data, Events, Environment, time);
+            var pose = ReconstructionActorTimeline.Evaluate(Data, Events, Environment, time, AllActors);
             gameObject.SetActive(pose.visible);
             if (!pose.visible) return;
 

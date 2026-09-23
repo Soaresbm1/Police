@@ -59,7 +59,29 @@ namespace Caseline.Reconstruction
 
         private const float WalkCycleHz = 1.2f;
 
-        public static ReconstructionActorPose Evaluate(ReconstructionActorData actor, IReadOnlyList<ReconstructionEventData> allEvents, string environment, float t)
+        /// <summary>Presentation-only staging distance, in metres: how close two actors' resolved positions must
+        /// be to count as "sharing a slot" for facing purposes. Comfortably above the largest fixed lateral
+        /// gap two co-staged actors can have (culprit/victim: 1.1m total; accomplice/unnamed: 2.7m total — see
+        /// `ReconstructionZoneLayout.LateralOffsetByRole`) and comfortably below the shortest distance between two
+        /// different slots in any environment (corridor's closest pair, "interaction" to "crime_point", is 3m).</summary>
+        private const float ColocationFacingDistance = 3.5f;
+
+        /// <summary>U5.6 iteration 1 — presentation-only fix for actors reading as "side-by-side staged figures"
+        /// rather than naturally interacting people: every idle/interaction/staging pose previously used a fixed
+        /// `Vector3.forward`, regardless of whether another actor was staged right next to them (found true for
+        /// EVERY non-walking state — talk, meet, discover, attack, stage_scene — by numeric audit of this file
+        /// before this change). `allActors` is optional and defaults to null so every pre-existing call site
+        /// (including every test in `ReconstructionActorTimelineTests`) keeps its exact prior
+        /// `facing = Vector3.forward` behavior unchanged unless it opts in. When provided,
+        /// `ReconstructionActorController` passes the full spawned roster so an idling actor can face whichever
+        /// OTHER actor is currently resolved to the same staged slot — never a claim about which way anyone
+        /// actually faced, exactly like the position table itself.</summary>
+        public static ReconstructionActorPose Evaluate(
+            ReconstructionActorData actor,
+            IReadOnlyList<ReconstructionEventData> allEvents,
+            string environment,
+            float t,
+            IReadOnlyList<ReconstructionActorData> allActors = null)
         {
             if (t < actor.spawnTime || t > actor.despawnTime)
             {
@@ -97,7 +119,7 @@ namespace Caseline.Reconstruction
                         {
                             visible = true,
                             position = scenePos,
-                            facing = Vector3.forward,
+                            facing = FacingTowardColocatedActor(actor, scenePos, allActors, allEvents, environment, t),
                             isWalking = false,
                             animState = animState,
                             normalizedTime = animState == "Idle" ? 0f : normalized,
@@ -130,21 +152,27 @@ namespace Caseline.Reconstruction
                 var staging = allEvents[i];
                 if (staging.type != "stage_scene" || staging.actorVisualId != actor.visualId) continue;
                 if (t < staging.time || t >= staging.time + StageBeatSeconds) continue;
+                var stagePos = ReconstructionZoneLayout.GetActorZonePosition(environment, staging.locationSlot, actor.roleForReconstruction);
                 return new ReconstructionActorPose
                 {
                     visible = true,
-                    position = ReconstructionZoneLayout.GetActorZonePosition(environment, staging.locationSlot, actor.roleForReconstruction),
-                    facing = Vector3.forward,
+                    position = stagePos,
+                    facing = FacingTowardColocatedActor(actor, stagePos, allActors, allEvents, environment, t),
                     isWalking = false,
                     animState = "ManipulateScene",
                     normalizedTime = Mathf.Clamp01((t - staging.time) / StageBeatSeconds),
                 };
             }
 
-            return EvaluateWaypoints(actor, environment, t);
+            return EvaluateWaypoints(actor, allEvents, environment, t, allActors);
         }
 
-        private static ReconstructionActorPose EvaluateWaypoints(ReconstructionActorData actor, string environment, float t)
+        private static ReconstructionActorPose EvaluateWaypoints(
+            ReconstructionActorData actor,
+            IReadOnlyList<ReconstructionEventData> allEvents,
+            string environment,
+            float t,
+            IReadOnlyList<ReconstructionActorData> allActors)
         {
             var waypoints = actor.waypoints;
             var walkPhase = Mathf.Repeat(t * WalkCycleHz, 1f);
@@ -152,7 +180,7 @@ namespace Caseline.Reconstruction
             if (t <= waypoints[0].time)
             {
                 var pos = ReconstructionZoneLayout.GetActorZonePosition(environment, waypoints[0].slot, actor.roleForReconstruction);
-                return new ReconstructionActorPose { visible = true, position = pos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+                return new ReconstructionActorPose { visible = true, position = pos, facing = FacingTowardColocatedActor(actor, pos, allActors, allEvents, environment, t), isWalking = false, animState = "Idle", normalizedTime = 0f };
             }
 
             for (var i = 0; i < waypoints.Count - 1; i++)
@@ -165,14 +193,14 @@ namespace Caseline.Reconstruction
                 var posB = ReconstructionZoneLayout.GetActorZonePosition(environment, b.slot, actor.roleForReconstruction);
                 if (Mathf.Approximately(a.time, b.time) || posA == posB)
                 {
-                    return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+                    return new ReconstructionActorPose { visible = true, position = posA, facing = FacingTowardColocatedActor(actor, posA, allActors, allEvents, environment, t), isWalking = false, animState = "Idle", normalizedTime = 0f };
                 }
 
                 // Wait at the previous slot, then walk the last MaxWalkSeconds of the leg, arriving exactly on time.
                 var walkStart = LegWalkStart(a, b);
                 if (t <= walkStart)
                 {
-                    return new ReconstructionActorPose { visible = true, position = posA, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+                    return new ReconstructionActorPose { visible = true, position = posA, facing = FacingTowardColocatedActor(actor, posA, allActors, allEvents, environment, t), isWalking = false, animState = "Idle", normalizedTime = 0f };
                 }
 
                 var segT = Mathf.Clamp01((t - walkStart) / (b.time - walkStart));
@@ -183,7 +211,46 @@ namespace Caseline.Reconstruction
 
             var last = waypoints[waypoints.Count - 1];
             var lastPos = ReconstructionZoneLayout.GetActorZonePosition(environment, last.slot, actor.roleForReconstruction);
-            return new ReconstructionActorPose { visible = true, position = lastPos, facing = Vector3.forward, isWalking = false, animState = "Idle", normalizedTime = 0f };
+            return new ReconstructionActorPose { visible = true, position = lastPos, facing = FacingTowardColocatedActor(actor, lastPos, allActors, allEvents, environment, t), isWalking = false, animState = "Idle", normalizedTime = 0f };
+        }
+
+        /// <summary>Presentation-only: if another actor currently resolves to a position within
+        /// <see cref="ColocationFacingDistance"/> of `myPosition` (i.e. staged at the same slot right now), face
+        /// toward the nearest one instead of the fixed default `Vector3.forward`. Recurses into
+        /// <see cref="Evaluate"/> for each other actor's position with `allActors` omitted, which guarantees this
+        /// can never recurse a second level (that nested call's own facing computation is skipped entirely, since
+        /// its `allActors` is null) — no infinite mutual recursion between two colocated actors evaluating each
+        /// other. `allActors` is null on every pre-existing call site, so this returns `Vector3.forward` exactly as
+        /// before unless a caller opts in.</summary>
+        private static Vector3 FacingTowardColocatedActor(
+            ReconstructionActorData actor,
+            Vector3 myPosition,
+            IReadOnlyList<ReconstructionActorData> allActors,
+            IReadOnlyList<ReconstructionEventData> allEvents,
+            string environment,
+            float t)
+        {
+            if (allActors == null) return Vector3.forward;
+
+            Vector3? closestPosition = null;
+            var closestDistance = float.MaxValue;
+            foreach (var other in allActors)
+            {
+                if (other == null || other.visualId == actor.visualId) continue;
+                var otherPose = Evaluate(other, allEvents, environment, t); // allActors omitted: no further recursion
+                if (!otherPose.visible) continue;
+                var distance = Vector3.Distance(myPosition, otherPose.position);
+                if (distance < ColocationFacingDistance && distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closestPosition = otherPose.position;
+                }
+            }
+
+            if (!closestPosition.HasValue) return Vector3.forward;
+            var direction = closestPosition.Value - myPosition;
+            direction.y = 0f;
+            return direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward;
         }
 
         private static float LegWalkStart(ReconstructionWaypointData a, ReconstructionWaypointData b) => b.time - Mathf.Min(b.time - a.time, MaxWalkSeconds);
