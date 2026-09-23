@@ -370,4 +370,151 @@ namespace Caseline.Reconstruction.Tests
             }
         }
     }
+
+    /// <summary>U5.6 iteration 1 — the colocation-facing fix (actors sharing a slot face each other instead of a
+    /// fixed `Vector3.forward`), kept in its own fixture class so every pre-existing test above (none of which pass
+    /// `allActors`) is provably unaffected by this feature — they exercise the exact 4-argument overload that still
+    /// behaves exactly as before.</summary>
+    public class ReconstructionActorTimelineColocationFacingTests
+    {
+        private static ReconstructionActorData MakeActor(string visualId, string role, float spawn, float despawn, params (float time, string slot)[] waypoints)
+        {
+            var actor = new ReconstructionActorData
+            {
+                visualId = visualId,
+                roleForReconstruction = role,
+                genericAppearance = "casual_neutral",
+                spawnTime = spawn,
+                despawnTime = despawn,
+                waypoints = new List<ReconstructionWaypointData>(),
+            };
+            foreach (var (time, slot) in waypoints)
+            {
+                actor.waypoints.Add(new ReconstructionWaypointData { time = time, slot = slot });
+            }
+            return actor;
+        }
+
+        [Test]
+        public void OmittingAllActors_PreservesExactPriorBehavior_FixedForward()
+        {
+            var culprit = MakeActor("c", "culprit", 0, 100, (0, "interaction"));
+            var events = new List<ReconstructionEventData>();
+
+            var pose = ReconstructionActorTimeline.Evaluate(culprit, events, "corridor", 0f); // no allActors — old call shape
+            Assert.AreEqual(Vector3.forward, pose.facing);
+
+            var poseWithEmptyRoster = ReconstructionActorTimeline.Evaluate(culprit, events, "corridor", 0f, new List<ReconstructionActorData>());
+            Assert.AreEqual(Vector3.forward, poseWithEmptyRoster.facing, "no colocated actor exists in an empty roster, so this must still fall back to forward");
+        }
+
+        [Test]
+        public void TwoActorsSharingTheTalkSlot_FaceEachOther_NotAFixedDirection()
+        {
+            var culprit = MakeActor("c", "culprit", 0, 100, (0, "interaction"));
+            var victim = MakeActor("v", "victim", 0, 100, (0, "interaction"));
+            var roster = new List<ReconstructionActorData> { culprit, victim };
+            var events = new List<ReconstructionEventData>();
+
+            var a = ReconstructionActorTimeline.Evaluate(culprit, events, "corridor", 0f, roster);
+            var b = ReconstructionActorTimeline.Evaluate(victim, events, "corridor", 0f, roster);
+
+            Assert.AreNotEqual(Vector3.forward, a.facing, "culprit should now turn toward the victim instead of the fixed default");
+            Assert.AreNotEqual(Vector3.forward, b.facing, "victim should now turn toward the culprit instead of the fixed default");
+            // culprit is at -0.55 on x, victim at +0.55 -> culprit must face toward +x, victim toward -x.
+            Assert.Greater(a.facing.x, 0f);
+            Assert.Less(b.facing.x, 0f);
+        }
+
+        [Test]
+        public void AttackerAndTarget_FaceEachOther_DuringTheAttackBeat()
+        {
+            var culprit = MakeActor("c", "culprit", 0, 100, (0, "crime_point"));
+            var victim = MakeActor("v", "victim", 0, 100, (0, "crime_point"));
+            var roster = new List<ReconstructionActorData> { culprit, victim };
+            var events = new List<ReconstructionEventData>
+            {
+                new() { time = 0f, type = "attack", actorVisualId = "c", counterpartyVisualId = "v", locationSlot = "crime_point", safeVisualAction = "attack_strike" },
+            };
+
+            var attacker = ReconstructionActorTimeline.Evaluate(culprit, events, "generic", 0.5f, roster);
+            var target = ReconstructionActorTimeline.Evaluate(victim, events, "generic", 0.5f, roster);
+
+            Assert.Greater(attacker.facing.x, 0f, "attacker (culprit, x=-0.55) should face toward the target (victim, x=+0.55)");
+            Assert.Less(target.facing.x, 0f, "target should face back toward the attacker");
+        }
+
+        [Test]
+        public void ActorsAtDifferentSlots_DoNotFaceEachOther_StillDefaultForward()
+        {
+            var atEntrance = MakeActor("a", "culprit", 0, 100, (0, "entrance"));
+            var atExit = MakeActor("b", "victim", 0, 100, (0, "exit"));
+            var roster = new List<ReconstructionActorData> { atEntrance, atExit };
+            var events = new List<ReconstructionEventData>();
+
+            var poseA = ReconstructionActorTimeline.Evaluate(atEntrance, events, "generic", 0f, roster);
+            Assert.AreEqual(Vector3.forward, poseA.facing, "far apart at different slots — must not face a distant unrelated actor");
+        }
+
+        [Test]
+        public void WalkingActor_KeepsFacingItsTravelDirection_NeverOverriddenByColocation()
+        {
+            var walker = MakeActor("a", "culprit", 0, 100, (0, "entrance"), (10, "crime_point"));
+            var bystander = MakeActor("b", "victim", 0, 100, (0, "crime_point"));
+            var roster = new List<ReconstructionActorData> { walker, bystander };
+            var events = new List<ReconstructionEventData>();
+
+            var pose = ReconstructionActorTimeline.Evaluate(walker, events, "generic", 9f, roster); // mid-walk, arriving at t=10
+            Assert.IsTrue(pose.isWalking);
+            var expectedDir = (ReconstructionZoneLayout.GetActorZonePosition("generic", "crime_point", "culprit") - ReconstructionZoneLayout.GetActorZonePosition("generic", "entrance", "culprit")).normalized;
+            Assert.AreEqual(expectedDir, pose.facing, "walking direction must never be overridden by colocation facing");
+        }
+
+        [Test]
+        public void ColocationFacing_IsDeterministic_RepeatedCallsIdentical()
+        {
+            var a = MakeActor("a", "culprit", 0, 100, (0, "interaction"));
+            var b = MakeActor("b", "victim", 0, 100, (0, "interaction"));
+            var roster = new List<ReconstructionActorData> { a, b };
+            var events = new List<ReconstructionEventData>();
+
+            var first = ReconstructionActorTimeline.Evaluate(a, events, "corridor", 5f, roster);
+            var second = ReconstructionActorTimeline.Evaluate(a, events, "corridor", 5f, roster);
+            Assert.AreEqual(first.facing, second.facing);
+        }
+
+        [Test]
+        public void ColocationFacing_IsIndependentOfActorIdentity_OnlyPositionMatters()
+        {
+            // Two different visualId/genericAppearance pairings staged identically must produce identical facing —
+            // guards against facing ever being derived from identity rather than pure staged position.
+            var setA = new List<ReconstructionActorData>
+            {
+                MakeActor("person_1", "culprit", 0, 100, (0, "interaction")),
+                MakeActor("person_2", "victim", 0, 100, (0, "interaction")),
+            };
+            var setB = new List<ReconstructionActorData>
+            {
+                MakeActor("person_zz9", "culprit", 0, 100, (0, "interaction")),
+                MakeActor("person_qq3", "victim", 0, 100, (0, "interaction")),
+            };
+            var events = new List<ReconstructionEventData>();
+
+            var poseA = ReconstructionActorTimeline.Evaluate(setA[0], events, "corridor", 0f, setA);
+            var poseB = ReconstructionActorTimeline.Evaluate(setB[0], events, "corridor", 0f, setB);
+            Assert.AreEqual(poseA.facing, poseB.facing);
+        }
+
+        [Test]
+        public void AccompliceAndUnnamed_WiderOffset_StillCountsAsColocated()
+        {
+            var accomplice = MakeActor("a", "accomplice", 0, 100, (0, "interaction"));
+            var unnamed = MakeActor("u", "unnamed", 0, 100, (0, "interaction"));
+            var roster = new List<ReconstructionActorData> { accomplice, unnamed };
+            var events = new List<ReconstructionEventData>();
+
+            var pose = ReconstructionActorTimeline.Evaluate(accomplice, events, "corridor", 0f, roster);
+            Assert.AreNotEqual(Vector3.forward, pose.facing, "the wider accomplice/unnamed 2.7m gap must still count as the same staged slot");
+        }
+    }
 }
