@@ -111,6 +111,16 @@ namespace Caseline.Reconstruction
         // Scenery yields to semantic slots: the shop counter, generic partition and parking pillars sit behind every slot, off all camera sightlines and walking paths.
         // U5.5 — the parking pillars stood in the foreground at z = -3, where one hid a third person at the talk and would have stood beside the
         // attack camera's lens. Moved to the back row: still a parking structure, never between a camera and anyone.
+        //
+        // U5.6 iteration 1 — every environment's zone-slot table (`ReconstructionZoneLayout`) keeps every slot
+        // within |x| <= 7, |z| <= 4 across all 5 environment kinds (the farthest is generic's entrance/exit at
+        // z = ±4). Every depth cue added below sits at |z| >= 7.5 (or, for street, alongside the existing building
+        // silhouettes' own x position) — at least 3.5m of clearance from the nearest slot any actor or camera aim
+        // point ever uses, on top of already being flush against/near the boundary wall a normal camera never looks
+        // past. `parking` is deliberately left unchanged this iteration: its pillar placement is the one prop set a
+        // past visual-QA pass (U5.5) found actually occluding a beat, so it carries materially higher regression
+        // risk than the other four and needs its own dedicated occlusion re-check before any addition, not a
+        // same-pass change bundled with everything else.
         private static Bounds[] PropBounds(string environment) => environment switch
         {
             "parking" => new[]
@@ -118,13 +128,29 @@ namespace Caseline.Reconstruction
                 new Bounds(new Vector3(-4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
                 new Bounds(new Vector3(4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
             },
-            "shop" => new[] { new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)) }, // counter
-            "corridor" => new[] { new Bounds(new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)) }, // doorway frame hint
+            "shop" => new[]
+            {
+                new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)), // counter
+                new Bounds(new Vector3(-6.2f, 1.1f, 0f), new Vector3(0.5f, 2.2f, 10f)), // back-wall shelving run — depth/recognition, far behind every slot
+            },
+            "corridor" => new[]
+            {
+                new Bounds(new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)), // doorway frame hint
+                new Bounds(new Vector3(-3f, 1.35f, FloorHalfExtent - 0.15f), new Vector3(1f, 2.1f, 0.2f)), // second doorway recess, opposite wall — architectural rhythm
+                new Bounds(new Vector3(3f, 1.35f, -FloorHalfExtent + 0.15f), new Vector3(1f, 2.1f, 0.2f)), // third doorway recess — even rhythm along the corridor's length
+            },
             "street" => new[]
             {
                 new Bounds(new Vector3(-6f, 2f, 6f), new Vector3(2f, 4f, 2f)), // building silhouette
                 new Bounds(new Vector3(6f, 2.5f, 6f), new Vector3(2f, 5f, 2f)), // building silhouette
+                new Bounds(new Vector3(0f, 1.75f, 7.7f), new Vector3(1.6f, 3.5f, 1.6f)), // third, more distant building — depth recession behind the street line
             },
+            // U5.6 iteration 1 — a second "far-corner" depth prop was tried here and reverted: automated occlusion
+            // testing (ReconstructionActionCameraMatrixTests) correctly caught it sitting too close to the
+            // Interaction camera's own lens position for this environment. `generic` stays unchanged this
+            // iteration rather than risk a second placement without being able to re-verify it visually — exactly
+            // the "prefer not adding it" outcome the decoration-limit rule calls for when a candidate doesn't
+            // clear the bar on the first safe attempt.
             _ => new[] { new Bounds(new Vector3(-5f, 1f, 4.5f), new Vector3(0.2f, 2f, 3f)) }, // partition wall
         };
 
