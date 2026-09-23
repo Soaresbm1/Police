@@ -2,7 +2,16 @@
 
 ## S2 — game-state write authority
 
-### Status
+### Status — SECURITY S2 COMPLETE (2026-09-23)
+
+S2 is closed. Current Production baseline: application commit `bbe0228`
+(branch `security/s2-game-state-integrity`, merged to `master`), database
+with `0007`, `0009`, `0008` (CONTRACT), and `0010` all applied live on the
+shared Supabase project. See "Final closure" below for the complete
+end-state summary, the manually-applied migration history, the
+forward-fix-only rollback constraint, and the one deferred cleanup item.
+The narrative immediately below is kept as the historical record of how S2
+was designed and rolled out; it predates CONTRACT being applied.
 
 Designed on branch `security/s2-game-state-integrity`. **EXPAND-1**
 (`supabase/migrations/0007_s2_expand_authoritative_mutations.sql`) has been
@@ -446,6 +455,129 @@ this session). With that in place:
   `auth.uid()`, which a fake has no equivalent of) — kept the S1
   integration tests exercising the real code path end to end rather than
   mocking the security boundary itself away.
+
+### Final closure — CONTRACT applied, two forward-fixes, current authoritative state
+
+Everything below happened after APP-2 completion (the narrative above) and
+brought S2 to its final, closed state.
+
+**EXPAND-2 applied live** (`0009_s2_expand2_trusted_mutations.sql`): the same
+PUBLIC-default-grant bug class as EXPAND-1 recurred on
+`caseline_append_event_if_new` (a pure jsonb helper with no explicit
+`revoke`/`grant`) — fixed live with a follow-up statement, folded back into
+the migration file.
+
+**CONTRACT applied live** (`0008_s2_contract_client_writes.sql`), after
+Production ran the S2 application (`fc6624b`) successfully against the
+still-broad pre-CONTRACT database first — the required order, since
+Production's old code and any not-yet-migrated write path needs the broad
+grant, and applying CONTRACT before the S2 application would have broken
+Production immediately. Post-apply, all five originally-exploitable direct
+attacks were re-confirmed **DENIED with zero mutation** (before/after values
+compared byte-for-byte via direct SQL):
+
+| Attack | Pre-CONTRACT | Post-CONTRACT |
+|---|---|---|
+| session-time forge (`current_time_minutes`) | SUCCEEDED | DENIED |
+| XP forge (`profiles.xp`) | SUCCEEDED | DENIED |
+| `case_history` forge (INSERT) | SUCCEEDED | DENIED |
+| `generated_assets` forge (INSERT) | SUCCEEDED | DENIED |
+| direct Generated Art Storage upload | SUCCEEDED | DENIED |
+
+**Forward-fix #1 — `updated_at` outside the CONTRACT grant**: found
+immediately after applying CONTRACT — `sessionToPlayerOwnedRow` included
+`updated_at`, a column CONTRACT's 7-column grant doesn't cover, so every
+ordinary player-owned save (notes, board, …) failed with `permission denied
+for table investigation_sessions`. Fixed by removing it from the payload
+(commit `9839b91`); a regression test now cross-checks the emitted column
+set against `0008`'s actual grant list parsed from the migration file
+itself, so this class of drift cannot silently reoccur.
+
+**Forward-fix #2 — trusted session creation (`caseline_create_session`,
+`0010_s2_trusted_create_session.sql`)**: `createSession` used
+`.upsert(sessionToRow(...), { onConflict: "user_id" })`, which takes the
+UPDATE arm for any returning player — the full authoritative payload was
+correctly rejected by CONTRACT's grant, breaking "Nouvelle affaire" for
+every player who already had a session. Fixed with a new
+SERVER-CAPABILITY-REQUIRED SECURITY DEFINER function, the same pattern as
+`caseline_finalize_case`: ownership from `auth.uid()` only (no `user_id`
+parameter exists anywhere in its signature — verified structurally and by a
+live PostgREST 404 when a caller tries to pass one), a fresh `session_uuid`
+generated inside the function (never client-chosen), `seed` validated as
+already a sealed `s1e.v1.…` envelope, every universal initial value
+(`evidence_status`, `mandates`, `board`, `hint_state`, …) hardcoded as a
+literal rather than accepted as a parameter. Application routed through it
+in commit `7b4df4a`.
+
+**Forward-fix #3 — orphaned Generated Art on double-submit**: found while
+QAing forward-fix #2 — two concurrent/retried "Nouvelle affaire" requests
+each queued a full automatic-generation batch in `after()`; the DB-level
+winner-take-all in `caseline_create_session` doesn't stop a losing request's
+already-in-flight callback from completing anyway (observed live: one
+double-click produced 2 caseRefs × 7 assets = 14 real, orphaned
+`generated_assets` rows/Storage objects). Fixed by adding
+`SessionStore#isCurrentSession(userId, sessionUuid)` — a plain,
+`session_uuid`-only SELECT, no new RPC/migration — and threading an
+`isStillCurrent()` check through both `runAutoPortraitGeneration` and
+`runAutoCrimeSceneGeneration`: once before a batch starts, and again
+immediately before each candidate would create a `generated_assets` row or
+call the provider, narrowing the race window from the whole batch's
+duration down to one check-then-act gap. Verified live in Production with a
+real controlled double-submit: before 70 assets/10 caseRefs, after 77/11 —
+exactly one winning case's worth, zero orphans; server logs show the
+losing request's own trigger self-reporting
+`staleSkipped=1`/`attempted=0`/0 provider calls. Shipped in commit
+`bbe0228`. 14 tests added across `auto-portrait-trigger.test.ts`,
+`auto-scene-trigger.test.ts`, and a new integration test in
+`auto-art-gating.test.ts` that runs two real `startNewCase` calls against
+the real `MemoryStore` and proves the loser's captured `isStillCurrent`
+resolves `false` while the winner's resolves `true` — timing-independent
+(a losing check that resolves *after* the winning one still reports false).
+
+**Cross-user isolation** — re-verified as account A against account B (a
+second, genuinely separate authenticated test account) using only A's own
+JWT + public key: A cannot read B's profile (RLS-filtered to empty), cannot
+create/replace B's session (RLS `new row violates row-level security
+policy`), cannot UPDATE B's profile/INSERT into B's `case_history`/
+`generated_assets` (table-level revocation — CONTRACT denies these before
+RLS is even reached), cannot upload into B's Storage prefix, and — because
+no `caseline_*` RPC accepts a `user_id` parameter (confirmed by a query
+against `information_schema.parameters` returning zero matches for any such
+parameter across every function) — there is no alternative caller-controlled
+ownership field to exploit either.
+
+**Migration bookkeeping**: `0007`, `0009`, `0008`, and `0010` were all
+applied via the Supabase SQL Editor directly (manual execution), not via
+`supabase db push`/CLI — this project has used that mechanism for every S2
+migration throughout, since no CLI access exists in this workflow. As a
+result, `supabase_migrations.schema_migrations` only records up to `0006`
+and does **not** reflect `0007`/`0008`/`0009`/`0010`. This is expected, not
+a gap: the live database structure (grants, policies, function
+definitions), verified directly via `information_schema`/`pg_policies`/
+`pg_proc` throughout this closure, is the authoritative source of truth for
+what's actually applied, not the bookkeeping table. Do not fabricate or
+backfill rows in `schema_migrations` to make the numbering look continuous.
+
+**Rollback constraint (forward-fix only)**: once CONTRACT (`0008`) is live,
+Production can **never** be rolled back to `ae2a2b0` or any pre-S2 commit —
+those builds depend on the broad direct-write grants CONTRACT permanently
+removed, and would break immediately (confirmed by the exact compatibility
+matrix worked through during the CONTRACT rollout: `ae2a2b0` × post-CONTRACT
+DB = INCOMPATIBLE). Any future defect must be forward-fixed from `bbe0228`
+or later, exactly as both forward-fixes above were — never solved by
+reintroducing a broad grant or reverting the application.
+
+**Known deferred cleanup (not a security exposure, do not auto-delete)**:
+the pre-forward-fix-#3 double-submit incident left exactly 14 orphaned
+`generated_assets` rows / Storage objects under the dedicated test
+account's own `user_id`, split across two orphaned caseRefs:
+`cr1_5ad127f5c70ca689f4dc6427e59d4ede` (7 rows) and
+`cr1_7da67cd13bd03758e41c0679c6755eb6` (7 rows). Correctly scoped to that
+one user, referencing no other user's data, and posing no security risk —
+just wasted generation cost sitting unreferenced. Left in place
+deliberately (no broad cleanup mechanism was built); a targeted, explicitly
+approved deletion of exactly these rows/objects is the only safe way to
+remove them.
 
 ## S1 — active-case seed confidentiality
 
