@@ -97,7 +97,7 @@ namespace Caseline.Reconstruction
                 case "parking": return Parking();
                 case "shop": return Shop();
                 case "street": return Street();
-                default: return System.Array.Empty<SceneryPiece>();
+                default: return Generic(); // "generic" and the safe fallback for any unknown kind
             }
         }
 
@@ -229,6 +229,34 @@ namespace Caseline.Reconstruction
             p.Add(new SceneryPiece("Opening", Box(6.5f, 3.4f, faceZ, 0.9f, 1.2f, 0.06f), SceneryMaterial.Recess));
             return p;
         }
+        // ---- U5.7 iteration 3: generic ----
+
+        // The fallback environment: a neutral interior reconstruction space. Deliberately NOT a house, shop, office or
+        // corridor: no furniture, no shelving, no ceiling, no guide lines. Only architecture any building has: a header
+        // band under the roofline, three shallow pilasters, one generic opening, and large floor joints on the back half.
+        // The existing partition wall (a prop) is kept. Everything sits at z >= 3.2 or on the far/west wall, off the
+        // beat, and the plain far-wall backdrop directly behind the action (x -5.8..-3.2) gets neither pilaster nor opening.
+        private static List<SceneryPiece> Generic()
+        {
+            var p = new List<SceneryPiece>
+            {
+                new("Header", Box(0f, 2.85f, 7.81f, 15.7f, 0.25f, 0.08f), SceneryMaterial.Recess),
+                new("Header", Box(-7.81f, 2.85f, 0f, 0.08f, 0.25f, 15.7f), SceneryMaterial.Recess),
+
+                new("DoorFrame", Box(2.6f, 1.125f, 7.825f, 1.3f, 2.25f, 0.05f), SceneryMaterial.Prop),
+                new("Opening", Box(2.6f, 1.05f, 7.785f, 1.0f, 2.1f, 0.08f), SceneryMaterial.Recess),
+
+                new("FloorJoint", Box(0f, 0.006f, 3.2f, 15.6f, 0.012f, 0.08f), SceneryMaterial.Recess, occluder: false),
+                new("FloorJoint", Box(0f, 0.006f, 6.0f, 15.6f, 0.012f, 0.08f), SceneryMaterial.Recess, occluder: false),
+                new("FloorJoint", Box(-2.8f, 0.006f, 5.4f, 0.08f, 0.012f, 4.4f), SceneryMaterial.Recess, occluder: false),
+                new("FloorJoint", Box(2.8f, 0.006f, 5.4f, 0.08f, 0.012f, 4.4f), SceneryMaterial.Recess, occluder: false),
+            };
+            foreach (var x in new[] { -7.4f, 0.6f, 4.6f })
+            {
+                p.Add(new SceneryPiece("Pilaster", Box(x, 1.35f, 7.82f, 0.3f, 2.7f, 0.06f), SceneryMaterial.Prop));
+            }
+            return p;
+        }
         private static List<SceneryPiece> Parking()
         {
             var p = new List<SceneryPiece>
@@ -259,6 +287,7 @@ namespace Caseline.Reconstruction
         }
     }
 }
+
 
 
 
