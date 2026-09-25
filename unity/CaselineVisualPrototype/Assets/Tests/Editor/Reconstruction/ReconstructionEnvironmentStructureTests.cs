@@ -52,14 +52,41 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
-        public void Generic_IsUnchangedThisIteration()
+        public void Generic_IsNeutralArchitectureOnly_NeverSpecializedIntoAHouseShopOfficeOrCorridor()
         {
-            Assert.AreEqual(0, ReconstructionEnvironmentStructure.Pieces("generic").Count);
+            var allowed = new HashSet<string> { "Header", "Pilaster", "DoorFrame", "Opening", "FloorJoint" };
+            var pieces = ReconstructionEnvironmentStructure.Pieces("generic");
+            Assert.IsTrue(pieces.All(p => allowed.Contains(p.Name)), "generic gets only structure every building has: no shelving, counter, ceiling, guide lines, furniture");
+            Assert.LessOrEqual(pieces.Count, 14);
+            Assert.GreaterOrEqual(pieces.Count(p => p.Name == "Pilaster"), 3);
+            Assert.AreEqual(1, pieces.Count(p => p.Name == "Opening"));
+            Assert.GreaterOrEqual(pieces.Count(p => p.Name == "FloorJoint"), 3);
+            Assert.IsFalse(pieces.Any(p => p.Bounds.min.y >= OverheadFloorY), "no ceiling");
             Assert.AreEqual(4, ReconstructionEnvironmentStructure.Walls("generic").Count);
             Assert.IsTrue(ReconstructionEnvironmentStructure.UsesStandardTrim("generic"));
             Assert.AreEqual(new Vector2(16f, 16f), ReconstructionEnvironmentStructure.FloorSize("generic"));
         }
 
+        [Test]
+        public void Generic_KeepsThePlainBackdropBehindTheBeat_AndAnUnknownKindFallsBackToGeneric()
+        {
+            foreach (var piece in ReconstructionEnvironmentStructure.Pieces("generic"))
+            {
+                if (piece.Name == "Header" || piece.Bounds.center.z < 6.5f) continue;
+                Assert.IsFalse(piece.Bounds.max.x > -5.8f && piece.Bounds.min.x < -3.2f, $"generic/{piece.Name} intrudes on the plain backdrop behind the beat");
+            }
+            CollectionAssert.AreEqual(ReconstructionEnvironmentStructure.Pieces("generic").Select(p => p.Bounds), ReconstructionEnvironmentStructure.Pieces("not-a-kind").Select(p => p.Bounds));
+        }
+
+        [Test]
+        public void EnvironmentPalette_UsesOnlyTheFiveDeclaredColours_AllDistinct_AndEveryGroupIsUsedSomewhere()
+        {
+            var groups = System.Enum.GetValues(typeof(SceneryMaterial)).Cast<SceneryMaterial>().ToList();
+            var colours = groups.Select(ReconstructionEnvironmentPalette.ColorOf).ToList();
+            Assert.AreEqual(colours.Count, colours.Distinct().Count(), "no two groups may be visually identical duplicates");
+            var used = ReconstructionSchema.EnvironmentKinds.SelectMany(ReconstructionEnvironmentStructure.Pieces).Select(p => p.Material).Distinct().ToList();
+            foreach (var group in groups.Where(g => g != SceneryMaterial.Wall)) Assert.Contains(group, used, $"{group} is declared but no environment uses it");
+        }
         [Test]
         public void Shop_HasShelvingRunsCounterEntranceHeaderAndAisle_NoProducts()
         {
@@ -282,7 +309,7 @@ namespace Caseline.Reconstruction.Tests
                 "Ground", "Ceiling", "CeilingPanel", "Cornice", "Baseboard", "EndDoorFrame", "EndDoor", "FloorLine", "DoorFrame", "Door",
                 "Beam", "WallBand", "BayLine",
                 "ShelfBack", "ShelfPlane", "ShelfUpright", "CounterBody", "CounterTop", "EntranceFrame", "Entrance", "Header", "AisleBand",
-                "Road", "Curb", "Building", "Opening",
+                "Road", "Curb", "Building", "Opening", "Pilaster", "FloorJoint",
             };
             foreach (var env in ReconstructionSchema.EnvironmentKinds)
             {
@@ -309,6 +336,7 @@ namespace Caseline.Reconstruction.Tests
         }
     }
 }
+
 
 
 
