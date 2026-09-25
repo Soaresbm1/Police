@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Caseline.Reconstruction
@@ -99,14 +100,54 @@ namespace Caseline.Reconstruction
             ["unnamed"] = 1.35f,
         };
 
-        /// <summary>The staging position for one actor at one slot: the
-        /// slot's own coordinate plus that actor's fixed lateral offset.
-        /// Deterministic — same role and slot always give the same point.</summary>
+        // Post-U5.7 staging-bounds fix. Root cause: GetActorZonePosition used to add the role offset unconditionally,
+        // with no awareness of where the environment's own boundary wall is. Every environment kind's boundary walls
+        // sit at |x| = 8 (ReconstructionEnvironmentStructure.FloorHalfExtent, duplicated here as a constant so this
+        // file never depends on environment geometry construction order or load timing). An exhaustive audit of all 5
+        // environments x 5 slots x 4 roles (100 combinations) found exactly two unsafe results, both at `street`
+        // (the only environment whose entrance/exit sit at |x| = 7, one metre further out than every other
+        // environment's entrance/exit): entrance+accomplice at x = -8.35, and exit+unnamed at x = +8.35 — both a
+        // full 0.35 m past the wall. Every interaction/crime_point/interior_center combination, and every
+        // entrance/exit combination in corridor/parking/shop/generic, already lands within the safe zone below and
+        // is completely unaffected (the scale computed for them is exactly 1, so their positions are unchanged to
+        // the bit).
+        private const float PresentationBoundary = 8f; // matches every environment's boundary wall (|x| = FloorHalfExtent)
+
+        // The mannequin's widest standing extent is the shoulder/upper-arm line, ~0.245 m from the root
+        // (TorsoDims top half-width 0.20 m plus the shoulder-mounted upper arm's own half-width and offset — see
+        // ReconstructionActorVisualPolish, U5.6, frozen). Rounded up to 0.30 m so the actor's visible silhouette,
+        // not just its root transform, stays inside the wall.
+        private const float ActorPresentationHalfWidth = 0.30f;
+        private const float SafePresentationHalfExtent = PresentationBoundary - ActorPresentationHalfWidth;
+
+        // The largest offset any role can request — read from the table above so this can never drift out of sync
+        // with it. Two roles (accomplice/unnamed) already use this exact magnitude; if that ever changes, the safety
+        // calculation below adapts automatically.
+        private static readonly float WidestOffsetMagnitude = LateralOffsetByRole.Values.Select(Mathf.Abs).Max();
+
+        /// <summary>1 when every role's offset already fits inside the safe presentation zone at this slot (the
+        /// overwhelming majority of environment/slot combinations); otherwise the largest factor that brings the
+        /// WIDEST possible offset back inside the wall. Applying the same factor to every role's offset (not just the
+        /// one that was unsafe) keeps their relative order and proportion — nobody crosses to the opposite side of
+        /// the group, and a role that was already safe only moves if its neighbours also needed to move.</summary>
+        private static float SafeOffsetScale(float baseX)
+        {
+            var worstCase = Mathf.Abs(baseX) + WidestOffsetMagnitude;
+            if (worstCase <= SafePresentationHalfExtent) return 1f;
+            var available = SafePresentationHalfExtent - Mathf.Abs(baseX);
+            return Mathf.Max(0f, available / WidestOffsetMagnitude);
+        }
+
+        /// <summary>The staging position for one actor at one slot: the slot's own coordinate plus that actor's
+        /// lateral offset, scaled down only enough to keep the actor's visible silhouette inside the environment's
+        /// boundary wall. Deterministic — same environment, slot and role always give the same point; the scale
+        /// depends only on the slot's own base position, never on any case, seed or identity.</summary>
         public static Vector3 GetActorZonePosition(string environment, string slot, string roleForReconstruction)
         {
             var basePosition = GetZonePosition(environment, slot);
             var offset = roleForReconstruction != null && LateralOffsetByRole.TryGetValue(roleForReconstruction, out var x) ? x : 0f;
-            return basePosition + new Vector3(offset, 0f, 0f);
+            var scale = SafeOffsetScale(basePosition.x);
+            return basePosition + new Vector3(offset * scale, 0f, 0f);
         }
     }
 }
