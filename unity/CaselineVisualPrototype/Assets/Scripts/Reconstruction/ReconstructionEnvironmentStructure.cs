@@ -87,7 +87,7 @@ namespace Caseline.Reconstruction
             environment == "corridor" ? new Vector2(FloorHalfExtent * 2f, 5.5f) : new Vector2(FloorHalfExtent * 2f, FloorHalfExtent * 2f);
 
         /// <summary>False where the environment supplies its own trim in <see cref="Pieces"/>.</summary>
-        public static bool UsesStandardTrim(string environment) => environment != "corridor";
+        public static bool UsesStandardTrim(string environment) => environment != "corridor" && environment != "street";
 
         public static IReadOnlyList<SceneryPiece> Pieces(string environment)
         {
@@ -95,6 +95,8 @@ namespace Caseline.Reconstruction
             {
                 case "corridor": return Corridor();
                 case "parking": return Parking();
+                case "shop": return Shop();
+                case "street": return Street();
                 default: return System.Array.Empty<SceneryPiece>();
             }
         }
@@ -141,6 +143,92 @@ namespace Caseline.Reconstruction
             return p;
         }
 
+        // ---- U5.7 iteration 2: shop ----
+
+        // A generic retail interior from a few large forms: two shelving runs (wall run on the west wall, wall run on the far
+        // wall), a checkout-counter mass, an entrance opening, a header band and one aisle floor band. Shelves are frame plus
+        // horizontal planes over an empty volume: no products, labels, register, sign or brand. Every run and the counter stand
+        // at z >= 0.8 (the action slots stay within z <= 1.2 and the cameras look toward +z), and the plain far-wall gap
+        // x -5.8..-3.2 is left empty because it is what the fixed cameras see directly behind the beat.
+        private static List<SceneryPiece> Shop()
+        {
+            var p = new List<SceneryPiece>();
+
+            // West wall run: back panel + three shelf planes + two end uprights, z 0.8..7.4.
+            const float westZ0 = 0.8f, westZ1 = 7.4f;
+            var westLen = westZ1 - westZ0;
+            var westCz = (westZ0 + westZ1) / 2f;
+            p.Add(new SceneryPiece("ShelfBack", Box(-7.79f, 1.1f, westCz, 0.12f, 2.2f, westLen), SceneryMaterial.Recess));
+            foreach (var y in new[] { 0.6f, 1.2f, 1.8f }) p.Add(new SceneryPiece("ShelfPlane", Box(-7.48f, y, westCz, 0.5f, 0.06f, westLen), SceneryMaterial.Prop));
+            p.Add(new SceneryPiece("ShelfUpright", Box(-7.48f, 1.1f, westZ0, 0.5f, 2.2f, 0.08f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("ShelfUpright", Box(-7.48f, 1.1f, westZ1, 0.5f, 2.2f, 0.08f), SceneryMaterial.Recess));
+
+            // Far wall run, right of the plain backdrop gap: x -2.4..2.6.
+            const float farX0 = -2.4f, farX1 = 2.6f;
+            var farLen = farX1 - farX0;
+            var farCx = (farX0 + farX1) / 2f;
+            p.Add(new SceneryPiece("ShelfBack", Box(farCx, 1.1f, 7.79f, farLen, 2.2f, 0.12f), SceneryMaterial.Recess));
+            foreach (var y in new[] { 0.6f, 1.2f, 1.8f }) p.Add(new SceneryPiece("ShelfPlane", Box(farCx, y, 7.48f, farLen, 0.06f, 0.5f), SceneryMaterial.Prop));
+            p.Add(new SceneryPiece("ShelfUpright", Box(farX0, 1.1f, 7.48f, 0.08f, 2.2f, 0.5f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("ShelfUpright", Box(farX1, 1.1f, 7.48f, 0.08f, 2.2f, 0.5f), SceneryMaterial.Recess));
+
+            // Checkout-counter mass, rear right, well behind and off to the side of every slot.
+            p.Add(new SceneryPiece("CounterBody", Box(3.2f, 0.5f, 4.6f, 2.4f, 1.0f, 0.6f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("CounterTop", Box(3.2f, 1.04f, 4.6f, 2.6f, 0.08f, 0.75f), SceneryMaterial.Prop));
+
+            // Entrance opening in the west wall near the front (the entrance slot side), same doorway language as the corridor.
+            p.Add(new SceneryPiece("EntranceFrame", Box(-7.825f, 1.125f, -2.4f, 0.05f, 2.25f, 1.4f), SceneryMaterial.Prop));
+            p.Add(new SceneryPiece("Entrance", Box(-7.785f, 1.05f, -2.4f, 0.08f, 2.1f, 1.1f), SceneryMaterial.Recess));
+
+            // Header band along the top of the far and west walls, above the shelving.
+            p.Add(new SceneryPiece("Header", Box(0f, 2.85f, 7.81f, 15.7f, 0.25f, 0.08f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Header", Box(-7.81f, 2.85f, 0f, 0.08f, 0.25f, 15.7f), SceneryMaterial.Recess));
+
+            // One aisle band on the floor behind the beat, leading into depth.
+            p.Add(new SceneryPiece("AisleBand", Box(-4.6f, 0.006f, 4.1f, 1.4f, 0.012f, 6.4f), SceneryMaterial.Recess, occluder: false));
+            return p;
+        }
+
+        // ---- U5.7 iteration 2: street ----
+
+        // A generic outdoor public space. The floor is the sidewalk; a darker road band and a low curb lie on the camera side
+        // of the action (z <= -2.5, 1.9 m or more from every slot, and nothing is ever staged on the road); a layered row of
+        // building masses of varied width and height stands along the far side; the sky stays open. No vehicles, signage,
+        // windows with readable content, numbers or brands. The boundary walls are unchanged.
+        private static List<SceneryPiece> Street()
+        {
+            var p = new List<SceneryPiece>
+            {
+                new("Road", Box(0f, 0.004f, -5.25f, 15.6f, 0.008f, 5.5f), SceneryMaterial.Recess, occluder: false),
+                new("Curb", Box(0f, 0.06f, -2.5f, 15.6f, 0.12f, 0.24f), SceneryMaterial.Prop),
+            };
+
+            // (xMin, xMax, height): the plain mass in x -6.2..-2.6 is what the fixed cameras see directly behind the beat.
+            var buildings = new[]
+            {
+                (xMin: -8.0f, xMax: -6.2f, h: 5.4f),
+                (xMin: -6.2f, xMax: -2.6f, h: 3.9f),
+                (xMin: -2.6f, xMax: 1.6f, h: 6.0f),
+                (xMin: 1.6f, xMax: 5.0f, h: 4.5f),
+                (xMin: 5.0f, xMax: 8.0f, h: 5.8f),
+            };
+            foreach (var b in buildings)
+            {
+                p.Add(new SceneryPiece("Building", Box((b.xMin + b.xMax) / 2f, b.h / 2f, 7.15f, b.xMax - b.xMin, b.h, 1.5f), SceneryMaterial.Prop));
+            }
+
+            // Generic openings: blank dark masses on the facades, away from the plain backdrop mass.
+            const float faceZ = 6.37f;
+            p.Add(new SceneryPiece("Opening", Box(-7.1f, 3.2f, faceZ, 0.8f, 1.2f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(-0.9f, 1.05f, faceZ, 1.0f, 2.1f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(-1.6f, 3.6f, faceZ, 0.9f, 1.2f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(0.2f, 3.6f, faceZ, 0.9f, 1.2f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(3.3f, 1.05f, faceZ, 1.0f, 2.1f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(2.6f, 3.0f, faceZ, 0.8f, 1.1f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(4.0f, 3.0f, faceZ, 0.8f, 1.1f, 0.06f), SceneryMaterial.Recess));
+            p.Add(new SceneryPiece("Opening", Box(6.5f, 3.4f, faceZ, 0.9f, 1.2f, 0.06f), SceneryMaterial.Recess));
+            return p;
+        }
         private static List<SceneryPiece> Parking()
         {
             var p = new List<SceneryPiece>
@@ -171,6 +259,7 @@ namespace Caseline.Reconstruction
         }
     }
 }
+
 
 
 

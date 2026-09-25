@@ -183,20 +183,13 @@ namespace Caseline.Reconstruction
                 new Bounds(new Vector3(-4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
                 new Bounds(new Vector3(4.5f, 1.5f, 5f), new Vector3(0.4f, 3f, 0.4f)), // pillar
             },
-            "shop" => new[]
-            {
-                new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)), // counter
-                new Bounds(new Vector3(-6.2f, 1.1f, 0f), new Vector3(0.5f, 2.2f, 10f)), // back-wall shelving run — depth/recognition, far behind every slot
-            },
+            // U5.7 iteration 2 - the shop's counter and shelving now live in ReconstructionEnvironmentStructure.
+            "shop" => System.Array.Empty<Bounds>(),
             // U5.7 — the corridor's doorways now live in ReconstructionEnvironmentStructure (they sit on the cut-away
             // corridor's own far wall); the old hints were placed for the previous 16 m square room.
             "corridor" => System.Array.Empty<Bounds>(),
-            "street" => new[]
-            {
-                new Bounds(new Vector3(-6f, 2f, 6f), new Vector3(2f, 4f, 2f)), // building silhouette
-                new Bounds(new Vector3(6f, 2.5f, 6f), new Vector3(2f, 5f, 2f)), // building silhouette
-                new Bounds(new Vector3(0f, 1.75f, 7.7f), new Vector3(1.6f, 3.5f, 1.6f)), // third, more distant building — depth recession behind the street line
-            },
+            // U5.7 iteration 2 - the street's building masses now live in ReconstructionEnvironmentStructure.
+            "street" => System.Array.Empty<Bounds>(),
             // U5.6 iteration 1 — a second "far-corner" depth prop was tried here and reverted: automated occlusion
             // testing (ReconstructionActionCameraMatrixTests) correctly caught it sitting too close to the
             // Interaction camera's own lens position for this environment. `generic` stays unchanged this
@@ -237,3 +230,4 @@ namespace Caseline.Reconstruction
         }
     }
 }
+
