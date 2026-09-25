@@ -130,18 +130,19 @@ namespace Caseline.Reconstruction.Tests
             var actor = CCTVPrototypeBuilder.BuildActor();
             ReconstructionActorVisualPolish.Apply(actor);
 
-            var jointBones = new[] { "LeftUpperLeg", "RightUpperLeg", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot" };
+            // Iteration 4 keeps only the caps that show at player distance (hip, elbow, knee); wrist/ankle caps and the
+            // waist/chest blend boxes were invisible micro-geometry and were removed in favour of the tapered forms.
+            var jointBones = new[] { "LeftUpperLeg", "RightUpperLeg", "LeftLowerArm", "RightLowerArm", "LeftLowerLeg", "RightLowerLeg" };
             foreach (var boneName in jointBones)
             {
                 var bone = FindDeep(actor.transform, boneName);
                 var cap = bone.Find("JointCap");
-                Assert.IsNotNull(cap, $"{boneName} should have a new JointCap child");
+                Assert.IsNotNull(cap, $"{boneName} should have a JointCap child");
                 Assert.IsNotNull(cap.GetComponent<MeshRenderer>().sharedMaterial, $"{boneName}'s JointCap must have a material assigned");
-                Assert.IsNull(cap.GetComponent<Collider>(), "no collider should survive on WebGL-unsafe primitive children");
+                Assert.IsNull(cap.GetComponent<Collider>(), "no collider should exist on visual-only children");
             }
-
-            var spine = FindDeep(actor.transform, "Spine");
-            Assert.IsNotNull(spine.Find("WaistBlend"), "Spine should gain a new WaistBlend child");
+            Assert.IsNull(FindDeep(actor.transform, "LeftHand").Find("JointCap"), "the wrist cap was invisible micro-geometry");
+            Assert.IsNull(FindDeep(actor.transform, "Spine").Find("WaistBlend"), "the waist blend is replaced by the continuous tapered torso/pelvis");
 
             Object.DestroyImmediate(actor);
         }
@@ -154,7 +155,7 @@ namespace Caseline.Reconstruction.Tests
             ReconstructionActorVisualPolish.Apply(a);
             ReconstructionActorVisualPolish.Apply(b);
 
-            foreach (var boneName in new[] { "LeftUpperLeg", "LeftLowerArm", "LeftHand", "LeftLowerLeg", "LeftFoot" })
+            foreach (var boneName in new[] { "LeftUpperLeg", "LeftLowerArm", "LeftLowerLeg" })
             {
                 var capA = FindDeep(a.transform, boneName).Find("JointCap");
                 var capB = FindDeep(b.transform, boneName).Find("JointCap");
@@ -196,147 +197,265 @@ namespace Caseline.Reconstruction.Tests
             Object.DestroyImmediate(actor);
         }
 
-        // ---- U5.6 iteration 3 — large-form silhouette (torso taper, pelvis bridge, limb taper, material bands) ----
+        // ---- U5.6 iteration 4 - large-form redesign (tapered torso/pelvis/limbs, faceted head, value ladder) ----
 
-        [Test]
-        public void ChestTaper_ExistsBeneathChest_WithNonNullMaterial()
+        private static Bounds VisualBounds(Transform visual)
+        {
+            var mesh = visual.GetComponent<MeshFilter>().sharedMesh;
+            var b = mesh.bounds;
+            var s = visual.localScale;
+            return new Bounds(Vector3.Scale(b.center, s), Vector3.Scale(b.size, s));
+        }
+
+        /// <summary>Full width (X) of the visual at its bottom or top face, in the visual's parent-space scale.</summary>
+        private static float FaceWidth(Transform visual, bool top)
+        {
+            var mesh = visual.GetComponent<MeshFilter>().sharedMesh;
+            var yLimit = top ? mesh.bounds.max.y : mesh.bounds.min.y;
+            float maxX = 0f;
+            foreach (var v in mesh.vertices)
+            {
+                if (Mathf.Abs(v.y - yLimit) < 1e-4f) maxX = Mathf.Max(maxX, Mathf.Abs(v.x));
+            }
+            return maxX * 2f * visual.localScale.x;
+        }
+
+        private static Transform VisualOf(GameObject actor, string bone) => FindDeep(actor.transform, bone).Find("Visual");
+
+        private static GameObject PolishedActor()
         {
             var actor = CCTVPrototypeBuilder.BuildActor();
             ReconstructionActorVisualPolish.Apply(actor);
+            return actor;
+        }
 
-            var chest = FindDeep(actor.transform, "Chest");
-            var taper = chest.Find("ChestTaper");
-            Assert.IsNotNull(taper, "Chest should gain a new ChestTaper child (torso/pelvis silhouette hierarchy)");
-            Assert.IsNotNull(taper.GetComponent<MeshRenderer>().sharedMaterial);
-            Assert.IsNull(taper.GetComponent<Collider>());
+        [Test]
+        public void Torso_TapersFromWideShouldersToNarrowWaist()
+        {
+            var actor = PolishedActor();
+            var torso = VisualOf(actor, "Chest");
+            var shoulders = FaceWidth(torso, true);
+            var waist = FaceWidth(torso, false);
 
+            Assert.GreaterOrEqual(shoulders - waist, 0.12f, "shoulders must be clearly wider than the waist (visible at player distance)");
+            Assert.AreEqual(0.40f, shoulders, 0.01f);
             Object.DestroyImmediate(actor);
         }
 
         [Test]
-        public void TorsoSilhouette_NarrowsMonotonically_FromChestToHips()
+        public void Pelvis_FlaresBelowTheWaist_AndOverlapsTheTorsoBottom()
         {
-            // Item 5 of the iteration-3 prompt: chest -> chestTaper -> waist -> hips should read as a gradient, not
-            // a single hard edge. Asserts the X-width step-down at each stage, not exact values (which are
-            // implementation detail free to tune).
-            var actor = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(actor);
+            var actor = PolishedActor();
+            var pelvis = VisualOf(actor, "Hips");
+            var torso = VisualOf(actor, "Chest");
 
-            var chestWidth = FindDeep(actor.transform, "Chest").Find("Visual").localScale.x;
-            var chestTaperWidth = FindDeep(actor.transform, "Chest").Find("ChestTaper").localScale.x;
-            var waistWidth = FindDeep(actor.transform, "Spine").Find("WaistBlend").localScale.x;
-            var hipsWidth = FindDeep(actor.transform, "Hips").Find("Visual").localScale.x;
+            Assert.Greater(FaceWidth(pelvis, false), FaceWidth(torso, false) + 0.03f, "pelvis must be slightly wider again than the waist");
+            Assert.AreEqual(FaceWidth(torso, false), FaceWidth(pelvis, true), 0.01f, "pelvis top and torso bottom share the waist width");
 
-            Assert.Greater(chestWidth, chestTaperWidth, "chest should be wider than its own taper piece");
-            Assert.GreaterOrEqual(chestTaperWidth, waistWidth, "chest taper should be at least as wide as the waist blend");
-            Assert.GreaterOrEqual(waistWidth, hipsWidth, "waist blend should be at least as wide as the hips");
-
+            var pelvisTopY = pelvis.TransformPoint(pelvis.GetComponent<MeshFilter>().sharedMesh.bounds.max).y;
+            var torsoBottomY = torso.TransformPoint(torso.GetComponent<MeshFilter>().sharedMesh.bounds.min).y;
+            Assert.GreaterOrEqual(pelvisTopY, torsoBottomY - 0.001f, "no vertical gap between pelvis and torso");
             Object.DestroyImmediate(actor);
         }
 
         [Test]
-        public void HipJointCap_BridgesPelvisAndThigh_WithoutExceedingPelvisWidth()
+        public void Pelvis_ConnectsToBothThighs_ThroughHipCaps()
         {
-            var actor = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(actor);
-
-            var pelvisWidth = FindDeep(actor.transform, "Hips").Find("Visual").localScale.x;
-            var thighWidth = FindDeep(actor.transform, "LeftUpperLeg").Find("Visual").localScale.x; // pre-taper thigh width baseline is read below instead
-            var hipCap = FindDeep(actor.transform, "LeftUpperLeg").Find("JointCap");
-
-            Assert.Greater(hipCap.localScale.x, thighWidth * 0.5f, "hip cap should be a visible bridge, not a barely-visible dot next to the thigh");
-            Assert.LessOrEqual(hipCap.localScale.x, pelvisWidth, "hip cap must never read as wider than the pelvis itself");
-
+            var actor = PolishedActor();
+            var pelvisWidth = FaceWidth(VisualOf(actor, "Hips"), false);
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                var cap = FindDeep(actor.transform, $"{side}UpperLeg").Find("JointCap");
+                Assert.IsNotNull(cap);
+                Assert.Greater(cap.localScale.x, FaceWidth(VisualOf(actor, $"{side}UpperLeg"), true) * 0.9f, "hip cap must bridge the thigh top");
+                Assert.LessOrEqual(cap.localScale.x, pelvisWidth, "hip cap must not exceed the pelvis");
+            }
             Object.DestroyImmediate(actor);
         }
 
         [Test]
-        public void LimbTaper_WidensUpperSegment_AndNarrowsLowerSegment_WidthOnly()
+        public void Arms_TaperFromThickUpperArmToSlimForearm()
         {
-            var before = CCTVPrototypeBuilder.BuildActor();
-            var beforeUpperArmScale = FindDeep(before.transform, "LeftUpperArm").Find("Visual").localScale;
-            var beforeLowerArmScale = FindDeep(before.transform, "LeftLowerArm").Find("Visual").localScale;
-
-            var after = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(after);
-            var afterUpperArmScale = FindDeep(after.transform, "LeftUpperArm").Find("Visual").localScale;
-            var afterLowerArmScale = FindDeep(after.transform, "LeftLowerArm").Find("Visual").localScale;
-
-            Assert.Greater(afterUpperArmScale.x, beforeUpperArmScale.x, "upper arm should widen slightly (taper toward the elbow)");
-            Assert.Less(afterLowerArmScale.x, beforeLowerArmScale.x, "lower arm should narrow slightly (taper toward the wrist)");
-            Assert.AreEqual(beforeUpperArmScale.y, afterUpperArmScale.y, 0.0001f, "limb LENGTH (Y) must never change — only width");
-            Assert.AreEqual(beforeLowerArmScale.y, afterLowerArmScale.y, 0.0001f, "limb LENGTH (Y) must never change — only width");
-
-            Object.DestroyImmediate(before);
-            Object.DestroyImmediate(after);
-        }
-
-        [Test]
-        public void MaterialBands_AreAssigned_ToHeadTorsoAndLimbRenderers()
-        {
-            var actor = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(actor);
-
-            var head = FindDeep(actor.transform, "Head").Find("Visual");
-            var chest = FindDeep(actor.transform, "Chest").Find("Visual");
-            var upperArm = FindDeep(actor.transform, "LeftUpperArm").Find("Visual");
-
-            Assert.AreEqual(ReconstructionMaterialBand.Head, head.GetComponent<ReconstructionMaterialGroup>().band);
-            Assert.AreEqual(ReconstructionMaterialBand.Torso, chest.GetComponent<ReconstructionMaterialGroup>().band);
-            Assert.AreEqual(ReconstructionMaterialBand.Limb, upperArm.GetComponent<ReconstructionMaterialGroup>().band);
-
+            var actor = PolishedActor();
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                var upper = VisualOf(actor, $"{side}UpperArm");
+                var fore = VisualOf(actor, $"{side}LowerArm");
+                Assert.GreaterOrEqual(FaceWidth(upper, true) - FaceWidth(upper, false), 0.03f, "upper arm must taper visibly");
+                Assert.Less(FaceWidth(fore, false), FaceWidth(fore, true), "forearm narrows toward the wrist");
+                Assert.LessOrEqual(FaceWidth(fore, true), FaceWidth(upper, false) + 0.005f, "forearm starts where the upper arm ends");
+                Assert.Less(FaceWidth(upper, true), 0.13f, "arms must not become bulky");
+            }
             Object.DestroyImmediate(actor);
         }
 
         [Test]
-        public void MaterialBands_AreDeterministic_AcrossSeparateActorInstances()
+        public void Legs_TaperThighToCalfToNarrowAnkle_AndStaySeparate()
         {
-            var a = CCTVPrototypeBuilder.BuildActor();
-            var b = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(a);
-            ReconstructionActorVisualPolish.Apply(b);
+            var actor = PolishedActor();
+            var thigh = VisualOf(actor, "LeftUpperLeg");
+            var calf = VisualOf(actor, "LeftLowerLeg");
+            Assert.Greater(FaceWidth(thigh, true), FaceWidth(thigh, false), "thigh tapers toward the knee");
+            Assert.Greater(FaceWidth(thigh, true), FaceWidth(calf, true) + 0.03f, "thigh clearly stronger than calf");
+            Assert.Less(FaceWidth(calf, false), FaceWidth(calf, true) - 0.03f, "calf tapers toward a narrow ankle");
 
-            var bandA = FindDeep(a.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
-            var bandB = FindDeep(b.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
-            Assert.AreEqual(bandA, bandB);
+            var leftX = FindDeep(actor.transform, "LeftUpperLeg").position.x;
+            var rightX = FindDeep(actor.transform, "RightUpperLeg").position.x;
+            Assert.Greater(Mathf.Abs(leftX - rightX), FaceWidth(thigh, true) * 1.05f, "legs must not merge into one block");
+            Object.DestroyImmediate(actor);
+        }
 
+        [Test]
+        public void Head_IsNeutralFacetedMannequinHead_SameHeightNoFeatures()
+        {
+            var actor = PolishedActor();
+            var headBone = FindDeep(actor.transform, "Head");
+            Assert.AreEqual(1, headBone.childCount, "head has exactly one visual child - no face, hair or accessory pieces");
+            Assert.AreEqual(1, headBone.GetComponentsInChildren<Renderer>().Length);
+
+            var visual = headBone.Find("Visual");
+            Assert.AreEqual(0.24f, visual.localScale.y, 0.0001f, "head height (and so total actor height) is unchanged");
+            Assert.Less(visual.localScale.x, visual.localScale.y, "head is an egg shape, not a ball");
+            var tris = visual.GetComponent<MeshFilter>().sharedMesh.triangles.Length / 3;
+            Assert.Less(tris, 200, "low-poly faceted head, not the 768-triangle Unity sphere");
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void ValueLadder_IsMonotone_TorsoDarkestAnchorToHeadLightest_ForEveryAppearance()
+        {
+            foreach (var appearance in new[] { "workwear_dark", "casual_neutral", "smart_light" })
+            {
+                var tint = ReconstructionAppearanceUtil.ToneTint(appearance);
+                float L(ReconstructionMaterialBand band) => ReconstructionEnvironmentPalette.Luminance(ReconstructionMaterialGroup.BandTint(tint, band));
+                var ladder = new[]
+                {
+                    L(ReconstructionMaterialBand.Torso), L(ReconstructionMaterialBand.Pelvis), L(ReconstructionMaterialBand.Joint),
+                    L(ReconstructionMaterialBand.Limb), L(ReconstructionMaterialBand.Hand), L(ReconstructionMaterialBand.Head),
+                };
+                for (var i = 1; i < ladder.Length; i++) Assert.Greater(ladder[i], ladder[i - 1], $"{appearance}: band {i} must be lighter than band {i - 1}");
+                Assert.GreaterOrEqual(ladder[5] - ladder[0], 0.12f, $"{appearance}: head vs torso must differ enough to survive player distance");
+                Assert.GreaterOrEqual(ladder[3] - ladder[0], 0.04f, $"{appearance}: arms/legs must separate from the torso");
+            }
+        }
+
+        [Test]
+        public void ValueLadder_IsDeterministic_AndOnlyReadsTheGenericAppearanceTint()
+        {
+            var tint = ReconstructionAppearanceUtil.ToneTint("workwear_dark");
+            Assert.AreEqual(ReconstructionMaterialGroup.BandTint(tint, ReconstructionMaterialBand.Limb), ReconstructionMaterialGroup.BandTint(tint, ReconstructionMaterialBand.Limb));
+            Assert.AreEqual(tint.a, ReconstructionMaterialGroup.BandTint(tint, ReconstructionMaterialBand.Head).a);
+            // Same genericAppearance -> same materials, whatever the role: BandTint's only inputs are the tint and the band.
+            var a = ReconstructionMaterialGroup.BandTint(ReconstructionAppearanceUtil.ToneTint("x_dark"), ReconstructionMaterialBand.Torso);
+            var b = ReconstructionMaterialGroup.BandTint(ReconstructionAppearanceUtil.ToneTint("y_dark"), ReconstructionMaterialBand.Torso);
+            Assert.AreEqual(a, b, "the category prefix and any identity-shaped value never reach the material");
+        }
+
+        [Test]
+        public void MaterialBands_AreAssigned_ToHeadPelvisTorsoLimbsAndHands()
+        {
+            var actor = PolishedActor();
+            ReconstructionMaterialBand Band(string bone) => VisualOf(actor, bone).GetComponent<ReconstructionMaterialGroup>().band;
+            Assert.AreEqual(ReconstructionMaterialBand.Head, Band("Head"));
+            Assert.AreEqual(ReconstructionMaterialBand.Torso, Band("Chest"));
+            Assert.AreEqual(ReconstructionMaterialBand.Pelvis, Band("Hips"));
+            Assert.AreEqual(ReconstructionMaterialBand.Limb, Band("LeftUpperArm"));
+            Assert.AreEqual(ReconstructionMaterialBand.Limb, Band("RightLowerLeg"));
+            Assert.AreEqual(ReconstructionMaterialBand.Hand, Band("LeftHand"));
+            Assert.AreEqual(ReconstructionMaterialBand.Joint, FindDeep(actor.transform, "LeftUpperLeg").Find("JointCap").GetComponent<ReconstructionMaterialGroup>().band);
+            Object.DestroyImmediate(actor);
+        }
+
+        [Test]
+        public void MaterialBandAssignment_IsIdenticalAcrossActorInstances_RoleIndependent()
+        {
+            var a = PolishedActor();
+            var b = PolishedActor();
+            foreach (var bone in BoneNames)
+            {
+                var nodeA = FindDeep(a.transform, bone).Find("Visual");
+                var nodeB = FindDeep(b.transform, bone).Find("Visual");
+                if (nodeA == null || nodeB == null) continue; // Spine has no visual of its own
+                Assert.AreEqual(nodeA.GetComponent<ReconstructionMaterialGroup>().band, nodeB.GetComponent<ReconstructionMaterialGroup>().band, bone);
+            }
             Object.DestroyImmediate(a);
             Object.DestroyImmediate(b);
         }
 
         [Test]
-        public void MaterialBandAssignment_IsRoleIndependent_NothingInThisFileBranchesOnRoleOrVisualId()
+        public void CCTVActor_NeverGainsMaterialGroupOrReconstructionMeshes()
         {
-            // Structural, not behavioral: ReconstructionActorVisualPolish.Apply takes only a GameObject — it has no
-            // parameter through which a role, visualId or any other identity-shaped value could even reach it, so
-            // two actors built identically always end up with identical bands regardless of what role/visualId
-            // ReconstructionActorController later assigns them.
-            var auteur = CCTVPrototypeBuilder.BuildActor();
-            var victime = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(auteur);
-            ReconstructionActorVisualPolish.Apply(victime);
+            var cctvOnly = CCTVPrototypeBuilder.BuildActor();
+            var reconstructionCopy = PolishedActor();
 
-            var auteurBand = FindDeep(auteur.transform, "LeftUpperLeg").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
-            var victimeBand = FindDeep(victime.transform, "LeftUpperLeg").Find("Visual").GetComponent<ReconstructionMaterialGroup>().band;
-            Assert.AreEqual(auteurBand, victimeBand);
-
-            Object.DestroyImmediate(auteur);
-            Object.DestroyImmediate(victime);
+            foreach (var bone in BoneNames)
+            {
+                var visual = FindDeep(cctvOnly.transform, bone).Find("Visual");
+                if (visual == null) continue; // Spine has no visual of its own
+                Assert.IsNull(visual.GetComponent<ReconstructionMaterialGroup>(), bone);
+                StringAssert.DoesNotContain("Recon_", visual.GetComponent<MeshFilter>().sharedMesh.name, bone);
+            }
+            Assert.IsNotNull(VisualOf(reconstructionCopy, "Chest").GetComponent<ReconstructionMaterialGroup>());
+            Object.DestroyImmediate(cctvOnly);
+            Object.DestroyImmediate(reconstructionCopy);
         }
 
         [Test]
-        public void CCTVActor_NeverGainsMaterialGroupComponent_OnlyReconstructionsOwnInstanceDoes()
+        public void GeometryBudget_StaysLightweight_AndIsReported()
         {
-            var cctvOnly = CCTVPrototypeBuilder.BuildActor();
-            var reconstructionCopy = CCTVPrototypeBuilder.BuildActor();
-            ReconstructionActorVisualPolish.Apply(reconstructionCopy);
+            var baseline = CCTVPrototypeBuilder.BuildActor();
+            var polished = PolishedActor();
 
-            Assert.IsNull(FindDeep(cctvOnly.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>(),
-                "a CCTV-only actor instance must never gain the Reconstruction-only material-band marker");
-            Assert.IsNotNull(FindDeep(reconstructionCopy.transform, "Chest").Find("Visual").GetComponent<ReconstructionMaterialGroup>());
+            (int renderers, int tris) Count(GameObject go)
+            {
+                var r = 0;
+                var t = 0;
+                foreach (var f in go.GetComponentsInChildren<MeshFilter>())
+                {
+                    r++;
+                    t += f.sharedMesh.triangles.Length / 3;
+                }
+                return (r, t);
+            }
 
-            Object.DestroyImmediate(cctvOnly);
-            Object.DestroyImmediate(reconstructionCopy);
+            var before = Count(baseline);
+            var after = Count(polished);
+            Debug.Log($"[U5.6 iter4 budget] CCTV rig visuals={before.renderers} tris={before.tris} | Reconstruction mannequin visuals={after.renderers} tris={after.tris}");
+            Assert.LessOrEqual(after.renderers, 26, "few meaningful forms, not many primitives");
+            Assert.LessOrEqual(after.tris, 1400, "lightweight for WebGL");
+            Object.DestroyImmediate(baseline);
+            Object.DestroyImmediate(polished);
+        }
+
+        [Test]
+        public void EnvironmentPalette_SeparatesFloorWallAndProps_ByValueAndHue_AndFromTheActors()
+        {
+            var floor = ReconstructionEnvironmentPalette.Floor;
+            var wall = ReconstructionEnvironmentPalette.Wall;
+            var prop = ReconstructionEnvironmentPalette.Prop;
+            float L(Color c) => ReconstructionEnvironmentPalette.Luminance(c);
+
+            Assert.GreaterOrEqual(Mathf.Abs(L(floor) - L(wall)), 0.015f, "floor and wall must not be the same grey");
+            Assert.Greater(floor.b, floor.r, "floor is a cool grey");
+            Assert.Greater(wall.r, wall.b, "walls are a warm grey");
+            Assert.GreaterOrEqual(L(prop) - L(wall), 0.08f, "architectural props must read lighter than the walls");
+
+            foreach (var appearance in new[] { "workwear_dark", "casual_neutral", "smart_light" })
+            {
+                var torso = ReconstructionMaterialGroup.BandTint(ReconstructionAppearanceUtil.ToneTint(appearance), ReconstructionMaterialBand.Torso);
+                // Worst case is the lightest appearance against the lightest surface; report every pairing.
+                Debug.Log($"[U5.6 iter4 contrast] {appearance}: torso L={L(torso):F3} floor L={L(floor):F3} wall L={L(wall):F3} prop L={L(prop):F3}");
+            }
+            var neutralTorso = ReconstructionMaterialGroup.BandTint(ReconstructionAppearanceUtil.ToneTint("casual_neutral"), ReconstructionMaterialBand.Torso);
+            Assert.GreaterOrEqual(L(floor) - L(neutralTorso), 0.08f, "the default mannequin must stand out from the floor");
+        }
+
+        [Test]
+        public void EnvironmentPalette_IsDeterministicConstants_NoPerCaseVariation()
+        {
+            Assert.AreEqual(ReconstructionEnvironmentPalette.Floor, ReconstructionEnvironmentPalette.Floor);
+            Assert.AreEqual(0.27f, ReconstructionEnvironmentPalette.Floor.r, 0.0001f);
+            Assert.AreEqual(ReconstructionEnvironmentPalette.Luminance(ReconstructionEnvironmentPalette.Wall), ReconstructionEnvironmentPalette.Luminance(ReconstructionEnvironmentPalette.Wall));
         }
     }
 }
