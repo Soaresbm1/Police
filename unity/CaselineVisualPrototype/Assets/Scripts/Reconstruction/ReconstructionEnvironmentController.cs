@@ -31,11 +31,14 @@ namespace Caseline.Reconstruction
     /// </summary>
     public class ReconstructionEnvironmentController : MonoBehaviour
     {
-        private const float WallHeight = 3f;
-        private const float FloorHalfExtent = 8f;
+        private const float FloorHalfExtent = ReconstructionEnvironmentStructure.FloorHalfExtent;
 
         private static Mesh cubeMesh;
         private static Mesh planeMesh;
+
+        // Derived material groups (see SceneryMaterial): cloned from the scene's prop material so they share its shader,
+        // one instance per group per Build, released on the next Build.
+        private readonly List<Material> derivedMaterials = new();
 
         public void Build(string environment, Material floorMat, Material wallMat, Material propMat, Material zoneMarkerMat)
         {
@@ -46,33 +49,60 @@ namespace Caseline.Reconstruction
                 if (Application.isPlaying) Object.Destroy(child);
                 else Object.DestroyImmediate(child);
             }
+            ReleaseDerivedMaterials();
 
-            BuildFloor(floorMat);
-            BuildBoundaryWalls(wallMat);
-            BuildBaseboardTrim(propMat);
+            BuildFloor(environment, floorMat);
+            BuildBoundaryWalls(environment, wallMat);
+            if (ReconstructionEnvironmentStructure.UsesStandardTrim(environment)) BuildBaseboardTrim(propMat);
             BuildZoneMarkers(environment, zoneMarkerMat);
             BuildEnvironmentProps(environment, propMat);
+            BuildStructure(environment, wallMat, propMat);
         }
 
-        private void BuildFloor(Material mat)
+        private void ReleaseDerivedMaterials()
         {
+            foreach (var material in derivedMaterials)
+            {
+                if (material == null) continue;
+                if (Application.isPlaying) Object.Destroy(material);
+                else Object.DestroyImmediate(material);
+            }
+            derivedMaterials.Clear();
+        }
+
+        private void BuildFloor(string environment, Material mat)
+        {
+            var size = ReconstructionEnvironmentStructure.FloorSize(environment);
             var floor = CreateMeshObject("Floor", GetPlaneMesh(), mat);
             floor.transform.SetParent(transform, false);
-            floor.transform.localScale = new Vector3(FloorHalfExtent / 5f, 1f, FloorHalfExtent / 5f);
+            floor.transform.localScale = new Vector3(size.x / 10f, 1f, size.y / 10f);
         }
 
-        private void BuildBoundaryWalls(Material mat)
+        private void BuildBoundaryWalls(string environment, Material mat)
         {
-            foreach (var bounds in WallBounds) AddBox("Wall", bounds, mat);
+            foreach (var bounds in ReconstructionEnvironmentStructure.Walls(environment)) AddBox("Wall", bounds, mat);
         }
 
-        private static readonly Bounds[] WallBounds =
+        /// <summary>Generic architecture for this environment kind (U5.7), drawn from a handful of shared material
+        /// groups. Wall and Prop use the scene's own materials; the rest are derived once per group.</summary>
+        private void BuildStructure(string environment, Material wallMat, Material propMat)
         {
-            new(new Vector3(0, WallHeight / 2f, -FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f)),
-            new(new Vector3(0, WallHeight / 2f, FloorHalfExtent), new Vector3(FloorHalfExtent * 2f, WallHeight, 0.3f)),
-            new(new Vector3(-FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
-            new(new Vector3(FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
-        };
+            var byGroup = new Dictionary<SceneryMaterial, Material>
+            {
+                [SceneryMaterial.Wall] = wallMat,
+                [SceneryMaterial.Prop] = propMat,
+            };
+            foreach (var piece in ReconstructionEnvironmentStructure.Pieces(environment))
+            {
+                if (!byGroup.TryGetValue(piece.Material, out var mat))
+                {
+                    mat = propMat != null ? new Material(propMat) { name = $"Reconstruction_{piece.Material}", color = ReconstructionEnvironmentPalette.ColorOf(piece.Material) } : null;
+                    if (mat != null) derivedMaterials.Add(mat);
+                    byGroup[piece.Material] = mat;
+                }
+                AddBox(piece.Name, piece.Bounds, mat);
+            }
+        }
 
         // U5.6 iteration 4 — a low, light baseboard strip along the foot of each boundary wall: the one architectural
         // trim line that makes floor and wall read as two different surfaces instead of one grey mass. 0.16m tall and
@@ -95,10 +125,17 @@ namespace Caseline.Reconstruction
         /// the same data <see cref="Build"/> uses, exposed so occlusion can be measured rather than eyeballed.</summary>
         public static List<Bounds> OccluderBounds(string environment)
         {
-            var all = new List<Bounds>(WallBounds);
+            var all = new List<Bounds>(ReconstructionEnvironmentStructure.Walls(environment));
             all.AddRange(PropBounds(environment));
+            foreach (var piece in ReconstructionEnvironmentStructure.Pieces(environment))
+            {
+                if (piece.Occluder) all.Add(piece.Bounds);
+            }
             return all;
         }
+
+        /// <summary>How many of <see cref="OccluderBounds"/> are the environment's boundary walls (they come first).</summary>
+        public static int WallCount(string environment) => ReconstructionEnvironmentStructure.Walls(environment).Count;
 
         /// <summary>Small flat markers at each semantic slot — a
         /// presentation/readability aid only, not evidence. Every position
@@ -151,12 +188,9 @@ namespace Caseline.Reconstruction
                 new Bounds(new Vector3(-1f, 0.5f, 4f), new Vector3(2.5f, 1f, 0.6f)), // counter
                 new Bounds(new Vector3(-6.2f, 1.1f, 0f), new Vector3(0.5f, 2.2f, 10f)), // back-wall shelving run — depth/recognition, far behind every slot
             },
-            "corridor" => new[]
-            {
-                new Bounds(new Vector3(0f, 1.5f, -FloorHalfExtent + 0.5f), new Vector3(1.2f, 2.2f, 0.15f)), // doorway frame hint
-                new Bounds(new Vector3(-3f, 1.35f, FloorHalfExtent - 0.15f), new Vector3(1f, 2.1f, 0.2f)), // second doorway recess, opposite wall — architectural rhythm
-                new Bounds(new Vector3(3f, 1.35f, -FloorHalfExtent + 0.15f), new Vector3(1f, 2.1f, 0.2f)), // third doorway recess — even rhythm along the corridor's length
-            },
+            // U5.7 — the corridor's doorways now live in ReconstructionEnvironmentStructure (they sit on the cut-away
+            // corridor's own far wall); the old hints were placed for the previous 16 m square room.
+            "corridor" => System.Array.Empty<Bounds>(),
             "street" => new[]
             {
                 new Bounds(new Vector3(-6f, 2f, 6f), new Vector3(2f, 4f, 2f)), // building silhouette
