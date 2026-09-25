@@ -52,14 +52,71 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
-        public void OtherEnvironments_AreUnchangedThisIteration()
+        public void Generic_IsUnchangedThisIteration()
         {
-            foreach (var env in new[] { "shop", "street", "generic" })
+            Assert.AreEqual(0, ReconstructionEnvironmentStructure.Pieces("generic").Count);
+            Assert.AreEqual(4, ReconstructionEnvironmentStructure.Walls("generic").Count);
+            Assert.IsTrue(ReconstructionEnvironmentStructure.UsesStandardTrim("generic"));
+            Assert.AreEqual(new Vector2(16f, 16f), ReconstructionEnvironmentStructure.FloorSize("generic"));
+        }
+
+        [Test]
+        public void Shop_HasShelvingRunsCounterEntranceHeaderAndAisle_NoProducts()
+        {
+            Assert.AreEqual(4, ReconstructionEnvironmentStructure.Walls("shop").Count);
+            Assert.AreEqual(2, NamedBounds("shop", "ShelfBack").Count(), "two shelving runs (west wall, far wall)");
+            Assert.AreEqual(6, NamedBounds("shop", "ShelfPlane").Count(), "three horizontal planes per run, over empty volume");
+            Assert.AreEqual(4, NamedBounds("shop", "ShelfUpright").Count());
+            Assert.AreEqual(1, NamedBounds("shop", "CounterBody").Count());
+            Assert.AreEqual(1, NamedBounds("shop", "CounterTop").Count());
+            Assert.AreEqual(1, NamedBounds("shop", "Entrance").Count(), "a generic entrance opening");
+            Assert.GreaterOrEqual(NamedBounds("shop", "Header").Count(), 2);
+            Assert.GreaterOrEqual(NamedBounds("shop", "AisleBand").Count(), 1);
+            Assert.LessOrEqual(ReconstructionEnvironmentStructure.Pieces("shop").Count, 25, "a few strong forms, not dozens of pieces");
+
+            // The counter is a plain mass: nothing small sits on it (no register/computer/receipt/product).
+            var counter = NamedBounds("shop", "CounterBody").Single();
+            Assert.IsFalse(ReconstructionEnvironmentStructure.Pieces("shop").Any(p => p.Name != "CounterBody" && p.Name != "CounterTop" && p.Bounds.min.y > 1.0f && p.Bounds.max.y < 1.6f && Mathf.Abs(p.Bounds.center.x - counter.center.x) < 1.5f && Mathf.Abs(p.Bounds.center.z - counter.center.z) < 1f));
+        }
+
+        [Test]
+        public void Shop_PlainBackdropGapStaysEmpty_WhatTheFixedCamerasSeeDirectlyBehindTheBeat()
+        {
+            foreach (var piece in ReconstructionEnvironmentStructure.Pieces("shop"))
             {
-                Assert.AreEqual(0, ReconstructionEnvironmentStructure.Pieces(env).Count, env);
-                Assert.AreEqual(4, ReconstructionEnvironmentStructure.Walls(env).Count, env);
-                Assert.IsTrue(ReconstructionEnvironmentStructure.UsesStandardTrim(env), env);
-                Assert.AreEqual(new Vector2(16f, 16f), ReconstructionEnvironmentStructure.FloorSize(env), env);
+                if (piece.Name == "Header") continue; // a thin band along the very top of the wall, above eye level
+                if (piece.Bounds.min.y >= OverheadFloorY) continue;
+                var overlapsGapOnFarWall = piece.Bounds.center.z > 6.5f && piece.Bounds.max.x > -5.8f && piece.Bounds.min.x < -3.2f;
+                Assert.IsFalse(overlapsGapOnFarWall, $"shop/{piece.Name} intrudes on the plain far-wall backdrop behind the beat");
+            }
+        }
+
+        [Test]
+        public void Street_HasRoadCurbAndLayeredBuildingMasses_OpenSky_NoVehiclesOrCeiling()
+        {
+            Assert.AreEqual(4, ReconstructionEnvironmentStructure.Walls("street").Count, "boundary walls unchanged (never moved to hide the entrance-offset issue)");
+            Assert.IsFalse(ReconstructionEnvironmentStructure.UsesStandardTrim("street"));
+            Assert.AreEqual(1, NamedBounds("street", "Road").Count());
+            Assert.AreEqual(1, NamedBounds("street", "Curb").Count());
+            var buildings = NamedBounds("street", "Building").ToList();
+            Assert.GreaterOrEqual(buildings.Count, 5);
+            Assert.GreaterOrEqual(buildings.Select(b => Mathf.Round(b.size.y * 10f)).Distinct().Count(), 4, "varied heights");
+            Assert.GreaterOrEqual(buildings.Select(b => Mathf.Round(b.size.x * 10f)).Distinct().Count(), 3, "varied widths");
+            Assert.IsFalse(ReconstructionEnvironmentStructure.Pieces("street").Any(p => p.Name == "Ceiling"), "the sky stays open");
+            Assert.IsTrue(ReconstructionEnvironmentStructure.Pieces("street").Where(p => p.Occluder).All(p => p.Bounds.center.z < -2f || p.Bounds.min.z > 6f), "street architecture is either the low curb on the camera side or the far building row");
+        }
+
+        [Test]
+        public void StreetRoadAndCurb_SitOnTheCameraSideOfEverySlot_SoNobodyIsEverStagedOnTheRoad()
+        {
+            var road = NamedBounds("street", "Road").Single();
+            var curb = NamedBounds("street", "Curb").Single();
+            Assert.LessOrEqual(curb.max.y, 0.15f, "a subtle curb: no step or stair implication");
+            foreach (var slot in ReconstructionSchema.Slots)
+            {
+                var pos = ReconstructionZoneLayout.GetZonePosition("street", slot);
+                Assert.Greater(pos.z, road.max.z, $"street slot {slot} stays on the sidewalk, not the road");
+                Assert.Greater(pos.z - 0.6f, curb.max.z, $"street slot {slot} stays clear of the curb");
             }
         }
 
@@ -224,6 +281,8 @@ namespace Caseline.Reconstruction.Tests
             {
                 "Ground", "Ceiling", "CeilingPanel", "Cornice", "Baseboard", "EndDoorFrame", "EndDoor", "FloorLine", "DoorFrame", "Door",
                 "Beam", "WallBand", "BayLine",
+                "ShelfBack", "ShelfPlane", "ShelfUpright", "CounterBody", "CounterTop", "EntranceFrame", "Entrance", "Header", "AisleBand",
+                "Road", "Curb", "Building", "Opening",
             };
             foreach (var env in ReconstructionSchema.EnvironmentKinds)
             {
@@ -250,5 +309,6 @@ namespace Caseline.Reconstruction.Tests
         }
     }
 }
+
 
 
