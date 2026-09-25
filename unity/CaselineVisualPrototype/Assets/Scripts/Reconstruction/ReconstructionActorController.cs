@@ -65,9 +65,7 @@ namespace Caseline.Reconstruction
                 // never happen for an actor built through BuildActorTemplate, but stays safe if it ever does) keeps
                 // the original flat behavior exactly as before this iteration.
                 var group = renderer.GetComponent<ReconstructionMaterialGroup>();
-                var bandTint = group != null ? tint * ReconstructionMaterialGroup.Multiplier(group.band) : tint;
-                bandTint.a = tint.a;
-                renderer.material.color = bandTint;
+                renderer.material.color = group != null ? ReconstructionMaterialGroup.BandTint(tint, group.band) : tint;
             }
         }
 

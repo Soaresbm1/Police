@@ -3,40 +3,49 @@ using UnityEngine;
 namespace Caseline.Reconstruction
 {
     /// <summary>
-    /// U5.6 iteration 3 — a Reconstruction-only marker that tells
-    /// <see cref="ReconstructionActorController.ApplyGenericAppearance"/> which restrained value band a renderer
-    /// belongs to (head / torso / limb), so the actor reads as more than one flat-tinted block at gameplay camera
-    /// distance. Attached only by <c>ReconstructionActorVisualPolish</c> (Editor-only, Reconstruction's own actor
-    /// instance) — CCTV's actor never gets this component, so its renderers keep the single flat tint they always
-    /// had, unaffected.
-    ///
-    /// Every band is a fixed multiplier applied to the SAME `genericAppearance`-derived base tint
-    /// (<see cref="ReconstructionAppearanceUtil.ToneTint"/>) — there is no branch anywhere on role, visualId or any
-    /// other identity-shaped field, so two actors with the same `genericAppearance` always end up pixel-identical
-    /// regardless of role.
+    /// U5.6 iteration 3/4 — the restrained value band a Reconstruction actor renderer belongs to, so the actor reads as
+    /// a mannequin with distinct head / torso / pelvis / limbs at the ACTUAL viewer distance instead of one flat-tinted
+    /// mass. Values are appended (never reordered) so serialized scenes keep their meaning.
     /// </summary>
     public enum ReconstructionMaterialBand
     {
         Head,
         Torso,
         Limb,
+        Hand,
+        Pelvis,
+        Joint,
     }
 
+    /// <summary>
+    /// Reconstruction-only marker attached by <c>ReconstructionActorVisualPolish</c> (Editor-only, on Reconstruction's own
+    /// actor instance — CCTV's actor never gets it). <see cref="ReconstructionActorController"/> reads it to derive each
+    /// renderer's tint from the SAME `genericAppearance` base tint. Nothing here can see a role, visualId or any
+    /// identity-shaped value: two actors with the same genericAppearance always get identical materials.
+    /// </summary>
     public class ReconstructionMaterialGroup : MonoBehaviour
     {
         public ReconstructionMaterialBand band;
 
-        // Multiplicative, not additive, so it scales correctly across the dark/base/light genericAppearance
-        // variants alike (a fixed additive offset would clip or vanish depending on the base tint's brightness).
-        // Head is subtly lighter (reads as the "cap" of the silhouette), limbs subtly darker (visually recedes
-        // slightly behind the torso, the visual mass the eye should anchor on first) — values chosen small enough
-        // to stay clearly non-photorealistic and never approach a skin-tone read.
-        public static float Multiplier(ReconstructionMaterialBand band) => band switch
+        // Iteration 3 scaled the base tint by x0.85..x1.12; the base tint is ~0.16 (very dark), so that was only a
+        // ~0.02 value change — invisible at player distance. Iteration 4 instead lifts each band a fixed fraction of the
+        // way toward white, which produces a visible, monotone value ladder for dark/neutral/light appearances alike:
+        // torso (anchor, base) < pelvis < joint < arms/legs < hands < head.
+        public static float Lift(ReconstructionMaterialBand band) => band switch
         {
-            ReconstructionMaterialBand.Head => 1.12f,
-            ReconstructionMaterialBand.Torso => 1.0f,
-            ReconstructionMaterialBand.Limb => 0.85f,
-            _ => 1.0f,
+            ReconstructionMaterialBand.Head => 0.34f,
+            ReconstructionMaterialBand.Hand => 0.26f,
+            ReconstructionMaterialBand.Limb => 0.20f,
+            ReconstructionMaterialBand.Joint => 0.16f,
+            ReconstructionMaterialBand.Pelvis => 0.12f,
+            _ => 0f, // Torso
         };
+
+        public static Color BandTint(Color baseTint, ReconstructionMaterialBand band)
+        {
+            var c = Color.Lerp(baseTint, Color.white, Lift(band));
+            c.a = baseTint.a;
+            return c;
+        }
     }
 }

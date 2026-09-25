@@ -1,191 +1,165 @@
-using UnityEditor;
 using UnityEngine;
 using Caseline.Reconstruction;
 
 namespace Caseline.ReconstructionEditor
 {
     /// <summary>
-    /// Phase U5.6 iteration 2 — Reconstruction-only actor silhouette polish. Called exactly once, by
+    /// Phase U5.6 iteration 4 — Reconstruction-only LARGE-FORM redesign of the actor mannequin. Called exactly once, by
     /// <see cref="ReconstructionSceneBuilder.BuildActorTemplate"/>, on the GameObject tree
-    /// <c>Caseline.CCTVEditor.CCTVPrototypeBuilder.BuildActor()</c> just returned (that method's own doc comment
-    /// confirms it always constructs a brand-new hierarchy — nothing here can ever reach or mutate CCTV's own
-    /// scene/actor). Every addition is a NEW sibling child parented under an EXISTING bone Transform that method
-    /// already created (never a rename, reparent, or removal of anything CCTV built), using the exact same
-    /// "add a small sphere at the joint" technique CCTV's own code already validated for shoulders — this file just
-    /// extends that same idea to the hips, elbows, wrists, knees and ankles CCTV's own far-away wide shot never
-    /// needed to bother with, plus one new waist-blend piece on the Spine bone (which CCTV's own builder leaves
-    /// completely bare today).
+    /// <c>Caseline.CCTVEditor.CCTVPrototypeBuilder.BuildActor()</c> just returned. That method always builds a brand-new
+    /// hierarchy, so nothing here can reach CCTV's own scene, actor, materials or animation clips.
     ///
-    /// Editor-only, one-time authoring — exactly like <c>CCTVPrototypeBuilder.AddVisual</c>, this calls
-    /// `GameObject.CreatePrimitive` directly and strips its Collider immediately, which is safe here because the
-    /// result is baked into the SAVED scene at build time, never constructed again at WebGL runtime (unlike
-    /// `ReconstructionEnvironmentController`, which rebuilds environment geometry live from loaded JSON and must
-    /// avoid `CreatePrimitive` for exactly that reason — see that file's own doc comment).
+    /// Iterations 2-3 added small pieces (joint spheres, waist/chest blend boxes, +-10% width steps) that the player-distance
+    /// review found invisible — the actor still read as stacked Unity cubes. This iteration changes the big shapes instead:
+    /// the existing per-bone "Visual" children (the visual children the brief allows replacing/rescaling) swap their cube
+    /// mesh for a purpose-made tapered or faceted mesh. Only mesh + local scale/position of visual children change; every
+    /// bone Transform, name and hierarchy path (and therefore every Animator curve) is untouched, and the head keeps the same
+    /// world top, so total actor height is unchanged.
     ///
-    /// Truth-safety / identity-safety: every dimension below is a fixed constant, the same for every actor
-    /// regardless of role, visualId or genericAppearance — there is no branch anywhere in this file on any of
-    /// those. `ReconstructionActorController.ApplyGenericAppearance` tints every child Renderer uniformly
-    /// (including everything added here) after `Configure` runs, so these new joints automatically pick up the
-    /// same presentation-only tone every other visual piece already gets, with zero extra material code.
+    ///   torso  : narrow waist -> wide shoulders (one tapered form)
+    ///   pelvis : hip flare that overlaps the torso bottom and the thigh tops (no gap between torso and legs)
+    ///   arms   : shoulder-thick upper arm -> slim forearm;  legs: strong thigh -> tapered calf -> narrow ankle
+    ///   head   : faceted egg-shaped mannequin head (no face, hair or identity feature)
+    ///
+    /// Every dimension is a fixed constant, identical for every actor: there is no branch on role, visualId or
+    /// genericAppearance. Material value bands are tagged here and resolved from genericAppearance by
+    /// <see cref="ReconstructionActorController"/>.
     /// </summary>
     public static class ReconstructionActorVisualPolish
     {
-        // Sized to sit between the two limb segments they join, per CCTVPrototypeBuilder's own documented
-        // dimensions (ChestLength/NeckLength/UpperArmLength/etc. — see that file): each cap's diameter is close to
-        // the wider of its two neighboring segment widths, so it reads as a rounded transition rather than a new,
-        // separately-noticeable ball — the same effect CCTV's own shoulder caps (0.13, matching the chest/arm
-        // junction) already achieve.
-        private const float ElbowCapDiameter = 0.085f; // between upper arm (0.09) and lower arm (0.075) width
-        private const float WristCapDiameter = 0.075f; // between lower arm (0.075) and hand (0.075/0.06) width
-        private const float KneeCapDiameter = 0.145f; // between upper leg (0.16) and lower leg (0.13) width
-        private const float AnkleCapDiameter = 0.13f; // between lower leg (0.13) and foot (0.14/0.06) width
+        // Torso / pelvis: (bottomHalfX, bottomHalfZ, topHalfX, topHalfZ, height). The pelvis top and the torso bottom share
+        // the same 0.25 waist width and overlap, so they read as one continuous form.
+        private static readonly float[] PelvisDims = { 0.15f, 0.09f, 0.125f, 0.085f, 0.34f };
+        private static readonly Vector3 PelvisCenter = new(0f, 0.09f, 0f);
+        private static readonly float[] TorsoDims = { 0.125f, 0.09f, 0.20f, 0.105f, 0.40f };
+        private static readonly Vector3 TorsoCenter = new(0f, 0.03f, 0f);
 
-        // A short, slightly-narrower-than-chest box on the previously-bare Spine bone (Hips -> Spine -> Chest),
-        // giving the hips (0.28 wide) -> chest (0.36 wide) jump one visible intermediate step instead of a single
-        // hard edge — the torso/pelvis transition item 11 of the iteration-2 prompt calls the highest-value area.
-        private static readonly Vector3 WaistScale = new(0.30f, 0.10f, 0.19f);
+        private static readonly float[] UpperArmDims = { 0.038f, 0.038f, 0.055f, 0.05f, 0.30f };
+        private static readonly float[] ForearmDims = { 0.027f, 0.027f, 0.038f, 0.038f, 0.27f };
+        private static readonly float[] ThighDims = { 0.066f, 0.066f, 0.095f, 0.09f, 0.46f };
+        private static readonly float[] CalfDims = { 0.042f, 0.042f, 0.066f, 0.066f, 0.42f };
 
-        // Iteration 3 — large-form silhouette work (goal: read as human at ACTUAL gameplay camera distance, not
-        // under a debug close-up). Chest(0.36) -> ChestTaper(0.33) -> Waist(0.30) -> Hips(0.28) turns one hard
-        // shoulder-to-hip edge into a 4-step gradient instead of iteration 2's single intermediate step.
-        private static readonly Vector3 ChestTaperScale = new(0.33f, 0.09f, 0.195f);
+        // The head keeps CCTV's vertical placement and 0.24 height exactly (total actor height unchanged); only its
+        // width/depth narrow so it reads as an egg-shaped mannequin head rather than a ball.
+        private static readonly Vector3 HeadScale = new(0.20f, 0.24f, 0.22f);
 
-        // Widened from iteration 2's 0.17 — at gameplay camera distance the old size read as a barely-visible dot
-        // next to the 0.28-wide pelvis box; 0.20 makes the hip/thigh transition an actual visible bridge instead of
-        // a hard step, without approaching the pelvis's own width (avoids a "wider than the body" artifact).
-        private const float HipCapDiameterV3 = 0.20f;
-
-        // Iteration 3 limb taper (item 8): a lightweight WIDTH-only (X/Z) step between the upper and lower segment
-        // of each limb, applied to the existing CCTV-built "Visual" child on Reconstruction's OWN actor instance —
-        // never CCTV's. Height (Y) is left untouched on purpose: rescaling Y would change the bone-to-bone distance
-        // the parent already fixed via localPosition offsets in CCTVPrototypeBuilder, and could visually separate a
-        // segment from its neighboring joint. Values are deliberately small — this is meant to read as a taper, not
-        // a bodybuilder silhouette.
-        private const float UpperLimbWidthFactor = 1.10f;
-        private const float LowerLimbWidthFactor = 0.90f;
+        private const float HipCapDiameter = 0.20f;
+        private const float ElbowCapDiameter = 0.085f;
+        private const float KneeCapDiameter = 0.14f;
 
         public static void Apply(GameObject actorRoot)
         {
             var mat = FindAnyExistingBodyMaterial(actorRoot);
 
-            AddWaistBlend(actorRoot, mat);
-            AddChestTaper(actorRoot, mat);
-            AddJointCap(actorRoot, "LeftUpperLeg", HipCapDiameterV3, mat);
-            AddJointCap(actorRoot, "RightUpperLeg", HipCapDiameterV3, mat);
-            AddJointCap(actorRoot, "LeftLowerArm", ElbowCapDiameter, mat);
-            AddJointCap(actorRoot, "RightLowerArm", ElbowCapDiameter, mat);
-            AddJointCap(actorRoot, "LeftHand", WristCapDiameter, mat);
-            AddJointCap(actorRoot, "RightHand", WristCapDiameter, mat);
-            AddJointCap(actorRoot, "LeftLowerLeg", KneeCapDiameter, mat);
-            AddJointCap(actorRoot, "RightLowerLeg", KneeCapDiameter, mat);
-            AddJointCap(actorRoot, "LeftFoot", AnkleCapDiameter, mat);
-            AddJointCap(actorRoot, "RightFoot", AnkleCapDiameter, mat);
+            var pelvis = ReconstructionMeshFactory.Taper("Recon_Pelvis", PelvisDims[0], PelvisDims[1], PelvisDims[2], PelvisDims[3], PelvisDims[4]);
+            var torso = ReconstructionMeshFactory.Taper("Recon_Torso", TorsoDims[0], TorsoDims[1], TorsoDims[2], TorsoDims[3], TorsoDims[4]);
+            var upperArm = ReconstructionMeshFactory.Taper("Recon_UpperArm", UpperArmDims[0], UpperArmDims[1], UpperArmDims[2], UpperArmDims[3], UpperArmDims[4]);
+            var forearm = ReconstructionMeshFactory.Taper("Recon_Forearm", ForearmDims[0], ForearmDims[1], ForearmDims[2], ForearmDims[3], ForearmDims[4]);
+            var thigh = ReconstructionMeshFactory.Taper("Recon_Thigh", ThighDims[0], ThighDims[1], ThighDims[2], ThighDims[3], ThighDims[4]);
+            var calf = ReconstructionMeshFactory.Taper("Recon_Calf", CalfDims[0], CalfDims[1], CalfDims[2], CalfDims[3], CalfDims[4]);
+            var head = ReconstructionMeshFactory.FacetedSphere("Recon_Head", 10, 7, 0.72f);
+            var capSphere = ReconstructionMeshFactory.FacetedSphere("Recon_CapSphere", 8, 6, 1f);
 
-            ApplyLimbTaper(actorRoot, "LeftUpperArm", UpperLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "RightUpperArm", UpperLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "LeftLowerArm", LowerLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "RightLowerArm", LowerLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "LeftUpperLeg", UpperLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "RightUpperLeg", UpperLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "LeftLowerLeg", LowerLimbWidthFactor);
-            ApplyLimbTaper(actorRoot, "RightLowerLeg", LowerLimbWidthFactor);
+            SetVisual(actorRoot, "Hips", pelvis, Vector3.one, PelvisCenter);
+            SetVisual(actorRoot, "Chest", torso, Vector3.one, TorsoCenter);
+            SetVisual(actorRoot, "Head", head, HeadScale, null);
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                SetVisual(actorRoot, $"{side}UpperArm", upperArm, Vector3.one, null);
+                SetVisual(actorRoot, $"{side}LowerArm", forearm, Vector3.one, null);
+                SetVisual(actorRoot, $"{side}UpperLeg", thigh, Vector3.one, null);
+                SetVisual(actorRoot, $"{side}LowerLeg", calf, Vector3.one, null);
+            }
+
+            LowPolyShoulderCaps(actorRoot, capSphere);
+
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                AddJointCap(actorRoot, $"{side}UpperLeg", HipCapDiameter, mat, capSphere);
+                AddJointCap(actorRoot, $"{side}LowerArm", ElbowCapDiameter, mat, capSphere);
+                AddJointCap(actorRoot, $"{side}LowerLeg", KneeCapDiameter, mat, capSphere);
+            }
 
             TagMaterialBands(actorRoot);
         }
 
-        private static void AddWaistBlend(GameObject actorRoot, Material mat)
-        {
-            var spine = FindDeep(actorRoot.transform, "Spine");
-            if (spine == null) return; // fail closed: never throws if CCTV's bone names ever change
-            AddVisual(spine, PrimitiveType.Cube, Vector3.zero, WaistScale, mat, "WaistBlend");
-        }
-
-        private static void AddChestTaper(GameObject actorRoot, Material mat)
-        {
-            var chest = FindDeep(actorRoot.transform, "Chest");
-            if (chest == null) return; // fail closed: never throws if CCTV's bone names ever change
-            // Sits at the bottom of the Chest bone's own local space (Chest's own Visual is centered at +0.08 on Y
-            // per CCTVPrototypeBuilder — see its own AddVisual call), i.e. just above where Spine begins.
-            AddVisual(chest, PrimitiveType.Cube, new Vector3(0, -0.03f, 0), ChestTaperScale, mat, "ChestTaper");
-        }
-
-        private static void AddJointCap(GameObject actorRoot, string boneName, float diameter, Material mat)
-        {
-            var bone = FindDeep(actorRoot.transform, boneName);
-            if (bone == null) return; // fail closed: never throws if CCTV's bone names ever change
-            AddVisual(bone, PrimitiveType.Sphere, Vector3.zero, new Vector3(diameter, diameter, diameter), mat, "JointCap");
-        }
-
-        /// <summary>Rescales the WIDTH (X/Z) only of the existing CCTV-built "Visual" child under `boneName`, on
-        /// Reconstruction's own actor instance. Never touches Y (length), so the bone-to-bone distances
-        /// CCTVPrototypeBuilder fixed via its own localPosition offsets — and therefore total actor height — are
-        /// completely unaffected.</summary>
-        private static void ApplyLimbTaper(GameObject actorRoot, string boneName, float widthFactor)
+        private static void SetVisual(GameObject actorRoot, string boneName, Mesh mesh, Vector3 scale, Vector3? localPosition)
         {
             var bone = FindDeep(actorRoot.transform, boneName);
             var visual = bone != null ? bone.Find("Visual") : null;
-            if (visual == null) return; // fail closed: never throws if CCTV's own Visual child is ever renamed/moved
-            var scale = visual.localScale;
-            visual.localScale = new Vector3(scale.x * widthFactor, scale.y, scale.z * widthFactor);
+            var filter = visual != null ? visual.GetComponent<MeshFilter>() : null;
+            if (filter == null) return; // fail closed: never throws if CCTV's bone/visual names ever change
+            filter.sharedMesh = mesh;
+            visual.localScale = scale;
+            if (localPosition.HasValue) visual.localPosition = localPosition.Value;
         }
 
-        /// <summary>U5.6 iteration 3 — tags every renderer added by THIS file, plus every "Visual" renderer
-        /// CCTVPrototypeBuilder already built on Reconstruction's own instance, with the head/torso/limb band
-        /// <see cref="ReconstructionActorController.ApplyGenericAppearance"/> now reads. Purely additive
-        /// (MonoBehaviour components on Reconstruction's own GameObjects) — CCTV's own actor instance is never
-        /// touched, so it never gains this component and keeps its original flat-tint behavior.</summary>
+        /// <summary>CCTV builds the two shoulder caps as full 768-triangle Unity spheres; on Reconstruction's own
+        /// instance they use the same 0.13 size with the light faceted sphere, matching the new torso facets.</summary>
+        private static void LowPolyShoulderCaps(GameObject actorRoot, Mesh capSphere)
+        {
+            var chest = FindDeep(actorRoot.transform, "Chest");
+            if (chest == null) return;
+            foreach (Transform child in chest)
+            {
+                if (child.name != "Visual" || Mathf.Abs(child.localPosition.x) < 0.05f) continue;
+                var filter = child.GetComponent<MeshFilter>();
+                if (filter != null) filter.sharedMesh = capSphere;
+            }
+        }
+
+        private static void AddJointCap(GameObject actorRoot, string boneName, float diameter, Material mat, Mesh capSphere)
+        {
+            var bone = FindDeep(actorRoot.transform, boneName);
+            if (bone == null) return; // fail closed: never throws if CCTV's bone names ever change
+            var go = new GameObject("JointCap");
+            go.transform.SetParent(bone, false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localScale = new Vector3(diameter, diameter, diameter);
+            go.AddComponent<MeshFilter>().sharedMesh = capSphere;
+            var renderer = go.AddComponent<MeshRenderer>();
+            if (mat != null) renderer.sharedMaterial = mat;
+        }
+
+        /// <summary>Tags every renderer that is a direct visual child of a bone with its value band. The order of the
+        /// bands (torso anchor, then pelvis, arms/legs, hands, head lightening) is what makes head / torso / arms /
+        /// pelvis-legs distinguishable at player distance without relying on outlines.</summary>
         private static void TagMaterialBands(GameObject actorRoot)
         {
             TagBone(actorRoot, "Head", ReconstructionMaterialBand.Head);
             TagBone(actorRoot, "Neck", ReconstructionMaterialBand.Head);
             TagBone(actorRoot, "Chest", ReconstructionMaterialBand.Torso);
             TagBone(actorRoot, "Spine", ReconstructionMaterialBand.Torso);
-            TagBone(actorRoot, "Hips", ReconstructionMaterialBand.Torso);
+            TagBone(actorRoot, "Hips", ReconstructionMaterialBand.Pelvis);
             foreach (var side in new[] { "Left", "Right" })
             {
                 TagBone(actorRoot, $"{side}UpperArm", ReconstructionMaterialBand.Limb);
                 TagBone(actorRoot, $"{side}LowerArm", ReconstructionMaterialBand.Limb);
-                TagBone(actorRoot, $"{side}Hand", ReconstructionMaterialBand.Limb);
-                TagBone(actorRoot, $"{side}UpperLeg", ReconstructionMaterialBand.Limb);
+                TagBone(actorRoot, $"{side}Hand", ReconstructionMaterialBand.Hand);
+                TagBone(actorRoot, $"{side}UpperLeg", ReconstructionMaterialBand.Limb, ReconstructionMaterialBand.Joint);
                 TagBone(actorRoot, $"{side}LowerLeg", ReconstructionMaterialBand.Limb);
                 TagBone(actorRoot, $"{side}Foot", ReconstructionMaterialBand.Limb);
             }
         }
 
-        private static void TagBone(GameObject actorRoot, string boneName, ReconstructionMaterialBand band)
+        private static void TagBone(GameObject actorRoot, string boneName, ReconstructionMaterialBand band, ReconstructionMaterialBand? capBand = null)
         {
             var bone = FindDeep(actorRoot.transform, boneName);
             if (bone == null) return; // fail closed: never throws if CCTV's bone names ever change
             foreach (var renderer in bone.GetComponentsInChildren<Renderer>())
             {
-                // Only bands renderers that are DIRECT visual children of this bone (its own "Visual", plus any
-                // JointCap/WaistBlend/ChestTaper this file just added there) — never descends into a CHILD bone's
-                // own renderers, which get tagged separately when TagBone runs for that child bone name.
-                if (renderer.transform.parent == bone)
-                {
-                    var group = renderer.gameObject.AddComponent<ReconstructionMaterialGroup>();
-                    group.band = band;
-                }
+                // Only direct visual children of this bone; a CHILD bone's renderers are tagged when its own name runs.
+                if (renderer.transform.parent != bone) continue;
+                var group = renderer.gameObject.GetComponent<ReconstructionMaterialGroup>() ?? renderer.gameObject.AddComponent<ReconstructionMaterialGroup>();
+                // A cap sits between two segments, so it takes the blended band when one is given (the hip cap between
+                // the pelvis and the thigh); otherwise it simply shares its segment's band.
+                group.band = capBand.HasValue && renderer.name == "JointCap" ? capBand.Value : band;
             }
         }
 
-        private static void AddVisual(Transform bone, PrimitiveType type, Vector3 localOffset, Vector3 scale, Material mat, string name)
-        {
-            var go = GameObject.CreatePrimitive(type);
-            go.name = name;
-            var collider = go.GetComponent<Collider>();
-            if (collider != null) Object.DestroyImmediate(collider);
-            go.transform.SetParent(bone, false);
-            go.transform.localPosition = localOffset;
-            go.transform.localScale = scale;
-            if (mat != null) go.GetComponent<MeshRenderer>().sharedMaterial = mat;
-        }
-
-        /// <summary>Reuses whatever material CCTV's own builder already applied to the actor (found on the Hips
-        /// visual, the first one built) rather than creating a second material asset — every new piece added here
-        /// gets the exact same base look, and `ApplyGenericAppearance`'s later per-instance tint (which sets
-        /// `renderer.material.color`, instantiating its own per-renderer material automatically) still applies
-        /// uniformly on top, exactly as it already does for every other renderer.</summary>
+        /// <summary>Reuses whatever material CCTV's own builder already applied to the actor (found on the first
+        /// visual) rather than creating a second material asset; `ApplyGenericAppearance` later instances a per-renderer
+        /// material with the banded tint.</summary>
         private static Material FindAnyExistingBodyMaterial(GameObject actorRoot)
         {
             var renderer = actorRoot.GetComponentInChildren<MeshRenderer>();
