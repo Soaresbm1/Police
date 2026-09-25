@@ -207,8 +207,11 @@ namespace Caseline.Reconstruction.Tests
 
             foreach (var shot in AllSlotShots(env))
             {
-                foreach (var box in ReconstructionEnvironmentController.OccluderBounds(env).Skip(4)) // the four boundary walls come first
+                foreach (var box in ReconstructionEnvironmentController.OccluderBounds(env).Skip(ReconstructionEnvironmentController.WallCount(env))) // the boundary walls come first
                 {
+                    // U5.7 — overhead structure (a ceiling slab, a beam) is above the lens rather than beside it; it is held to
+                    // a headroom rule instead (see EnvironmentNearPlaneTests), like every other piece of scenery is held to this one.
+                    if (box.min.y >= 2.9f) continue;
                     Assert.Greater(Mathf.Sqrt(box.SqrDistance(shot.Position)), 1.5f, $"{env}/{shot.Mode}: a prop right beside the lens would fill the frame's edge");
                 }
             }

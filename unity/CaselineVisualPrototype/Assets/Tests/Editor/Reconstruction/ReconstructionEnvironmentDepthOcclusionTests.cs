@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Caseline.Reconstruction;
 using NUnit.Framework;
 using UnityEngine;
@@ -53,14 +54,16 @@ namespace Caseline.Reconstruction.Tests
         }
 
         [Test]
-        public void ParkingOccluderSet_IsUnchangedThisIteration_StillExactlyTheTwoU55Pillars()
+        public void ParkingKeepsTheTwoU55PillarsExactlyWhereTheyWere_AndTheyStayOnTheBackRow()
         {
-            // Explicit regression guard for the "leave parking alone this iteration" decision — if this ever fails,
-            // someone added parking geometry without the dedicated occlusion re-check item 6/9 of the U5.6 prompt
-            // requires for that specific environment.
-            var occluders = ReconstructionEnvironmentController.OccluderBounds("parking");
-            var wallCount = 4; // ReconstructionEnvironmentController.WallBounds — fixed for every environment
-            Assert.AreEqual(wallCount + 2, occluders.Count, "parking should still have exactly its 4 boundary walls + 2 pillars, nothing added this iteration");
+            // U5.5 moved the pillars to the back row so none can hide a person or stand beside a lens. U5.7 adds parking
+            // architecture around them but must never move them back toward the action.
+            var pillars = ReconstructionEnvironmentController.OccluderBounds("parking")
+                .Where(b => Mathf.Approximately(b.size.x, 0.4f) && Mathf.Approximately(b.size.z, 0.4f) && Mathf.Approximately(b.size.y, 3f))
+                .ToList();
+            Assert.AreEqual(2, pillars.Count, "exactly the two U5.5 pillars");
+            Assert.IsTrue(pillars.Any(p => p.center == new Vector3(-4.5f, 1.5f, 5f)));
+            Assert.IsTrue(pillars.Any(p => p.center == new Vector3(4.5f, 1.5f, 5f)));
         }
     }
 }
