@@ -62,10 +62,10 @@ namespace Caseline.ReconstructionEditor
         {
             BuildLighting();
 
-            var floorMat = MakeMaterial("Reconstruction_Floor", new Color(0.22f, 0.22f, 0.24f));
-            var wallMat = MakeMaterial("Reconstruction_Wall", new Color(0.32f, 0.30f, 0.28f));
-            var propMat = MakeMaterial("Reconstruction_Prop", new Color(0.26f, 0.24f, 0.22f));
-            var zoneMat = MakeMaterial("Reconstruction_ZoneMarker", new Color(0.75f, 0.6f, 0.2f, 0.5f));
+            var floorMat = MakeMaterial("Reconstruction_Floor", ReconstructionEnvironmentPalette.Floor);
+            var wallMat = MakeMaterial("Reconstruction_Wall", ReconstructionEnvironmentPalette.Wall);
+            var propMat = MakeMaterial("Reconstruction_Prop", ReconstructionEnvironmentPalette.Prop);
+            var zoneMat = MakeMaterial("Reconstruction_ZoneMarker", ReconstructionEnvironmentPalette.ZoneMarker);
 
             var environmentGo = new GameObject("Environment");
             var environmentController = environmentGo.AddComponent<ReconstructionEnvironmentController>();

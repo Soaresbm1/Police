@@ -49,6 +49,7 @@ namespace Caseline.Reconstruction
 
             BuildFloor(floorMat);
             BuildBoundaryWalls(wallMat);
+            BuildBaseboardTrim(propMat);
             BuildZoneMarkers(environment, zoneMarkerMat);
             BuildEnvironmentProps(environment, propMat);
         }
@@ -72,6 +73,23 @@ namespace Caseline.Reconstruction
             new(new Vector3(-FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
             new(new Vector3(FloorHalfExtent, WallHeight / 2f, 0), new Vector3(0.3f, WallHeight, FloorHalfExtent * 2f)),
         };
+
+        // U5.6 iteration 4 — a low, light baseboard strip along the foot of each boundary wall: the one architectural
+        // trim line that makes floor and wall read as two different surfaces instead of one grey mass. 0.16m tall and
+        // flush against the wall (|x| or |z| = FloorHalfExtent - 0.19), it sits past every zone slot (|x| <= 7, |z| <= 4)
+        // and can never stand between a camera and anyone, so it is deliberately not part of OccluderBounds.
+        private static readonly Bounds[] TrimBounds =
+        {
+            new(new Vector3(0, 0.08f, -(FloorHalfExtent - 0.19f)), new Vector3(FloorHalfExtent * 2f - 0.4f, 0.16f, 0.08f)),
+            new(new Vector3(0, 0.08f, FloorHalfExtent - 0.19f), new Vector3(FloorHalfExtent * 2f - 0.4f, 0.16f, 0.08f)),
+            new(new Vector3(-(FloorHalfExtent - 0.19f), 0.08f, 0), new Vector3(0.08f, 0.16f, FloorHalfExtent * 2f - 0.4f)),
+            new(new Vector3(FloorHalfExtent - 0.19f, 0.08f, 0), new Vector3(0.08f, 0.16f, FloorHalfExtent * 2f - 0.4f)),
+        };
+
+        private void BuildBaseboardTrim(Material mat)
+        {
+            foreach (var bounds in TrimBounds) AddBox("Trim", bounds, mat);
+        }
 
         /// <summary>Every solid box this environment renders (walls and props), in the environment's local space —
         /// the same data <see cref="Build"/> uses, exposed so occlusion can be measured rather than eyeballed.</summary>
