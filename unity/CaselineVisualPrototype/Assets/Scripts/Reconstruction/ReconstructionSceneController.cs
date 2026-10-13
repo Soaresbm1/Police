@@ -157,7 +157,27 @@ namespace Caseline.Reconstruction
                 actor.Apply(time);
             }
             if (cameraController != null) cameraController.Apply(_scenario, time);
+            if (atmosphere != null)
+            {
+                var shot = cameraController != null ? cameraController.CurrentShot : null;
+                var mode = shot.HasValue ? shot.Value.Mode : ReconstructionCameraMode.Overview;
+                // The focus pool sits over the slot of the event whose shot is on screen: the same slot the camera aims at.
+                var focus = Vector3.zero;
+                if (mode == ReconstructionCameraMode.Discovery)
+                {
+                    var shotEvent = ReconstructionCameraDirector.ShotEvent(_scenario, time);
+                    if (shotEvent != null) focus = ReconstructionZoneLayout.GetZonePosition(_scenario.environment, shotEvent.locationSlot);
+                }
+                atmosphere.Apply(mode, focus);
+            }
         }
+
+        [SerializeField] private ReconstructionAtmosphereController atmosphere;
+
+        public void SetAtmosphere(ReconstructionAtmosphereController controller) => atmosphere = controller;
+
+        /// <summary>The mood on screen — the overlay reads its vignette. Standard until a scenario is evaluated.</summary>
+        public ReconstructionMood CurrentMood => atmosphere != null ? atmosphere.Current : ReconstructionAtmosphere.Standard;
 
         [SerializeField] private ReconstructionPlaybackController playbackForFileLoads;
         private Coroutine _loadRoutine;

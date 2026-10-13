@@ -214,6 +214,9 @@ namespace Caseline.Reconstruction
             filter.sharedMesh = mesh;
             var renderer = go.AddComponent<MeshRenderer>();
             if (mat != null) renderer.sharedMaterial = mat;
+            // The environment only RECEIVES shadows. The people cast them, which is what grounds them on the floor; walls
+            // and slabs casting them too put hard-edged dark patches across the floor that read as geometry nobody drew.
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             return go;
         }
 

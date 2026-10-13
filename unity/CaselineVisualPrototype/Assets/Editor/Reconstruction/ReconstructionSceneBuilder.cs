@@ -53,14 +53,14 @@ namespace Caseline.ReconstructionEditor
             Debug.Log($"[Reconstruction] Prototype scene built and saved to {ScenePath}");
         }
 
-        public static readonly Color AmbientLight = new(0.2f, 0.2f, 0.22f);
+        public static readonly Color AmbientLight = ReconstructionAtmosphere.Standard.Ambient;
 
         /// <summary>Builds every reconstruction object (light, environment, actor template, cameras, controllers,
         /// overlay) at the root of the currently open scene. The shared embed scene reparents them under its
         /// reconstruction root.</summary>
         public static (ReconstructionSceneController scene, ReconstructionPlaybackController playback, ReconstructionOverlay overlay) PopulateReconstruction(bool developerHud)
         {
-            BuildLighting();
+            var atmosphere = BuildLighting();
 
             var floorMat = MakeMaterial("Reconstruction_Floor", ReconstructionEnvironmentPalette.Floor);
             var wallMat = MakeMaterial("Reconstruction_Wall", ReconstructionEnvironmentPalette.Wall);
@@ -84,6 +84,8 @@ namespace Caseline.ReconstructionEditor
             var sceneController = sceneControllerGo.AddComponent<ReconstructionSceneController>();
             sceneController.Configure(actorsRoot.transform, environmentController, cameraController, actorTemplate, floorMat, wallMat, propMat, zoneMat);
             sceneController.SetCamerasForLabels(overviewCam, closeCam);
+            atmosphere.Configure(atmosphere.GetComponent<Light>(), BuildFocusLight(), overviewCam, closeCam);
+            sceneController.SetAtmosphere(atmosphere);
 
             var playbackGo = new GameObject("ReconstructionPlaybackController");
             var playbackController = playbackGo.AddComponent<ReconstructionPlaybackController>();
@@ -234,14 +236,37 @@ namespace Caseline.ReconstructionEditor
             return (overview, close);
         }
 
-        private static void BuildLighting()
+        private static ReconstructionAtmosphereController BuildLighting()
         {
             var lightGo = new GameObject("Directional Light");
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1.1f;
-            light.color = new Color(0.98f, 0.96f, 0.9f);
-            lightGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
+            var standard = ReconstructionAtmosphere.Standard;
+            light.intensity = standard.LightIntensity;
+            light.color = standard.LightColor;
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = standard.ShadowStrength;
+            light.shadowBias = 0.04f;
+            light.shadowNormalBias = 0.35f;
+            lightGo.transform.rotation = standard.LightRotation;
+            // Lives on the light so it is inactive with the rest of the reconstruction while CCTV mode is on.
+            return lightGo.AddComponent<ReconstructionAtmosphereController>();
+        }
+
+        /// <summary>The soft pool of light the final beat hangs over its own slot. A spot, wide and high enough that its
+        /// edge falls outside the frame (a narrower cone drew a visible oval beside the figures; a point light's falloff is
+        /// too gentle to read as a pool at all). Off until a mood asks for it; a separate root object so the shared embed
+        /// scene reparents it with the rest of the reconstruction.</summary>
+        private static Light BuildFocusLight()
+        {
+            var focusGo = new GameObject("Focus Light");
+            var focus = focusGo.AddComponent<Light>();
+            focus.type = LightType.Spot;
+            focus.spotAngle = 85f;
+            focus.range = 14f;
+            focus.shadows = LightShadows.None;
+            focus.enabled = false;
+            return focus;
         }
 
         private const string RightUpperArm = "Hips/Spine/Chest/RightUpperArm";

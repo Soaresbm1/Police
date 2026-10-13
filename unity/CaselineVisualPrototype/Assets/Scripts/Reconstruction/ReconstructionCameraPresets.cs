@@ -95,7 +95,13 @@ namespace Caseline.Reconstruction
         {
             [ReconstructionCameraMode.Interaction] = new Framing(distance: 7.4f, yawDegrees: -30f, pitchDegrees: 14f, fieldOfView: 45f, aimHeight: 0.9f),
             [ReconstructionCameraMode.PhysicalAttack] = new Framing(distance: 6.6f, yawDegrees: -36f, pitchDegrees: 12f, fieldOfView: 45f, aimHeight: 0.9f),
-            [ReconstructionCameraMode.Discovery] = new Framing(distance: 7.6f, yawDegrees: -30f, pitchDegrees: 16f, fieldOfView: 45f, aimHeight: 0.6f),
+            // The final beat looks across the floor from a slightly lower angle than the others, so the wall behind the two
+            // figures fills more of the frame and an empty stretch of floor fills less. The distance is deliberately
+            // unchanged: the framing rule "readable but never a close-up" caps how much of the frame's height a figure may
+            // fill (ReconstructionActionCameraMatrixTests), and the corridor was already within a few percent of that cap.
+            // Nor can the lens drop further: for the interaction slot it already stands about 0.4 m from the parking's
+            // south wall band, and the near-plane rule keeps every piece of scenery at least 1.5 m from a lens.
+            [ReconstructionCameraMode.Discovery] = new Framing(distance: 7.6f, yawDegrees: -30f, pitchDegrees: 13f, fieldOfView: 45f, aimHeight: 0.95f),
         };
 
         private static readonly Dictionary<(string environment, ReconstructionCameraMode mode), Framing> EnvironmentFraming = new();

@@ -89,9 +89,51 @@ namespace Caseline.Reconstruction
             scenarioLabels = labels ?? System.Array.Empty<string>();
         }
 
+        private static Texture2D vignetteTexture;
+
+        /// <summary>A square black texture whose alpha rises from 0 in the middle to 1 at the corners; stretched over
+        /// the screen it darkens the edges of whatever shape the canvas has. Built once, never part of the scene.</summary>
+        private static Texture2D VignetteTexture()
+        {
+            if (vignetteTexture != null) return vignetteTexture;
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var pixels = new Color[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var nx = (x + 0.5f) / size * 2f - 1f;
+                    var ny = (y + 0.5f) / size * 2f - 1f;
+                    pixels[y * size + x] = new Color(0f, 0f, 0f, ReconstructionAtmosphere.VignetteAlpha(nx, ny));
+                }
+            }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            vignetteTexture = texture;
+            return vignetteTexture;
+        }
+
+        private void DrawVignette()
+        {
+            if (scene == null || Event.current.type != EventType.Repaint) return;
+            var strength = scene.CurrentMood.Vignette;
+            if (strength <= 0.001f) return;
+            var previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(strength));
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), VignetteTexture(), ScaleMode.StretchToFill, true);
+            GUI.color = previous;
+        }
+
         private void OnGUI()
         {
             EnsureStyles();
+            DrawVignette();
 
             if (showDeveloperHud)
             {

@@ -14,7 +14,9 @@ namespace Caseline.Reconstruction
         public static readonly Color Floor = new(0.27f, 0.28f, 0.31f);
         public static readonly Color Wall = new(0.29f, 0.26f, 0.23f);
         public static readonly Color Prop = new(0.40f, 0.34f, 0.28f);
-        public static readonly Color ZoneMarker = new(0.75f, 0.6f, 0.2f, 0.5f);
+        // A step quieter than the original saturated yellow: the markers stay readable as "positions", but no longer
+        // compete with the figures for attention (most visibly in the final beat, where five of them surround the body).
+        public static readonly Color ZoneMarker = new(0.56f, 0.49f, 0.29f, 0.5f);
 
         // U5.7 — the derived material groups architecture draws from (see SceneryMaterial). One colour per group, shared
         // by every piece of that group in every environment; all matte, muted and neutral.
