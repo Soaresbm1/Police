@@ -14,7 +14,7 @@ namespace Caseline.Reconstruction
         // U5.4 §28 — a plain hyphen, not the em dash the HTML disclaimer uses: the runtime's default font has no
         // U+2014 glyph, so the em dash rendered as a blank gap in the built player. Same wording, same meaning,
         // no font asset added for one character.
-        private const string Disclaimer = "Reconstitution visuelle - positions spatiales indicatives";
+        private const string Disclaimer = "Reconstitution visuelle - positions et apparences indicatives";
 
         [SerializeField] private ReconstructionPlaybackController playback;
         [SerializeField] private ReconstructionSceneController scene;

@@ -118,6 +118,8 @@ namespace Caseline.CCTV
                 {
                     actorController.gameObject.SetActive(true);
                     actorController.Configure(scenario.actors[i]);
+                    // The optional character kit replaces the mannequin; its choice reads only the camera's id.
+                    actorController.UseKitActor(CCTVActorKit.TryCreate(scenario.camera?.id));
                 }
                 else
                 {

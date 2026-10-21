@@ -102,7 +102,9 @@ namespace Caseline.Reconstruction
             {
                 foreach (var actorData in data.actors)
                 {
-                    var instance = Object.Instantiate(actorTemplate, actorsRoot);
+                    // The optional character kit stands in for the mannequin when installed; the choice reads only the
+                    // actor's genericAppearance (see ReconstructionActorKit).
+                    var instance = ReconstructionActorKit.TryCreate(actorData.genericAppearance, actorsRoot) ?? Object.Instantiate(actorTemplate, actorsRoot);
                     instance.name = $"Actor_{actorData.roleForReconstruction}";
                     var controller = instance.GetComponent<ReconstructionActorController>();
                     if (controller == null) controller = instance.AddComponent<ReconstructionActorController>();

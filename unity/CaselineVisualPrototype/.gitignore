@@ -46,3 +46,11 @@ WebBuildRelease/
 # Reconstruction yet.
 ReconstructionWebBuild/
 SharedEmbedBrotli/
+
+# Licensed third-party art (Synty POLYGON Office). This repository is public and the licence forbids redistributing the
+# raw models, textures and prefabs, so they stay machine-local. The runtime loads the curated kit from
+# Resources/OfficeKit and falls back to the plain box environment when it is absent (see ReconstructionOfficeKit).
+Assets/ThirdParty/
+Assets/ThirdParty.meta
+Assets/Resources/OfficeKit/
+Assets/Resources/OfficeKit.meta

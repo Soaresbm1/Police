@@ -56,7 +56,31 @@ namespace Caseline.Reconstruction
             if (ReconstructionEnvironmentStructure.UsesStandardTrim(environment)) BuildBaseboardTrim(propMat);
             BuildZoneMarkers(environment, zoneMarkerMat);
             BuildEnvironmentProps(environment, propMat);
-            BuildStructure(environment, wallMat, propMat);
+
+            // The optional office kit (see ReconstructionOfficeKit) dresses the architecture and adds a few background
+            // furnishings. Everything it draws lives under one child so budgets and cleanup can tell it apart, and when
+            // the kit is not installed this is all skipped and the plain boxes below are drawn exactly as before.
+            Transform kitRoot = null;
+            if (ReconstructionOfficeKit.IsAvailable)
+            {
+                var kit = new GameObject(KitRootName);
+                kit.transform.SetParent(transform, false);
+                kitRoot = kit.transform;
+            }
+            BuildStructure(environment, wallMat, propMat, kitRoot);
+            BuildOfficeDressing(environment, kitRoot);
+        }
+
+        /// <summary>Name of the child that holds everything the optional office kit draws.</summary>
+        public const string KitRootName = "OfficeKit";
+
+        private static void BuildOfficeDressing(string environment, Transform kitRoot)
+        {
+            if (kitRoot == null) return;
+            foreach (var item in ReconstructionOfficeDressing.Items(environment))
+            {
+                ReconstructionOfficeKit.Place(kitRoot, item.Prefab, item.Name, item.Footprint, OfficeFit.Height, item.Yaw);
+            }
         }
 
         private void ReleaseDerivedMaterials()
@@ -85,15 +109,30 @@ namespace Caseline.Reconstruction
 
         /// <summary>Generic architecture for this environment kind (U5.7), drawn from a handful of shared material
         /// groups. Wall and Prop use the scene's own materials; the rest are derived once per group.</summary>
-        private void BuildStructure(string environment, Material wallMat, Material propMat)
+        private void BuildStructure(string environment, Material wallMat, Material propMat, Transform kitRoot)
         {
             var byGroup = new Dictionary<SceneryMaterial, Material>
             {
                 [SceneryMaterial.Wall] = wallMat,
                 [SceneryMaterial.Prop] = propMat,
             };
+            var seen = new Dictionary<string, int>();
             foreach (var piece in ReconstructionEnvironmentStructure.Pieces(environment))
             {
+                // The kit may take over a piece (drawing a real door where the box was) or retire it; the piece's bounds
+                // stay in the structure data either way, so occlusion is measured against the same geometry.
+                if (kitRoot != null)
+                {
+                    seen.TryGetValue(piece.Name, out var occurrence);
+                    seen[piece.Name] = occurrence + 1;
+                    var skin = ReconstructionOfficeSkins.For(environment, piece.Name, occurrence);
+                    if (skin.HasValue)
+                    {
+                        if (skin.Value.Hide) continue;
+                        if (ReconstructionOfficeKit.Place(kitRoot, skin.Value.Prefab, piece.Name, piece.Bounds, skin.Value.Fit, skin.Value.Yaw) != null) continue;
+                    }
+                }
+
                 if (!byGroup.TryGetValue(piece.Material, out var mat))
                 {
                     mat = propMat != null ? new Material(propMat) { name = $"Reconstruction_{piece.Material}", color = ReconstructionEnvironmentPalette.ColorOf(piece.Material) } : null;
@@ -131,6 +170,8 @@ namespace Caseline.Reconstruction
             {
                 if (piece.Occluder) all.Add(piece.Bounds);
             }
+            // The office furnishings count whether or not the kit is installed, so the occlusion tests mean the same on every machine.
+            foreach (var item in ReconstructionOfficeDressing.Items(environment)) all.Add(item.Footprint);
             return all;
         }
 

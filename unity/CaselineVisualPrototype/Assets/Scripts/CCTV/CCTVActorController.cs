@@ -35,9 +35,54 @@ namespace Caseline.CCTV
 
         public CCTVActorData Data { get; private set; }
 
+        // The optional character kit (see CCTVActorKit) stands in for the blockout mannequin: the mannequin's renderers are
+        // switched off and the kit actor's own Animator takes over the Idle/Walk states, which share the mannequin's names.
+        private GameObject kitActor;
+        private Animator mannequinAnimator;
+        private readonly System.Collections.Generic.List<Renderer> hiddenMannequinRenderers = new();
+
+        public bool HasKitActor => kitActor != null;
+
         public void Configure(CCTVActorData data)
         {
             Data = data;
+        }
+
+        /// <summary>Replaces the mannequin with <paramref name="kit"/> (a freshly created kit actor; this controller takes
+        /// ownership). Passing null restores the mannequin.</summary>
+        public void UseKitActor(GameObject kit)
+        {
+            ClearKitActor();
+            if (kit == null) return;
+
+            // Hide the mannequin before the kit actor becomes a child, so only the mannequin's own renderers are switched off.
+            foreach (var r in GetComponentsInChildren<Renderer>(true))
+            {
+                if (!r.enabled) continue;
+                r.enabled = false;
+                hiddenMannequinRenderers.Add(r);
+            }
+            kit.transform.SetParent(transform, false);
+            kitActor = kit;
+            if (mannequinAnimator == null) mannequinAnimator = animator;
+            animator = kit.GetComponent<Animator>();
+        }
+
+        /// <summary>Removes the kit actor (if any) and shows the mannequin again.</summary>
+        public void ClearKitActor()
+        {
+            if (kitActor != null)
+            {
+                if (Application.isPlaying) Destroy(kitActor);
+                else DestroyImmediate(kitActor);
+                kitActor = null;
+            }
+            foreach (var r in hiddenMannequinRenderers)
+            {
+                if (r != null) r.enabled = true;
+            }
+            hiddenMannequinRenderers.Clear();
+            if (mannequinAnimator != null) animator = mannequinAnimator;
         }
 
         /// <summary>Re-derives this actor's full visual state from an

@@ -218,20 +218,46 @@ namespace Caseline.CCTV
             barrier.GetComponent<MeshRenderer>().sharedMaterial = lineMat;
         }
 
+        /// <summary>Name of the child that holds everything the optional office kit draws.</summary>
+        public const string KitRootName = "OfficeKit";
+
+        // The far wall's inner face (the walls are 0.5 m thick, centred on +-FloorSize/2).
+        private const float FarWallInnerZ = FloorSize / 2f - 0.25f;
+
         private void BuildCorridorDetails()
         {
+            // The optional office kit (see CCTVOfficeKit) draws a real door, ceiling lights and a few furnishings under one
+            // child; where it takes over a box below, that box is not drawn. Not installed: the plain boxes, as always.
+            Transform kitRoot = null;
+            if (CCTVOfficeKit.IsAvailable)
+            {
+                kitRoot = new GameObject(KitRootName).transform;
+                kitRoot.SetParent(transform, false);
+            }
+            var kitDoor = kitRoot != null && CCTVOfficeKit.Place(kitRoot, "SM_Bld_Door_02", "Door", new Vector3(0f, 0f, FarWallInnerZ - 0.12f), 2.4f, 180f) != null;
+            if (kitRoot != null)
+            {
+                foreach (var item in CCTVOfficeDressing.CorridorItems)
+                {
+                    CCTVOfficeKit.Place(kitRoot, item.Prefab, item.Name, new Vector3(item.X, 0f, FarWallInnerZ - 0.5f), item.Height, 180f);
+                }
+            }
+
             // A doorway-like recess (frame + a slightly inset leaf) on the
             // far wall and a couple of floor guide lines — never anything
             // resembling a person or object.
-            var doorFrame = CreatePrimitive(PrimitiveType.Cube, "DoorFrame");
-            doorFrame.transform.position = new Vector3(0f, 1.2f, FloorSize / 2f - 0.3f);
-            doorFrame.transform.localScale = new Vector3(1.6f, 2.4f, 0.1f);
-            doorFrame.GetComponent<MeshRenderer>().sharedMaterial = detailMat;
+            if (!kitDoor)
+            {
+                var doorFrame = CreatePrimitive(PrimitiveType.Cube, "DoorFrame");
+                doorFrame.transform.position = new Vector3(0f, 1.2f, FloorSize / 2f - 0.3f);
+                doorFrame.transform.localScale = new Vector3(1.6f, 2.4f, 0.1f);
+                doorFrame.GetComponent<MeshRenderer>().sharedMaterial = detailMat;
 
-            var doorLeaf = CreatePrimitive(PrimitiveType.Cube, "DoorLeaf");
-            doorLeaf.transform.position = new Vector3(0f, 1.15f, FloorSize / 2f - 0.35f);
-            doorLeaf.transform.localScale = new Vector3(1.3f, 2.2f, 0.06f);
-            doorLeaf.GetComponent<MeshRenderer>().sharedMaterial = fixtureMat;
+                var doorLeaf = CreatePrimitive(PrimitiveType.Cube, "DoorLeaf");
+                doorLeaf.transform.position = new Vector3(0f, 1.15f, FloorSize / 2f - 0.35f);
+                doorLeaf.transform.localScale = new Vector3(1.3f, 2.2f, 0.06f);
+                doorLeaf.GetComponent<MeshRenderer>().sharedMaterial = fixtureMat;
+            }
 
             for (var i = -1; i <= 1; i += 2)
             {
@@ -253,6 +279,9 @@ namespace Caseline.CCTV
 
             for (var i = -1; i <= 1; i++)
             {
+                // A kit ceiling light panel (1 m square) replaces the plain strip.
+                if (kitRoot != null && CCTVOfficeKit.Place(kitRoot, "SM_Bld_Ceiling_Panel_Light_01", "CeilingLight", new Vector3(0f, WallHeight - 0.06f, i * 4f), 1f, 0f, fitFootprint: true) != null) continue;
+
                 var fixture = CreatePrimitive(PrimitiveType.Cube, "CeilingLight");
                 fixture.transform.position = new Vector3(0f, WallHeight - 0.1f, i * 4f);
                 fixture.transform.localScale = new Vector3(0.7f, 0.08f, 0.25f);

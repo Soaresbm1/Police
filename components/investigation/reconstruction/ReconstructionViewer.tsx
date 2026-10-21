@@ -129,7 +129,7 @@ function ReconstructionStage({ scenario, onClose }: { scenario: ReconstructionSc
         onSeekTruth={(time) => player.seekToTruth(time)}
       />
 
-      <p className="font-data text-[10px] italic text-warning">Reconstitution visuelle — positions spatiales indicatives</p>
+      <p className="font-data text-[10px] italic text-warning">Reconstitution visuelle — positions et apparences indicatives</p>
     </div>
   );
 }

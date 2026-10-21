@@ -273,8 +273,12 @@ namespace Caseline.Reconstruction.Tests
                 foreach (var env in ReconstructionSchema.EnvironmentKinds)
                 {
                     controller.Build(env, floor, wall, prop, zone);
-                    var renderers = go.GetComponentsInChildren<MeshRenderer>();
-                    var tris = go.GetComponentsInChildren<MeshFilter>().Sum(f => f.sharedMesh.triangles.Length / 3);
+                    // The optional office kit (installed locally only) has its own budget in ReconstructionOfficeKitTests;
+                    // this one measures the plain blockout, which is all a fresh clone has.
+                    var kitRoot = go.transform.Find(ReconstructionEnvironmentController.KitRootName);
+                    bool InKit(Component c) => kitRoot != null && c.transform.IsChildOf(kitRoot);
+                    var renderers = go.GetComponentsInChildren<MeshRenderer>().Where(r => !InKit(r)).ToArray();
+                    var tris = go.GetComponentsInChildren<MeshFilter>().Where(f => !InKit(f)).Sum(f => f.sharedMesh.triangles.Length / 3);
                     var materials = renderers.Select(r => r.sharedMaterial).Distinct().Count();
                     Debug.Log($"[U5.7 budget] {env}: renderers={renderers.Length} tris={tris} materials={materials}");
                     Assert.LessOrEqual(materials, 8, $"{env}: a handful of shared material groups, never one per object");

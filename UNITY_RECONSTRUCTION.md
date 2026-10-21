@@ -43,7 +43,8 @@ and a "disponible sur ordinateur" note replaces the launcher. CCTV falls back to
   (victim, culprit, accomplice, everyone else "PERSONNE").
 - Slot coordinates (`ReconstructionZoneLayout`) and camera framing are **presentation staging, not facts**.
   CaseTruth has no spatial data below the location id. The in-view disclaimer says so on every frame:
-  "Reconstitution visuelle - positions spatiales indicatives".
+  "Reconstitution visuelle - positions et apparences indicatives" ("apparences" because, when the optional character
+  kit below is installed, the people are textured models whose sex and outfit are a fixed table choice, not a likeness).
 - Crime methods map to one abstract beat each (`safeVisualAction`): strike, thrust, strangle, aimed hold, shove,
   and one neutral extended-hand interaction shared by poisoning and staged overdose. No weapon, projectile,
   drink, food, syringe or wound is ever modelled. Staging is a generic crouch that never shows what was moved.
@@ -141,6 +142,92 @@ from the foreground to the back row, where they can no longer hide a person at t
   `Tools/CASELINE/Build Shared Embed WebGL (Brotli)`, then copy `SharedEmbedBrotli/Build/*` to
   `public/unity/cctv/Build/`. Rebuilding scenes rewrites the CCTV actor assets, `CCTVEmbed.unity` and
   `Reconstruction_Actor.controller` with regenerated ids and the same content; those changes are not committed.
+
+## Optional office art kit (Synty POLYGON Office)
+
+The corridor environment (the kind used for offices, police stations, hospitals, hotels, train stations and
+warehouses) can be dressed with real models: kit doors and ceiling light panels replace the box doors, door frames and
+panels, and a coat rack, two plants, a bin, a water cooler and an exit sign stand against the far wall.
+
+The art is licensed third-party content and this repository is public, so it is **never committed**:
+
+- the pack lives in `unity/CaselineVisualPrototype/Assets/ThirdParty/PolygonOffice` and the curated kit in
+  `Assets/Resources/OfficeKit`, both gitignored;
+- `Tools/CASELINE/Build Office Kit (Synty POLYGON Office)` (`OfficeKitBuilder`) rewrites the pack's URP Shader Graph
+  materials onto the Built-in Standard shader (they render magenta otherwise) and copies the listed pieces into
+  `Resources/OfficeKit` without colliders, lights or scripts (WebGL strips the Physics module). Everything under
+  `Resources` ships, so the list in `OfficeKitBuilder.Kit` is kept to what the scenery places;
+- without the kit installed (a fresh clone, CI) `ReconstructionOfficeKit.IsAvailable` is false and every environment
+  is exactly the box blockout described above. The kit never changes geometry the tests measure: skinned pieces keep
+  their bounds in `ReconstructionEnvironmentStructure`, and the furnishings' footprints
+  (`ReconstructionOfficeDressing`) are always part of `OccluderBounds`, installed or not;
+- furnishings stay on the far-wall strip, clear of the beat (at least 1.6 m from every action slot), the plain wall
+  behind it (x -3.2 to 2.0) and every doorway, and are neutral by construction (no document, device, bottle, tool,
+  weapon or anything that could read as evidence).
+
+Tests: `ReconstructionOfficeKitTests` (data tests run everywhere; placement tests are skipped when the kit is absent).
+
+### Characters
+
+With the kit installed, the blockout mannequin is replaced by textured Synty office workers
+(`ReconstructionActorKit`, `Resources/OfficeKit/Actors`, built by `SyntyActorBuilder` at the end of the same menu item).
+
+- **Choice**: a fixed 4 x 3 table keyed ONLY on `genericAppearance` ("category_tone"): 12 distinct characters, never the
+  role, visual id, person, sex or age. No security guard, cleaner or boss outfit, which would say something about who the
+  person is. The pack's characters are each male or female, so the figure is not a likeness of the person it stands
+  for; that is why the viewer's disclaimer now says "apparences". Unknown appearances fall back to the mannequin.
+- **Animation**: two sources, both baked into plain transform-curve clips and a controller per sex (`Synty_Actor_Male`,
+  `Synty_Actor_Female`) with the mannequin's state names, so `ReconstructionActorController` plays them unchanged and
+  every pose is still a pure function of the time.
+  - The neutral beats (strike, strangle, stab, firearm hold, push, neutral interaction) are the mannequin's clips baked
+    across: each mapped bone gets the mannequin bone's world-space rotation change applied to its own rest pose, so the
+    bones' different local axes do not matter; the arms are first dropped from the model's T-pose; hip height is scaled
+    in proportion.
+  - Idle, Walk, ManipulateScene (a stand-to-crouch then a crouch) and Collapse (a forward fall) use Synty
+    motion-capture clips when those animation packs are installed (`A_Idle_Standing`, `A_Walk_F`, `A_Stand_ToCrouch`,
+    `A_Idle_Crouching`, masculine or feminine variant by the character's sex, and `A_Death_F_01_Sword`, which holds no
+    weapon pose on its way down). The humanoid clips are sampled on the character's own Avatar, so Unity does the
+    retargeting. Without those packs the mannequin bake is kept.
+  - Deliberately not used: the packs' emotes and taunts (anger, sadness, celebration would colour the people and the
+    truth boundary forbids that), bow and sword attacks (they stage a weapon the reconstruction never models).
+  - The animation packs are `.unitypackage` files that also ship sample scripts and editor tools (some need the Input
+    System package), so they are never imported whole: only the nine FBX files above are copied, with their `.meta`
+    files, into `Assets/ThirdParty/Synty` (gitignored with the rest of the licensed art).
+- **Look**: scaled to the mannequin's 1.78 m (what every framing measurement assumes) and lifted so the shoe soles sit
+  on the floor; one copy of the atlas material per actor type with a gentle emission of its own albedo, because the
+  scene's dim ambient light left the dark outfits nearly black; no tone tint (`ReconstructionKitActor` marks them).
+- **Size**: measured `data.br`: 0.94 MB without any kit, 1.61 MB with the scenery kit, 2.60 MB with scenery and
+  characters on the mannequin-baked clips, 2.96 MB with the motion-capture clips too; the wasm is unchanged.
+
+Tests: `ReconstructionActorKitTests`. `Tools/CASELINE/Render Synty Actor QA Stills` renders every beat of a corridor
+and a generic scenario with real appearances (it freezes each skinned mesh first: outside play mode `Camera.Render`
+does not refresh skinning).
+
+### In the surveillance cameras
+
+The CCTV view uses the same kit (`CCTVOfficeKit`, `CCTVActorKit`, `CCTVOfficeDressing`; the two Unity assemblies do not
+reference each other, so the few lines of loading and fitting are repeated):
+
+- **Corridor scenery**: a kit door replaces the box doorway, kit ceiling light panels replace the three light strips,
+  and a coat rack, two plants, a bin and a water cooler stand along the far wall, away from the walking lines
+  (z = 0, 3, 6) and the doorway. Every other environment kind and every other box is untouched.
+- **The person**: the scene has one actor slot, pre-built as a mannequin in the committed scene. At runtime
+  `CCTVSceneController.ApplyScenario` asks `CCTVActorKit` for a kit actor; `CCTVActorController.UseKitActor` hides the
+  mannequin's renderers and drives the kit actor's Animator (same `Idle` and `Walk` state names, same frozen clock and
+  10 fps cadence), and `UseKitActor(null)` brings the mannequin back. The committed scene files are not touched.
+- **Which character**: keyed ONLY on the camera id (a stable FNV-1a hash into the twelve office workers), not on the
+  actor. A camera therefore always shows the same kind of person and different cameras show different ones, but
+  nothing about who is on screen can change it. Keying it on the actor's visual id would let a player recognise one
+  anonymous figure across clips by their clothes, which the generic mannequin never allowed; that would be a gameplay
+  change, not a visual one.
+
+Tests: `CCTVOfficeKitTests`. `Tools/CASELINE/Render CCTV Kit QA Stills` renders a walking actor through the real
+corridor and generic camera presets.
+
+Not done: the other CCTV environment kinds (parking, shop, street, generic) and the other four reconstruction ones.
+
+Shipping note: a WebGL build embeds the pieces it uses. Publishing that build to `public/unity/cctv/Build` puts the
+used art in a public repository, which the licence may not allow; check it before copying a kit build there.
 
 ## Known limitations
 

@@ -56,6 +56,9 @@ namespace Caseline.Reconstruction
         /// visual cue, so nothing here could read as guilt-coded styling.</summary>
         private void ApplyGenericAppearance(string genericAppearance)
         {
+            // A kit character (textured Synty model) keeps its own look: the flat mannequin tint would wash its textures out.
+            if (GetComponent<ReconstructionKitActor>() != null) return;
+
             var tint = ReconstructionAppearanceUtil.ToneTint(genericAppearance);
             foreach (var renderer in GetComponentsInChildren<Renderer>())
             {
