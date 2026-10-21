@@ -1,7 +1,7 @@
 import type { CaseTruth } from "@/lib/game-engine/types/case";
 import { RelationshipGraph } from "@/lib/game-engine/types/relationship";
 import type { GameSession, HintCategory, HintHistoryEntry, HintLevel, HintState } from "./types";
-import { evidenceStatusOf, getVisibleEvidence, displayLocationName, getCameraEquippedLocations } from "./player-view";
+import { evidenceStatusOf, getVisibleEvidence, displayLocationName, getCameraEquippedLocations, getAlibi, getAlibiAssessment } from "./player-view";
 import { getCrimeSceneEvidence } from "./discovery";
 import { findEvent } from "./events";
 import { getVictimPhoneStatus } from "./victim-phone-view";
@@ -9,6 +9,8 @@ import { classifyRelationshipForPhone } from "@/lib/game-engine/case-generator/v
 import { describeCctvRequest } from "./cctv";
 import { mandateKey } from "./mandates";
 import { getInterrogationTopics } from "./interrogation-view";
+import { getConfrontationOptions, getPerformedConfrontations } from "./confrontations";
+import { deriveConfrontationOpportunities } from "@/lib/game-engine/witness/confrontations";
 import { computeChronologyCoverage } from "./scoring";
 import { LAB_ANALYSIS_LABEL, RECORD_TYPE_LABEL } from "./labels";
 import { formatGameTime } from "@/lib/game-engine/types/time";
@@ -81,6 +83,9 @@ const VALID_CATEGORIES: ReadonlySet<string> = new Set<HintCategory>([
   "surveillance",
   "timeline",
   "evidence_cross_reference",
+  "contradiction",
+  "alibi",
+  "accusation",
 ]);
 
 function normalizeHintProgress(raw: unknown): Record<string, HintLevel> {
@@ -375,7 +380,132 @@ function buildPhoneFinancialCrossRefOpportunity(truth: CaseTruth, session: GameS
   };
 }
 
+// ---------------------------------------------------------------------
+// Contradictions — "where do two things the player already holds not fit?"
+//
+// Truth-safety: every opportunity below is gated on what the player can ALREADY
+// see. `getConfrontationOptions` is the exact list the interrogation page renders
+// as "Confronter"/"Relancer" buttons, and `getAlibiAssessment` is the exact
+// support/contradiction split the person page renders from DISCOVERED evidence.
+// A hint therefore only points at something already on screen; it never reveals
+// that a contradiction exists before the evidence behind it has been found.
+// The one truth-side read is existence-only and purely a "would this ever resolve"
+// guard (see `buildContradictionQuestionOpportunity`), so a hint can never be
+// offered for a path the player could not complete.
+// ---------------------------------------------------------------------
+
+function personName(truth: CaseTruth, personId: string): string {
+  const person = truth.people.find((p) => p.id === personId);
+  return person ? `${person.firstName} ${person.lastName}` : "cette personne";
+}
+
+/** A statement the player has already taken now clashes with a physical or
+ * digital record they have in hand: the confrontation is on offer. Highest
+ * priority among the player-initiated avenues, because it is a ready action. */
+function buildContradictionConfrontOpportunity(truth: CaseTruth, session: GameSession): HintOpportunity | null {
+  const candidates = truth.people
+    .filter((p) => p.id !== truth.victimId)
+    .map((p) => ({ person: p, options: getConfrontationOptions(truth, session, p.id).filter((o) => o.relationKind === "alibi_conflict") }))
+    .filter((c) => c.options.length > 0)
+    .sort((a, b) => b.options.length - a.options.length || a.person.id.localeCompare(b.person.id));
+  if (candidates.length === 0) return null;
+  const top = candidates[0];
+  return {
+    id: "contradiction-confront",
+    category: "contradiction",
+    priority: 110,
+    levels: [
+      "Une déclaration déjà recueillie ne semble pas s'accorder avec un élément de votre dossier.",
+      "Retournez aux interrogatoires : une confrontation est désormais possible avec une personne déjà entendue.",
+      `Confrontez ${personName(truth, top.person.id)} à « ${top.options[0].evidenceLabel} » lors d'un nouvel entretien.`,
+    ],
+  };
+}
+
+/** The evidence that contradicts someone's alibi is already in the file (and shown
+ * as such on their page), but the player has not yet asked them about that
+ * statement, so no confrontation is possible yet. Eligible only while there is
+ * still an unasked statement to put to them — otherwise it could never resolve. */
+function buildContradictionQuestionOpportunity(truth: CaseTruth, session: GameSession): HintOpportunity | null {
+  const opportunities = deriveConfrontationOpportunities(truth).filter((op) => op.relationKind === "alibi_conflict");
+  const candidates = truth.people
+    .filter((p) => p.id !== truth.victimId)
+    .filter((p) => {
+      const assessment = getAlibiAssessment(truth, session, p.id);
+      if (!assessment || assessment.contradicting.length === 0) return false;
+      if (getConfrontationOptions(truth, session, p.id).some((o) => o.relationKind === "alibi_conflict")) return false; // the confront hint covers it
+      if (getPerformedConfrontations(truth, session, p.id).some((c) => c.relationKind === "alibi_conflict")) return false;
+      const asked = new Set(session.interrogated[p.id] ?? []);
+      return opportunities.some((op) => op.personId === p.id && !asked.has(op.factId));
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (candidates.length === 0) return null;
+  return {
+    id: "contradiction-question",
+    category: "contradiction",
+    priority: 85,
+    levels: [
+      "Une pièce de votre dossier remet en cause la version donnée par l'une des personnes entendues.",
+      "Interrogez cette personne sur son emploi du temps : vous pourrez ensuite la confronter à la pièce en question.",
+      `Posez à ${personName(truth, candidates[0].id)} les questions sur ses déplacements au moment des faits.`,
+    ],
+  };
+}
+
+/** A confirmed lead for pressing someone who was evasive about an event the
+ * police now have documents on. Lower than a real contradiction: it proves the
+ * topic is documented, never that the person said anything false. */
+function buildFollowupOpportunity(truth: CaseTruth, session: GameSession): HintOpportunity | null {
+  const candidates = truth.people
+    .filter((p) => p.id !== truth.victimId)
+    .map((p) => ({ person: p, options: getConfrontationOptions(truth, session, p.id).filter((o) => o.relationKind === "evidence_backed_followup") }))
+    .filter((c) => c.options.length > 0)
+    .sort((a, b) => b.options.length - a.options.length || a.person.id.localeCompare(b.person.id));
+  if (candidates.length === 0) return null;
+  const top = candidates[0];
+  return {
+    id: "followup-pressure",
+    category: "contradiction",
+    priority: 62,
+    levels: [
+      "Certaines personnes entendues n'ont peut-être pas tout dit sur des faits que vous pouvez désormais documenter.",
+      "Relancez une personne déjà entendue en lui présentant une pièce relative au même moment.",
+      `Relancez ${personName(truth, top.person.id)} avec « ${top.options[0].evidenceLabel} » : elle pourrait préciser sa version.`,
+    ],
+  };
+}
+
+/** A suspect whose alibi could be checked against the file but has not been:
+ * nothing found so far supports or contradicts it. Only suspects whose alibi has
+ * SOME checkable evidence in the case are considered, so the hint can always be
+ * resolved by playing on; it says nothing about which way the check would go. */
+function buildAlibiUnverifiedOpportunity(truth: CaseTruth, session: GameSession): HintOpportunity | null {
+  const candidates = truth.suspectIds
+    .filter((personId) => {
+      const alibi = getAlibi(truth, personId);
+      if (!alibi || alibi.corroboratingEvidenceIds.length + alibi.contradictingEvidenceIds.length === 0) return false;
+      const assessment = getAlibiAssessment(truth, session, personId);
+      return !!assessment && assessment.corroborating.length === 0 && assessment.contradicting.length === 0;
+    })
+    .sort((a, b) => a.localeCompare(b));
+  if (candidates.length === 0) return null;
+  return {
+    id: "alibi-unverified",
+    category: "alibi",
+    priority: 52,
+    levels: [
+      "L'alibi de certaines personnes n'a pas encore été recoupé avec les éléments matériels.",
+      "Cherchez des pièces (vidéo, téléphonie, relevés) qui confirment ou démentent ce que ces personnes affirment.",
+      `L'alibi de ${personName(truth, candidates[0])} n'est, pour l'instant, ni confirmé ni démenti par votre dossier.`,
+    ],
+  };
+}
+
 const BUILDERS: ((truth: CaseTruth, session: GameSession) => HintOpportunity | null)[] = [
+  buildContradictionConfrontOpportunity,
+  buildContradictionQuestionOpportunity,
+  buildFollowupOpportunity,
+  buildAlibiUnverifiedOpportunity,
   buildCrimeSceneOpportunity,
   buildForensicReportReadyOpportunity,
   buildPhoneUnreadOpportunity,
@@ -389,6 +519,87 @@ const BUILDERS: ((truth: CaseTruth, session: GameSession) => HintOpportunity | n
   buildSurveillanceOpportunity,
 ];
 
+// ---------------------------------------------------------------------
+// "Is it time to accuse?" — a read of how much of the essential groundwork is
+// done, never of what the answer is.
+//
+// It is built ONLY from which other hint opportunities are still open (their ids),
+// so it can never read `culpritId`, the motive, the weapon or which evidence is
+// incriminating: two cases in the same state of progress get the same advice
+// whoever did it. "Essential" avenues are the ones any sound accusation rests on
+// (the scene, the lab, the phone, the interviews, contradictions and alibis, the
+// timeline). Warrants, bank records, cameras and surveillance are optional leads
+// that can sharpen a case but are not required to build one.
+// ---------------------------------------------------------------------
+
+/** Short player-facing name of each essential avenue, keyed by opportunity id. */
+const ESSENTIAL_AVENUES: Readonly<Record<string, string>> = {
+  "contradiction-confront": "une confrontation à mener",
+  "contradiction-question": "une personne à interroger sur son emploi du temps",
+  "crime-scene-examine": "la scène de crime",
+  "forensic-report-ready": "un rapport de laboratoire à lire",
+  "forensic-pending-analysis": "des preuves à envoyer au laboratoire",
+  "digital-phone-unread": "le téléphone de la victime",
+  "interrogation-unresolved": "des interrogatoires inachevés",
+  "alibi-unverified": "des alibis à vérifier",
+  "timeline-gap": "la chronologie des faits",
+};
+
+export type AccusationReadiness = "early" | "near" | "ready";
+
+/** Where the player stands: three or more essential avenues open is "early", one
+ * or two is "near", none (with only optional leads left) is "ready". Returns null
+ * when nothing at all is left to suggest, so the existing terminal message
+ * ("you've covered the major avenues") keeps owning that state. Pure and exported
+ * for tests. */
+export function describeAccusationReadiness(
+  openEssential: string[],
+  otherOpenCount: number,
+): { readiness: AccusationReadiness; levels: [string, string, string] } | null {
+  if (openEssential.length === 0 && otherOpenCount === 0) return null;
+  const labels = openEssential.map((id) => ESSENTIAL_AVENUES[id]).filter((l): l is string => !!l);
+  const list = labels.slice(0, 4).join(" ; ");
+
+  if (openEssential.length >= 3) {
+    return {
+      readiness: "early",
+      levels: [
+        "Il est probablement encore tôt pour accuser : plusieurs pistes essentielles restent ouvertes.",
+        `Pistes essentielles encore ouvertes : ${list}.`,
+        `Commencez par : ${labels[0]}. Accuser maintenant reviendrait à deviner.`,
+      ],
+    };
+  }
+  if (openEssential.length >= 1) {
+    return {
+      readiness: "near",
+      levels: [
+        "Vous approchez du but : il ne reste que quelques pistes essentielles à clarifier avant d'accuser.",
+        `Il reste à traiter : ${list}.`,
+        "Une fois ces pistes closes, relisez le tableau et vérifiez que votre hypothèse explique chaque alibi et chaque preuve matérielle.",
+      ],
+    };
+  }
+  return {
+    readiness: "ready",
+    levels: [
+      "Les pistes essentielles ont été exploitées : vous pouvez envisager d'accuser si votre hypothèse tient.",
+      "Avant d'accuser, vérifiez trois points : qui avait une raison d'agir, qui avait les moyens de le faire, et dont l'alibi ne tient pas.",
+      "Les pistes encore ouvertes sont facultatives, mais peuvent encore départager deux hypothèses : une accusation se prépare, elle ne se tente pas.",
+    ],
+  };
+}
+
+function buildAccusationTimingOpportunity(base: HintOpportunity[]): HintOpportunity | null {
+  const open = base.filter((o) => o.id in ESSENTIAL_AVENUES).sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+  const description = describeAccusationReadiness(
+    open.map((o) => o.id),
+    base.length - open.length,
+  );
+  if (!description) return null;
+  return { id: "accusation-timing", category: "accusation", priority: 15, levels: description.levels };
+}
+
 /** All currently-eligible opportunities, priority descending (id
  * ascending as a stable tiebreak) — recomputed fresh every call, never
  * cached, so a resolved path silently drops out the next time this runs
@@ -396,9 +607,9 @@ const BUILDERS: ((truth: CaseTruth, session: GameSession) => HintOpportunity | n
  * diagnostics only; never sent to the client as-is (see `HintOpportunity`'s
  * doc comment). */
 export function computeHintOpportunities(truth: CaseTruth, session: GameSession): HintOpportunity[] {
-  return BUILDERS.map((build) => build(truth, session))
-    .filter((o): o is HintOpportunity => o !== null)
-    .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+  const base = BUILDERS.map((build) => build(truth, session)).filter((o): o is HintOpportunity => o !== null);
+  const timing = buildAccusationTimingOpportunity(base);
+  return (timing ? [...base, timing] : base).sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
 }
 
 function recordHint(session: GameSession, opp: HintOpportunity, level: 1 | 2 | 3): HintPayload {

@@ -230,7 +230,10 @@ export type HintCategory =
   | "warrant"
   | "surveillance"
   | "timeline"
-  | "evidence_cross_reference";
+  | "evidence_cross_reference"
+  | "contradiction"
+  | "alibi"
+  | "accusation";
 
 /** How far the player has escalated ONE hint opportunity — `0` means
  * never requested. Persists across refresh (session state) so "another
